@@ -251,7 +251,7 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
                   <SelectValue placeholder="Selecione (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma</SelectItem>
+                  <SelectItem value="none">Nenhuma</SelectItem>
                   {indicacoes.map((ind) => (
                     <SelectItem key={ind.id} value={ind.id}>
                       {ind.nome_cliente}
