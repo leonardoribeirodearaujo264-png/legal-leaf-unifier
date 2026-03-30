@@ -1567,7 +1567,7 @@ const Mensagens = () => {
                                 >
                                   <Star className={cn("h-3 w-3", favorites.has(msg.id) && "fill-yellow-400 text-yellow-400")} />
                                 </Button>
-                                {isMe && canEditMessage(msg) && !isEditing && (
+                                {canEditMessage(msg) && !isEditing && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
