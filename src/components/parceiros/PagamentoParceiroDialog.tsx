@@ -180,7 +180,7 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
           .from('parceiros_pagamentos')
           .insert({
             parceiro_id: parceiroId,
-            indicacao_id: formData.indicacao_id || null,
+            indicacao_id: formData.indicacao_id && formData.indicacao_id !== 'none' ? formData.indicacao_id : null,
             tipo: formData.tipo,
             valor: valorLiquidoTotal,
             valor_bruto: valorBrutoNum,
