@@ -259,6 +259,8 @@ const Mensagens = () => {
       }
     }
   };
+
+  useEffect(() => {
     const fetchUsers = async () => {
       const { data } = await supabase
         .from('profiles')
