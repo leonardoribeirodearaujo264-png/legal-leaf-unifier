@@ -1165,6 +1165,13 @@ const Mensagens = () => {
     return name.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  // Filter messages by favorites and search
+  const filteredMessages = messages.filter(msg => {
+    if (showFavorites && !favorites.has(msg.id)) return false;
+    if (messageSearchTerm && !msg.content.toLowerCase().includes(messageSearchTerm.toLowerCase())) return false;
+    return true;
+  });
+
   return (
     <Layout>
       <div className="-m-4 md:-m-6 lg:-m-8 flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden">
@@ -1414,6 +1421,27 @@ const Mensagens = () => {
                   </div>
                   
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setShowMessageSearch(!showMessageSearch);
+                        if (showMessageSearch) setMessageSearchTerm('');
+                      }}
+                      title="Buscar na conversa"
+                      className={cn(showMessageSearch && "bg-primary/10")}
+                    >
+                      <Search className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowFavorites(!showFavorites)}
+                      title={showFavorites ? "Mostrar todas" : "Mostrar favoritas"}
+                      className={cn(showFavorites && "bg-primary/10")}
+                    >
+                      <Star className={cn("h-5 w-5", showFavorites && "fill-yellow-400 text-yellow-400")} />
+                    </Button>
                     {activeConversation.is_group && (
                       <Button
                         variant="ghost"
