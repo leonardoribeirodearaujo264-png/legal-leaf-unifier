@@ -66,7 +66,8 @@ import {
   Image as ImageIcon,
   Settings,
   UserPlus,
-  UserMinus
+  UserMinus,
+  Star
 } from 'lucide-react';
 import { format, isToday, isYesterday, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -169,6 +170,14 @@ const Mensagens = () => {
   const [groupAvailableUsers, setGroupAvailableUsers] = useState<UserProfile[]>([]);
   const [selectedNewMembers, setSelectedNewMembers] = useState<string[]>([]);
   const [loadingGroupUsers, setLoadingGroupUsers] = useState(false);
+
+  // Favorites
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [showFavorites, setShowFavorites] = useState(false);
+
+  // In-conversation search
+  const [messageSearchTerm, setMessageSearchTerm] = useState('');
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
