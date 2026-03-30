@@ -66,7 +66,8 @@ import {
   Image as ImageIcon,
   Settings,
   UserPlus,
-  UserMinus
+  UserMinus,
+  Star
 } from 'lucide-react';
 import { format, isToday, isYesterday, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -170,6 +171,14 @@ const Mensagens = () => {
   const [selectedNewMembers, setSelectedNewMembers] = useState<string[]>([]);
   const [loadingGroupUsers, setLoadingGroupUsers] = useState(false);
 
+  // Favorites
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [showFavorites, setShowFavorites] = useState(false);
+
+  // In-conversation search
+  const [messageSearchTerm, setMessageSearchTerm] = useState('');
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -207,6 +216,49 @@ const Mensagens = () => {
     };
     loadTemplates();
   }, [user]);
+
+  // Load favorites for active conversation
+  useEffect(() => {
+    const loadFavorites = async () => {
+      if (!user || !activeConversation) return;
+      const { data } = await supabase
+        .from('message_favorites')
+        .select('message_id')
+        .eq('user_id', user.id);
+      
+      if (data) {
+        setFavorites(new Set(data.map(f => f.message_id)));
+      }
+    };
+    loadFavorites();
+  }, [user, activeConversation]);
+
+  const toggleFavorite = async (messageId: string) => {
+    if (!user) return;
+    const isFav = favorites.has(messageId);
+    
+    if (isFav) {
+      const { error } = await supabase
+        .from('message_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('message_id', messageId);
+      if (!error) {
+        setFavorites(prev => {
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    } else {
+      const { error } = await supabase
+        .from('message_favorites')
+        .insert({ user_id: user.id, message_id: messageId });
+      if (!error) {
+        setFavorites(prev => new Set(prev).add(messageId));
+      }
+    }
+  };
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -1113,6 +1165,13 @@ const Mensagens = () => {
     return name.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
+  // Filter messages by favorites and search
+  const filteredMessages = messages.filter(msg => {
+    if (showFavorites && !favorites.has(msg.id)) return false;
+    if (messageSearchTerm && !msg.content.toLowerCase().includes(messageSearchTerm.toLowerCase())) return false;
+    return true;
+  });
+
   return (
     <Layout>
       <div className="-m-4 md:-m-6 lg:-m-8 flex flex-col h-[calc(100dvh-3.5rem)] overflow-hidden">
@@ -1250,6 +1309,9 @@ const Mensagens = () => {
                         onClick={() => {
                           setActiveConversation(conv);
                           setShowMobileChat(true);
+                          setShowFavorites(false);
+                          setShowMessageSearch(false);
+                          setMessageSearchTerm('');
                         }}
                         className={cn(
                           "w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors",
@@ -1362,6 +1424,27 @@ const Mensagens = () => {
                   </div>
                   
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setShowMessageSearch(!showMessageSearch);
+                        if (showMessageSearch) setMessageSearchTerm('');
+                      }}
+                      title="Buscar na conversa"
+                      className={cn(showMessageSearch && "bg-primary/10")}
+                    >
+                      <Search className="h-5 w-5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setShowFavorites(!showFavorites)}
+                      title={showFavorites ? "Mostrar todas" : "Mostrar favoritas"}
+                      className={cn(showFavorites && "bg-primary/10")}
+                    >
+                      <Star className={cn("h-5 w-5", showFavorites && "fill-yellow-400 text-yellow-400")} />
+                    </Button>
                     {activeConversation.is_group && (
                       <Button
                         variant="ghost"
@@ -1393,19 +1476,43 @@ const Mensagens = () => {
                   </div>
                 </div>
 
+                {/* Search bar */}
+                {showMessageSearch && (
+                  <div className="px-4 py-2 border-b">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar nas mensagens..."
+                        className="pl-9 pr-8"
+                        value={messageSearchTerm}
+                        onChange={(e) => setMessageSearchTerm(e.target.value)}
+                        autoFocus
+                      />
+                      {messageSearchTerm && (
+                        <button
+                          onClick={() => setMessageSearchTerm('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2"
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Messages */}
                 <ScrollArea className="flex-1 p-4 min-h-0">
                   {loadingMessages ? (
                     <div className="flex items-center justify-center h-full">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
-                  ) : messages.length === 0 ? (
+                  ) : filteredMessages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
-                      <p>Nenhuma mensagem ainda. Diga olá!</p>
+                      <p>{showFavorites ? 'Nenhuma mensagem favorita' : messageSearchTerm ? 'Nenhuma mensagem encontrada' : 'Nenhuma mensagem ainda. Diga olá!'}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {messages.map((msg, i) => {
+                      {filteredMessages.map((msg, i) => {
                         const isMe = msg.sender_id === user?.id;
                         const showAvatar = i === 0 || messages[i - 1].sender_id !== msg.sender_id;
                         const isEditing = editingMessageId === msg.id;
@@ -1437,6 +1544,15 @@ const Mensagens = () => {
                                 "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity",
                                 isMe ? "flex-row-reverse" : "flex-row"
                               )}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => toggleFavorite(msg.id)}
+                                  title={favorites.has(msg.id) ? "Remover favorito" : "Favoritar"}
+                                >
+                                  <Star className={cn("h-3 w-3", favorites.has(msg.id) && "fill-yellow-400 text-yellow-400")} />
+                                </Button>
                                 {isMe && canEditMessage(msg) && !isEditing && (
                                   <Button
                                     variant="ghost"
