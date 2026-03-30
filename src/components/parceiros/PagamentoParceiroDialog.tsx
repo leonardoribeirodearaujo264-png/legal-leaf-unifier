@@ -155,7 +155,7 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
             .from('parceiros_pagamentos')
             .insert({
               parceiro_id: parceiroId,
-              indicacao_id: formData.indicacao_id || null,
+              indicacao_id: formData.indicacao_id && formData.indicacao_id !== 'none' ? formData.indicacao_id : null,
               tipo: formData.tipo,
               valor: vl,
               valor_bruto: vb,
@@ -180,7 +180,7 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
           .from('parceiros_pagamentos')
           .insert({
             parceiro_id: parceiroId,
-            indicacao_id: formData.indicacao_id || null,
+            indicacao_id: formData.indicacao_id && formData.indicacao_id !== 'none' ? formData.indicacao_id : null,
             tipo: formData.tipo,
             valor: valorLiquidoTotal,
             valor_bruto: valorBrutoNum,
@@ -202,9 +202,9 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
       toast.success(`${totalParcelas > 1 ? totalParcelas + ' parcelas criadas' : 'Pagamento criado'} com sucesso!`);
       onOpenChange(false);
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao criar pagamento:', error);
-      toast.error('Erro ao criar pagamento');
+      toast.error(`Erro ao criar pagamento: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }
@@ -251,7 +251,7 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
                   <SelectValue placeholder="Selecione (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma</SelectItem>
+                  <SelectItem value="none">Nenhuma</SelectItem>
                   {indicacoes.map((ind) => (
                     <SelectItem key={ind.id} value={ind.id}>
                       {ind.nome_cliente}
