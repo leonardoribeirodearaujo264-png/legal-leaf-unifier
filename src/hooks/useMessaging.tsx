@@ -430,8 +430,7 @@ export const useMessaging = () => {
           is_edited: true,
           updated_at: new Date().toISOString()
         })
-        .eq('id', messageId)
-        .eq('sender_id', user.id);
+        .eq('id', messageId);
 
       if (error) throw error;
 

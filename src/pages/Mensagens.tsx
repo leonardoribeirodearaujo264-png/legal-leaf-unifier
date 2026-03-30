@@ -143,6 +143,7 @@ const Mensagens = () => {
   const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
   const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
   const [isSocio, setIsSocio] = useState(false);
+  const [isAdminOrSocio, setIsAdminOrSocio] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [showAIGenerator, setShowAIGenerator] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -187,19 +188,29 @@ const Mensagens = () => {
   const aiAudioChunksRef = useRef<Blob[]>([]);
   const aiRecordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check if user is socio
+  // Check if user is socio or admin
   useEffect(() => {
-    const checkSocio = async () => {
+    const checkSocioAndAdmin = async () => {
       if (!user) return;
-      const { data } = await supabase
+      const { data: profileData } = await supabase
         .from('profiles')
         .select('position, email')
         .eq('id', user.id)
         .single();
       
-      setIsSocio(data?.position === 'socio' || data?.email === 'rafael@eggnunes.com.br');
+      const socio = profileData?.position === 'socio' || profileData?.email === 'rafael@eggnunes.com.br';
+      setIsSocio(socio);
+
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+
+      setIsAdminOrSocio(socio || !!roleData);
     };
-    checkSocio();
+    checkSocioAndAdmin();
   }, [user]);
 
   // Load templates
@@ -581,9 +592,12 @@ const Mensagens = () => {
   };
 
   const canEditMessage = (msg: Message) => {
+    // Admins e sócios podem editar qualquer mensagem a qualquer momento
+    if (isAdminOrSocio) return true;
+    // Autor pode editar dentro de 6 horas
     if (msg.sender_id !== user?.id) return false;
     const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
-    return minutesSinceSent <= 5;
+    return minutesSinceSent <= 360;
   };
 
   const handleStartEdit = (msg: Message) => {
@@ -1553,7 +1567,7 @@ const Mensagens = () => {
                                 >
                                   <Star className={cn("h-3 w-3", favorites.has(msg.id) && "fill-yellow-400 text-yellow-400")} />
                                 </Button>
-                                {isMe && canEditMessage(msg) && !isEditing && (
+                                {canEditMessage(msg) && !isEditing && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
