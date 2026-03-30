@@ -188,19 +188,29 @@ const Mensagens = () => {
   const aiAudioChunksRef = useRef<Blob[]>([]);
   const aiRecordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check if user is socio
+  // Check if user is socio or admin
   useEffect(() => {
-    const checkSocio = async () => {
+    const checkSocioAndAdmin = async () => {
       if (!user) return;
-      const { data } = await supabase
+      const { data: profileData } = await supabase
         .from('profiles')
         .select('position, email')
         .eq('id', user.id)
         .single();
       
-      setIsSocio(data?.position === 'socio' || data?.email === 'rafael@eggnunes.com.br');
+      const socio = profileData?.position === 'socio' || profileData?.email === 'rafael@eggnunes.com.br';
+      setIsSocio(socio);
+
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'admin')
+        .maybeSingle();
+
+      setIsAdminOrSocio(socio || !!roleData);
     };
-    checkSocio();
+    checkSocioAndAdmin();
   }, [user]);
 
   // Load templates
