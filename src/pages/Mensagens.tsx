@@ -1473,19 +1473,43 @@ const Mensagens = () => {
                   </div>
                 </div>
 
+                {/* Search bar */}
+                {showMessageSearch && (
+                  <div className="px-4 py-2 border-b">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Buscar nas mensagens..."
+                        className="pl-9 pr-8"
+                        value={messageSearchTerm}
+                        onChange={(e) => setMessageSearchTerm(e.target.value)}
+                        autoFocus
+                      />
+                      {messageSearchTerm && (
+                        <button
+                          onClick={() => setMessageSearchTerm('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2"
+                        >
+                          <X className="h-4 w-4 text-muted-foreground" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Messages */}
                 <ScrollArea className="flex-1 p-4 min-h-0">
                   {loadingMessages ? (
                     <div className="flex items-center justify-center h-full">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
-                  ) : messages.length === 0 ? (
+                  ) : filteredMessages.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
-                      <p>Nenhuma mensagem ainda. Diga olá!</p>
+                      <p>{showFavorites ? 'Nenhuma mensagem favorita' : messageSearchTerm ? 'Nenhuma mensagem encontrada' : 'Nenhuma mensagem ainda. Diga olá!'}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {messages.map((msg, i) => {
+                      {filteredMessages.map((msg, i) => {
                         const isMe = msg.sender_id === user?.id;
                         const showAvatar = i === 0 || messages[i - 1].sender_id !== msg.sender_id;
                         const isEditing = editingMessageId === msg.id;
