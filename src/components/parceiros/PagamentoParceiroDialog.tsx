@@ -202,9 +202,9 @@ export function PagamentoParceiroDialog({ open, onOpenChange, parceiroId, parcei
       toast.success(`${totalParcelas > 1 ? totalParcelas + ' parcelas criadas' : 'Pagamento criado'} com sucesso!`);
       onOpenChange(false);
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao criar pagamento:', error);
-      toast.error('Erro ao criar pagamento');
+      toast.error(`Erro ao criar pagamento: ${error.message || 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }
