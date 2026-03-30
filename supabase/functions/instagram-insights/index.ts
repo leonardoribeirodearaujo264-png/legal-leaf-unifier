@@ -14,33 +14,39 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
+      console.error('Missing environment variables: SUPABASE_URL, SUPABASE_ANON_KEY, or SUPABASE_SERVICE_ROLE_KEY');
+      return new Response(JSON.stringify({ error: 'Erro de configuração do servidor. Variáveis de ambiente ausentes.' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_ANON_KEY')!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.error('Auth error:', userError?.message);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    const userId = claimsData.claims.sub;
+    const userId = user.id;
 
     const body = await req.json();
     const { action, date_from, date_to } = body;
 
-    const serviceClient = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: config } = await serviceClient
+    const { data: config, error: configError } = await serviceClient
       .from('meta_ads_config')
       .select('access_token, ad_account_id, instagram_account_id')
       .eq('user_id', userId)
@@ -48,8 +54,9 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    if (!config?.access_token) {
-      return new Response(JSON.stringify({ error: 'Meta Ads não configurado. Salve suas credenciais primeiro.' }), {
+    if (configError || !config?.access_token) {
+      console.log('No meta_ads_config found for user:', userId, configError?.message);
+      return new Response(JSON.stringify({ error: 'Meta Ads não configurado. Salve suas credenciais em Integrações → Meta Ads primeiro. O token precisa das permissões: instagram_basic, instagram_manage_insights, pages_show_list.' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -59,11 +66,16 @@ serve(async (req) => {
 
     // Auto-discover IG account if not set
     if (!igAccountId) {
+      console.log('Auto-discovering Instagram Business Account...');
       const pagesResp = await fetch(`${META_API}/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`);
       const pagesData = await pagesResp.json();
-      
+
       if (pagesData.error) {
-        return new Response(JSON.stringify({ error: 'Erro ao buscar páginas do Facebook. Verifique se o token possui as permissões instagram_basic, instagram_manage_insights e pages_show_list.', details: pagesData.error }), {
+        console.error('Meta API error fetching pages:', JSON.stringify(pagesData.error));
+        return new Response(JSON.stringify({
+          error: `Erro da API Meta ao buscar páginas: ${pagesData.error.message || 'Erro desconhecido'}. Verifique se o token possui as permissões instagram_basic, instagram_manage_insights e pages_show_list.`,
+          meta_error: pagesData.error,
+        }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -71,12 +83,12 @@ serve(async (req) => {
       for (const page of (pagesData.data || [])) {
         if (page.instagram_business_account?.id) {
           igAccountId = page.instagram_business_account.id;
-          // Save for future use
           await serviceClient
             .from('meta_ads_config')
             .update({ instagram_account_id: igAccountId })
             .eq('user_id', userId)
             .eq('is_active', true);
+          console.log('Discovered IG account:', igAccountId);
           break;
         }
       }
@@ -88,11 +100,14 @@ serve(async (req) => {
       }
     }
 
-    // Helper to fetch from Meta API
     async function metaFetch(url: string) {
+      console.log('Fetching Meta API:', url.replace(accessToken, '***'));
       const resp = await fetch(url);
       const data = await resp.json();
-      if (data.error) throw new Error(data.error.message || 'Meta API error');
+      if (data.error) {
+        console.error('Meta API error:', JSON.stringify(data.error));
+        throw new Error(data.error.message || 'Erro da API Meta');
+      }
       return data;
     }
 
@@ -119,34 +134,25 @@ serve(async (req) => {
     }
 
     if (action === 'top_engaged') {
-      // Fetch up to 100 recent posts and sort by engagement
       const data = await metaFetch(
         `${META_API}/${igAccountId}/media?fields=id,caption,like_count,comments_count,timestamp,media_type,media_url,thumbnail_url,permalink&limit=100&access_token=${accessToken}`
       );
       const media = (data.data || [])
-        .map((m: any) => ({
-          ...m,
-          engagement: (m.like_count || 0) + (m.comments_count || 0),
-        }))
+        .map((m: any) => ({ ...m, engagement: (m.like_count || 0) + (m.comments_count || 0) }))
         .sort((a: any, b: any) => b.engagement - a.engagement)
         .slice(0, 10);
-
       return new Response(JSON.stringify({ top_posts: media }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     if (action === 'daily_insights') {
-      // Account-level daily insights
       const since = Math.floor(new Date(fromDate).getTime() / 1000);
       const until = Math.floor(new Date(toDate).getTime() / 1000) + 86400;
-      
       const metrics = 'impressions,reach,follower_count,profile_views';
       const data = await metaFetch(
         `${META_API}/${igAccountId}/insights?metric=${metrics}&period=day&since=${since}&until=${until}&access_token=${accessToken}`
       );
-
-      // Transform to daily format
       const dailyMap: Record<string, any> = {};
       for (const metric of (data.data || [])) {
         for (const val of (metric.values || [])) {
@@ -156,21 +162,19 @@ serve(async (req) => {
           dailyMap[date][metric.name] = val.value;
         }
       }
-
       const daily = Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date));
-
       return new Response(JSON.stringify({ daily }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    return new Response(JSON.stringify({ error: 'Ação não suportada' }), {
+    return new Response(JSON.stringify({ error: 'Ação não suportada: ' + action }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
     console.error('Instagram insights error:', error);
-    return new Response(JSON.stringify({ error: error.message || 'Erro interno' }), {
+    return new Response(JSON.stringify({ error: error.message || 'Erro interno do servidor' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
