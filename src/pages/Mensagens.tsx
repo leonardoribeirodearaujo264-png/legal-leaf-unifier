@@ -217,7 +217,48 @@ const Mensagens = () => {
     loadTemplates();
   }, [user]);
 
+  // Load favorites for active conversation
   useEffect(() => {
+    const loadFavorites = async () => {
+      if (!user || !activeConversation) return;
+      const { data } = await supabase
+        .from('message_favorites')
+        .select('message_id')
+        .eq('user_id', user.id);
+      
+      if (data) {
+        setFavorites(new Set(data.map(f => f.message_id)));
+      }
+    };
+    loadFavorites();
+  }, [user, activeConversation]);
+
+  const toggleFavorite = async (messageId: string) => {
+    if (!user) return;
+    const isFav = favorites.has(messageId);
+    
+    if (isFav) {
+      const { error } = await supabase
+        .from('message_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('message_id', messageId);
+      if (!error) {
+        setFavorites(prev => {
+          const next = new Set(prev);
+          next.delete(messageId);
+          return next;
+        });
+      }
+    } else {
+      const { error } = await supabase
+        .from('message_favorites')
+        .insert({ user_id: user.id, message_id: messageId });
+      if (!error) {
+        setFavorites(prev => new Set(prev).add(messageId));
+      }
+    }
+  };
     const fetchUsers = async () => {
       const { data } = await supabase
         .from('profiles')
