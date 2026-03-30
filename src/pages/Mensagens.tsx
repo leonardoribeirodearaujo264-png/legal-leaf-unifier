@@ -592,9 +592,12 @@ const Mensagens = () => {
   };
 
   const canEditMessage = (msg: Message) => {
+    // Admins e sócios podem editar qualquer mensagem a qualquer momento
+    if (isAdminOrSocio) return true;
+    // Autor pode editar dentro de 6 horas
     if (msg.sender_id !== user?.id) return false;
     const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
-    return minutesSinceSent <= 5;
+    return minutesSinceSent <= 360;
   };
 
   const handleStartEdit = (msg: Message) => {
