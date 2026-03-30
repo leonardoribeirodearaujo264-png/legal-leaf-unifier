@@ -143,6 +143,7 @@ const Mensagens = () => {
   const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
   const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
   const [isSocio, setIsSocio] = useState(false);
+  const [isAdminOrSocio, setIsAdminOrSocio] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [showAIGenerator, setShowAIGenerator] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
