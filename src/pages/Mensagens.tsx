@@ -1541,6 +1541,15 @@ const Mensagens = () => {
                                 "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity",
                                 isMe ? "flex-row-reverse" : "flex-row"
                               )}>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => toggleFavorite(msg.id)}
+                                  title={favorites.has(msg.id) ? "Remover favorito" : "Favoritar"}
+                                >
+                                  <Star className={cn("h-3 w-3", favorites.has(msg.id) && "fill-yellow-400 text-yellow-400")} />
+                                </Button>
                                 {isMe && canEditMessage(msg) && !isEditing && (
                                   <Button
                                     variant="ghost"
