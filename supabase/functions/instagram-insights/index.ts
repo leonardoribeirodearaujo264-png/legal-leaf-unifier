@@ -169,52 +169,36 @@ serve(async (req) => {
 
       const dailyMap: Record<string, any> = {};
 
-      const normalizeMetricEntries = (metric: any) => {
-        const entries: Array<{ date: string; value: number }> = [];
-
-        const visit = (node: any) => {
-          if (!node) return;
-
-          if (Array.isArray(node)) {
-            for (const item of node) visit(item);
-            return;
+      // Process time_series metrics (reach, follower_count) - these have values[] array with end_time per day
+      for (const metric of (timeSeriesData.data || [])) {
+        if (Array.isArray(metric.values)) {
+          for (const entry of metric.values) {
+            const date = entry.end_time?.split('T')[0];
+            if (!date) continue;
+            if (!dailyMap[date]) dailyMap[date] = { date };
+            dailyMap[date][metric.name] = typeof entry.value === 'number' ? entry.value : 0;
           }
+        }
+      }
 
-          if (typeof node !== 'object') return;
+      // Process total_value metrics (profile_views, views) - these have total_value.value (single number for the whole period)
+      // Distribute evenly across all days we already have from time_series
+      const allDates = Object.keys(dailyMap).sort();
+      const numDays = allDates.length || 1;
 
-          const endTime = typeof node.end_time === 'string' ? node.end_time : null;
-          const rawValue = node.value;
-          const numericValue =
-            typeof rawValue === 'number'
-              ? rawValue
-              : typeof rawValue === 'string' && rawValue.trim() !== ''
-                ? Number(rawValue)
-                : null;
+      for (const metric of (totalValueData.data || [])) {
+        const totalVal = metric.total_value?.value;
+        const val = typeof totalVal === 'number' ? totalVal : 0;
+        const perDay = Math.round(val / numDays);
+        const remainder = val - (perDay * numDays);
 
-          if (endTime && numericValue !== null && !Number.isNaN(numericValue)) {
-            entries.push({
-              date: endTime.split('T')[0],
-              value: numericValue,
-            });
-          }
+        console.log(`Total value metric "${metric.name}": total=${val}, perDay=${perDay}, days=${numDays}`);
 
-          visit(node.values);
-          visit(node.results);
-          visit(node.breakdowns);
-          visit(node.total_value);
-        };
-
-        visit(metric.values);
-        visit(metric.total_value);
-
-        return entries;
-      };
-
-      for (const metric of ([...(timeSeriesData.data || []), ...(totalValueData.data || [])])) {
-        for (const entry of normalizeMetricEntries(metric)) {
-          if (!entry.date) continue;
-          if (!dailyMap[entry.date]) dailyMap[entry.date] = { date: entry.date };
-          dailyMap[entry.date][metric.name] = entry.value;
+        for (let i = 0; i < allDates.length; i++) {
+          const date = allDates[i];
+          if (!dailyMap[date]) dailyMap[date] = { date };
+          // Give remainder to the last day
+          dailyMap[date][metric.name] = perDay + (i === allDates.length - 1 ? remainder : 0);
         }
       }
 
