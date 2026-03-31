@@ -122,7 +122,7 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
   const totals = useMemo(() => {
     const t = { impressions: 0, reach: 0, profileViews: 0, followerGrowth: 0 };
     for (const d of dailyInsights) {
-      t.impressions += d.impressions || 0;
+      t.impressions += d.views || 0;
       t.reach += d.reach || 0;
       t.profileViews += d.profile_views || 0;
     }
