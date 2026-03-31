@@ -935,6 +935,11 @@ export function RHPagamentos() {
     setEditObservacoes(pagamento.observacoes || '');
     setEditStatus(pagamento.status);
     setEditDisplayValues({});
+    setEditUsarRateio(false);
+    setEditContaId('');
+    setEditRateios([]);
+    setEditRateioDisplayValues({});
+    setEditRateioDisplayPct({});
     setLoadingEditItens(true);
     setEditDialogOpen(true);
 
@@ -978,6 +983,42 @@ export function RHPagamentos() {
 
       setEditItens(newEditItens);
       setEditDisplayValues(newDisplayValues);
+
+      // Buscar lançamentos financeiros vinculados ao pagamento
+      const colaboradorNome = pagamento.profiles.full_name;
+      const { data: finData } = await supabase
+        .from('fin_lancamentos')
+        .select('id, categoria_id, conta_origem_id, valor, descricao')
+        .ilike('descricao', `%${colaboradorNome}%`)
+        .eq('data_lancamento', pagamento.data_pagamento || pagamento.mes_referencia.substring(0, 10))
+        .eq('tipo', 'despesa')
+        .is('deleted_at', null);
+
+      if (finData && finData.length > 0) {
+        // Has financial entries - load them
+        const firstEntry = finData[0];
+        setEditContaId(firstEntry.conta_origem_id || '');
+
+        if (finData.length > 1) {
+          // Multiple entries = rateio exists
+          setEditUsarRateio(true);
+          const loadedRateios: RateioItem[] = finData.map(f => ({
+            id: crypto.randomUUID(),
+            categoriaId: f.categoria_id || '',
+            percentual: pagamento.total_liquido > 0 ? (f.valor / pagamento.total_liquido) * 100 : 0,
+            valor: f.valor
+          }));
+          setEditRateios(loadedRateios);
+        } else if (finData.length === 1 && firstEntry.categoria_id) {
+          // Single entry with category
+          setEditRateios([{
+            id: crypto.randomUUID(),
+            categoriaId: firstEntry.categoria_id,
+            percentual: 100,
+            valor: firstEntry.valor
+          }]);
+        }
+      }
     } catch (error: any) {
       toast.error('Erro ao carregar itens do pagamento: ' + error.message);
     } finally {
