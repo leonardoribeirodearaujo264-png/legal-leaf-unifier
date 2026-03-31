@@ -36,6 +36,8 @@ interface Colaborador {
   email: string;
   position: string;
   cargo_id: string | null;
+  is_active: boolean;
+  is_suspended: boolean;
   rh_cargos?: Cargo | null;
 }
 
