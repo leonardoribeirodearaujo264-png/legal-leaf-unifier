@@ -1070,6 +1070,7 @@ async function syncActivities(rdToken: string, supabase: any) {
         due_date: task.date || task.due_date || null,
         completed: task.done === true,
         completed_at: task.done_date || null,
+        status: task.done === true ? 'completed' : 'pending',
         created_at: task.created_at || new Date().toISOString()
       };
     });
