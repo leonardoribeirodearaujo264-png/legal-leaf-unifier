@@ -163,7 +163,8 @@ export const CRMTasks = () => {
   };
 
   const getTaskStatus = (a: Activity): TaskStatus => {
-    return ((a as any).status as TaskStatus) || (a.completed ? 'completed' : 'pending');
+    if (a.completed) return 'completed';
+    return ((a as any).status as TaskStatus) || 'pending';
   };
 
   // Summary
