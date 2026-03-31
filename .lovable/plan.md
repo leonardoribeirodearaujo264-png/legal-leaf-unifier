@@ -1,32 +1,59 @@
 
 
-## Corrigir erro "column observacao does not exist" nos pagamentos de parceiros
+## Corrigir "Erro ao marcar como pago" nos pagamentos de parceiros
 
 ### Causa raiz
 
-A trigger `sync_parceiro_pagamento_to_financeiro` usa o nome de coluna `observacao` em dois lugares, mas a coluna real na tabela `fin_lancamentos` se chama `observacoes` (com "s" no final).
+Há **dois problemas graves** no banco de dados:
 
-Isso impede QUALQUER criação de pagamento de parceiro, pois a trigger dispara automaticamente e falha.
+1. **Recursão infinita de triggers**: Quando o usuário marca um pagamento como "pago" em `parceiros_pagamentos`, o trigger `sync_parceiro_pagamento_to_financeiro` atualiza `fin_lancamentos`. Isso dispara o trigger `sync_financeiro_to_parceiro_pagamento` em `fin_lancamentos`, que tenta atualizar `parceiros_pagamentos` de volta — criando um loop infinito até o PostgreSQL abortar com erro.
 
-### Correção
+2. **Trigger duplicado**: Existem DOIS triggers (`sync_parceiro_pagamento_trigger` e `trigger_sync_parceiro_pagamento`) chamando a mesma função na tabela `parceiros_pagamentos`, fazendo a sincronização rodar duas vezes.
 
-Uma única migração SQL para recriar a função `sync_parceiro_pagamento_to_financeiro` com o nome correto da coluna:
+```text
+Fluxo atual (loop infinito):
 
-**Linha 1 (UPDATE):** Trocar `observacao` por `observacoes`:
-```sql
--- DE:
-observacao = COALESCE(NEW.descricao_abatimentos, observacao),
--- PARA:
-observacoes = COALESCE(NEW.descricao_abatimentos, observacoes),
+User UPDATE parceiros_pagamentos (status='pago')
+  → BEFORE trigger: sync_parceiro_pagamento_to_financeiro
+    → UPDATE fin_lancamentos (status='pago')
+      → AFTER trigger: sync_financeiro_to_parceiro_pagamento
+        → UPDATE parceiros_pagamentos (status='pago')
+          → BEFORE trigger: sync_parceiro_pagamento_to_financeiro
+            → UPDATE fin_lancamentos ...
+              → ... LOOP até crash
 ```
 
-**Linha 2 (INSERT):** Trocar `observacao` por `observacoes`:
+### Correção (uma única migração SQL)
+
+1. **Remover o trigger duplicado** (`trigger_sync_parceiro_pagamento`)
+2. **Adicionar guarda de recursão** em ambas as funções usando `pg_trigger_depth() < 2` para quebrar o loop
+
 ```sql
--- DE:
-observacao,
--- PARA:
-observacoes,
+-- 1) Drop trigger duplicado
+DROP TRIGGER IF EXISTS trigger_sync_parceiro_pagamento ON parceiros_pagamentos;
+
+-- 2) Adicionar guarda na função sync_financeiro_to_parceiro_pagamento
+CREATE OR REPLACE FUNCTION sync_financeiro_to_parceiro_pagamento()
+  ...
+  IF pg_trigger_depth() < 2 THEN
+    -- só executa se não estiver em recursão
+    UPDATE parceiros_pagamentos SET ...
+  END IF;
+  ...
+
+-- 3) Adicionar guarda na função sync_parceiro_pagamento_to_financeiro
+CREATE OR REPLACE FUNCTION sync_parceiro_pagamento_to_financeiro()
+  ...
+  IF pg_trigger_depth() < 2 THEN
+    UPDATE fin_lancamentos SET ...
+  END IF;
+  ...
 ```
 
-Nenhuma alteração de código frontend é necessária. Apenas a função do banco precisa ser corrigida.
+3. **Melhorar mensagem de erro no frontend** (`ParceiroDetalhes.tsx`): mostrar o erro real do banco em vez do genérico "Erro ao marcar como pago"
+
+### Resultado
+- Marcar parcela como paga funcionará sem erro
+- A sincronização bidirecional continua operando, mas sem loop infinito
+- O trigger duplicado será removido
 
