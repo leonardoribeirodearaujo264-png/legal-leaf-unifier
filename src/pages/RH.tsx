@@ -11,7 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 export default function RH() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { isAdmin, profile } = useUserRole();
+  const { isAdmin, profile, loading } = useUserRole();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   
@@ -20,6 +20,14 @@ export default function RH() {
   const isSocio = profile?.position === 'socio';
   const canAccess = isAdmin || isSocio;
   const isSelfProfile = colaboradorId && user && colaboradorId === user.id;
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   // Se não tem permissão (exceto se for o próprio perfil), redireciona
   if (!canAccess && !isSelfProfile) {
