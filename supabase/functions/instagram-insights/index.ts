@@ -149,7 +149,7 @@ serve(async (req) => {
     if (action === 'daily_insights') {
       const since = Math.floor(new Date(fromDate).getTime() / 1000);
       const until = Math.floor(new Date(toDate).getTime() / 1000) + 86400;
-      const metrics = 'impressions,reach,follower_count,profile_views';
+      const metrics = 'reach,follower_count,profile_views,views';
       const data = await metaFetch(
         `${META_API}/${igAccountId}/insights?metric=${metrics}&period=day&since=${since}&until=${until}&access_token=${accessToken}`
       );

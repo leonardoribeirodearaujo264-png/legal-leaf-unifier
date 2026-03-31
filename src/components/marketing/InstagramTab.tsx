@@ -113,7 +113,7 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
 
   const chartData = useMemo(() => dailyInsights.map((d: any) => ({
     data: format(new Date(d.date), 'dd/MM'),
-    impressoes: d.impressions || 0,
+    impressoes: d.views || 0,
     alcance: d.reach || 0,
     seguidores: d.follower_count || 0,
     visitas: d.profile_views || 0,
@@ -122,7 +122,7 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
   const totals = useMemo(() => {
     const t = { impressions: 0, reach: 0, profileViews: 0, followerGrowth: 0 };
     for (const d of dailyInsights) {
-      t.impressions += d.impressions || 0;
+      t.impressions += d.views || 0;
       t.reach += d.reach || 0;
       t.profileViews += d.profile_views || 0;
     }
