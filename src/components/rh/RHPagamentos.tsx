@@ -160,6 +160,11 @@ export function RHPagamentos() {
   const [loadingEditItens, setLoadingEditItens] = useState(false);
   const [editCargoTipo, setEditCargoTipo] = useState<string | null>(null);
   const [editCargoId, setEditCargoId] = useState<string | null>(null);
+  const [editUsarRateio, setEditUsarRateio] = useState(false);
+  const [editContaId, setEditContaId] = useState('');
+  const [editRateios, setEditRateios] = useState<RateioItem[]>([]);
+  const [editRateioDisplayValues, setEditRateioDisplayValues] = useState<Record<string, string>>({});
+  const [editRateioDisplayPct, setEditRateioDisplayPct] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
