@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -15,6 +16,8 @@ interface Pagamento {
   valor_liquido: number | null;
   descricao_abatimentos: string | null;
   data_vencimento: string;
+  data_pagamento: string | null;
+  status: string;
   parcela_atual: number;
   total_parcelas: number;
 }
@@ -34,6 +37,8 @@ export function EditarParcelaDialog({ open, onOpenChange, pagamento, onSuccess }
   const [valorAbatimentos, setValorAbatimentos] = useState('0');
   const [descricaoAbatimentos, setDescricaoAbatimentos] = useState('');
   const [dataVencimento, setDataVencimento] = useState('');
+  const [dataPagamento, setDataPagamento] = useState('');
+  const [status, setStatus] = useState('pendente');
 
   const valorBrutoNum = parseFloat(valorBruto) || 0;
   const valorAbatNum = parseFloat(valorAbatimentos) || 0;
@@ -45,6 +50,8 @@ export function EditarParcelaDialog({ open, onOpenChange, pagamento, onSuccess }
       setValorAbatimentos(String(pagamento.valor_abatimentos ?? 0));
       setDescricaoAbatimentos(pagamento.descricao_abatimentos ?? '');
       setDataVencimento(pagamento.data_vencimento ?? '');
+      setDataPagamento(pagamento.data_pagamento ?? '');
+      setStatus(pagamento.status ?? 'pendente');
     }
   }, [open, pagamento]);
 
@@ -66,6 +73,8 @@ export function EditarParcelaDialog({ open, onOpenChange, pagamento, onSuccess }
           valor_liquido: valorLiquido,
           descricao_abatimentos: descricaoAbatimentos || null,
           data_vencimento: dataVencimento,
+          data_pagamento: dataPagamento || null,
+          status: status,
           updated_at: new Date().toISOString(),
         })
         .eq('id', pagamento.id);
@@ -75,9 +84,9 @@ export function EditarParcelaDialog({ open, onOpenChange, pagamento, onSuccess }
       toast.success('Parcela atualizada com sucesso!');
       onOpenChange(false);
       onSuccess();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao atualizar parcela:', error);
-      toast.error('Erro ao atualizar parcela');
+      toast.error(error?.message || 'Erro ao atualizar parcela');
     } finally {
       setLoading(false);
     }
@@ -91,19 +100,43 @@ export function EditarParcelaDialog({ open, onOpenChange, pagamento, onSuccess }
         <DialogHeader>
           <DialogTitle>Editar Parcela {pagamento.parcela_atual}/{pagamento.total_parcelas}</DialogTitle>
           <DialogDescription>
-            Atualize os valores e abatimentos desta parcela
+            Atualize os valores, datas e status desta parcela
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <Label htmlFor="edit-vencimento">Data de Vencimento</Label>
-            <Input
-              id="edit-vencimento"
-              type="date"
-              value={dataVencimento}
-              onChange={(e) => setDataVencimento(e.target.value)}
-            />
+            <Label htmlFor="edit-status">Status</Label>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pendente">Pendente</SelectItem>
+                <SelectItem value="pago">Pago</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="edit-vencimento">Data de Vencimento</Label>
+              <Input
+                id="edit-vencimento"
+                type="date"
+                value={dataVencimento}
+                onChange={(e) => setDataVencimento(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit-pagamento">Data de Pagamento</Label>
+              <Input
+                id="edit-pagamento"
+                type="date"
+                value={dataPagamento}
+                onChange={(e) => setDataPagamento(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

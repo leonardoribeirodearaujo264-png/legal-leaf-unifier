@@ -508,7 +508,6 @@ export function ParceiroDetalhes({ open, onOpenChange, parceiro, onRefresh }: Pa
                             <TableCell>
                               <div className="flex items-center gap-1">
                                 {isPendente && (
-                                  <>
                                     <Button
                                       variant="ghost"
                                       size="icon"
@@ -518,17 +517,16 @@ export function ParceiroDetalhes({ open, onOpenChange, parceiro, onRefresh }: Pa
                                     >
                                       <CheckCircle2 className="h-4 w-4" />
                                     </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7"
-                                      title="Editar parcela"
-                                      onClick={() => { setParcelaEditando(pag); setEditarParcelaOpen(true); }}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </>
                                 )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  title="Editar parcela"
+                                  onClick={() => { setParcelaEditando(pag); setEditarParcelaOpen(true); }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
