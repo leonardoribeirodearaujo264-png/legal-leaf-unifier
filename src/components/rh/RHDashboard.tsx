@@ -39,7 +39,7 @@ export function RHDashboard() {
   const [periodoInicio, setPeriodoInicio] = useState(format(subMonths(new Date(), 6), 'yyyy-MM'));
   const [periodoFim, setPeriodoFim] = useState(format(new Date(), 'yyyy-MM'));
   const [colaboradorFiltro, setColaboradorFiltro] = useState('all');
-  const [colaboradores, setColaboradores] = useState<{ id: string; full_name: string }[]>([]);
+  const [colaboradores, setColaboradores] = useState<{ id: string; full_name: string; is_active: boolean; is_suspended: boolean }[]>([]);
   const [dashboardData, setDashboardData] = useState<DashboardData>({
     totalPago: 0,
     totalVantagens: 0,
