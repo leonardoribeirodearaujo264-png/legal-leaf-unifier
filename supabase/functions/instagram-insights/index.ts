@@ -149,20 +149,85 @@ serve(async (req) => {
     if (action === 'daily_insights') {
       const since = Math.floor(new Date(fromDate).getTime() / 1000);
       const until = Math.floor(new Date(toDate).getTime() / 1000) + 86400;
-      const metrics = 'reach,follower_count,profile_views,views';
-      const data = await metaFetch(
-        `${META_API}/${igAccountId}/insights?metric=${metrics}&period=day&since=${since}&until=${until}&access_token=${accessToken}`
-      );
+
+      console.log('Fetching Instagram daily insights with split metric types', {
+        igAccountId,
+        fromDate,
+        toDate,
+        since,
+        until,
+      });
+
+      const [timeSeriesData, totalValueData] = await Promise.all([
+        metaFetch(
+          `${META_API}/${igAccountId}/insights?metric=reach,follower_count&period=day&metric_type=time_series&since=${since}&until=${until}&access_token=${accessToken}`
+        ),
+        metaFetch(
+          `${META_API}/${igAccountId}/insights?metric=profile_views,views&period=day&metric_type=total_value&since=${since}&until=${until}&access_token=${accessToken}`
+        ),
+      ]);
+
       const dailyMap: Record<string, any> = {};
-      for (const metric of (data.data || [])) {
-        for (const val of (metric.values || [])) {
-          const date = val.end_time?.split('T')[0];
-          if (!date) continue;
-          if (!dailyMap[date]) dailyMap[date] = { date };
-          dailyMap[date][metric.name] = val.value;
+
+      const normalizeMetricEntries = (metric: any) => {
+        const entries: Array<{ date: string; value: number }> = [];
+
+        const visit = (node: any) => {
+          if (!node) return;
+
+          if (Array.isArray(node)) {
+            for (const item of node) visit(item);
+            return;
+          }
+
+          if (typeof node !== 'object') return;
+
+          const endTime = typeof node.end_time === 'string' ? node.end_time : null;
+          const rawValue = node.value;
+          const numericValue =
+            typeof rawValue === 'number'
+              ? rawValue
+              : typeof rawValue === 'string' && rawValue.trim() !== ''
+                ? Number(rawValue)
+                : null;
+
+          if (endTime && numericValue !== null && !Number.isNaN(numericValue)) {
+            entries.push({
+              date: endTime.split('T')[0],
+              value: numericValue,
+            });
+          }
+
+          visit(node.values);
+          visit(node.results);
+          visit(node.breakdowns);
+          visit(node.total_value);
+        };
+
+        visit(metric.values);
+        visit(metric.total_value);
+
+        return entries;
+      };
+
+      for (const metric of ([...(timeSeriesData.data || []), ...(totalValueData.data || [])])) {
+        for (const entry of normalizeMetricEntries(metric)) {
+          if (!entry.date) continue;
+          if (!dailyMap[entry.date]) dailyMap[entry.date] = { date: entry.date };
+          dailyMap[entry.date][metric.name] = entry.value;
         }
       }
+
       const daily = Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+      console.log('Instagram daily insights combined successfully', {
+        days: daily.length,
+        metrics: {
+          time_series: (timeSeriesData.data || []).map((metric: any) => metric.name),
+          total_value: (totalValueData.data || []).map((metric: any) => metric.name),
+        },
+      });
+
       return new Response(JSON.stringify({ daily }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
