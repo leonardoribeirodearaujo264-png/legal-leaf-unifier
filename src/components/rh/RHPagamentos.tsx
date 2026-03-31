@@ -160,6 +160,11 @@ export function RHPagamentos() {
   const [loadingEditItens, setLoadingEditItens] = useState(false);
   const [editCargoTipo, setEditCargoTipo] = useState<string | null>(null);
   const [editCargoId, setEditCargoId] = useState<string | null>(null);
+  const [editUsarRateio, setEditUsarRateio] = useState(false);
+  const [editContaId, setEditContaId] = useState('');
+  const [editRateios, setEditRateios] = useState<RateioItem[]>([]);
+  const [editRateioDisplayValues, setEditRateioDisplayValues] = useState<Record<string, string>>({});
+  const [editRateioDisplayPct, setEditRateioDisplayPct] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deletingIds, setDeletingIds] = useState<string[]>([]);
@@ -930,6 +935,11 @@ export function RHPagamentos() {
     setEditObservacoes(pagamento.observacoes || '');
     setEditStatus(pagamento.status);
     setEditDisplayValues({});
+    setEditUsarRateio(false);
+    setEditContaId('');
+    setEditRateios([]);
+    setEditRateioDisplayValues({});
+    setEditRateioDisplayPct({});
     setLoadingEditItens(true);
     setEditDialogOpen(true);
 
@@ -973,6 +983,42 @@ export function RHPagamentos() {
 
       setEditItens(newEditItens);
       setEditDisplayValues(newDisplayValues);
+
+      // Buscar lançamentos financeiros vinculados ao pagamento
+      const colaboradorNome = pagamento.profiles.full_name;
+      const { data: finData } = await supabase
+        .from('fin_lancamentos')
+        .select('id, categoria_id, conta_origem_id, valor, descricao')
+        .ilike('descricao', `%${colaboradorNome}%`)
+        .eq('data_lancamento', pagamento.data_pagamento || pagamento.mes_referencia.substring(0, 10))
+        .eq('tipo', 'despesa')
+        .is('deleted_at', null);
+
+      if (finData && finData.length > 0) {
+        // Has financial entries - load them
+        const firstEntry = finData[0];
+        setEditContaId(firstEntry.conta_origem_id || '');
+
+        if (finData.length > 1) {
+          // Multiple entries = rateio exists
+          setEditUsarRateio(true);
+          const loadedRateios: RateioItem[] = finData.map(f => ({
+            id: crypto.randomUUID(),
+            categoriaId: f.categoria_id || '',
+            percentual: pagamento.total_liquido > 0 ? (f.valor / pagamento.total_liquido) * 100 : 0,
+            valor: f.valor
+          }));
+          setEditRateios(loadedRateios);
+        } else if (finData.length === 1 && firstEntry.categoria_id) {
+          // Single entry with category
+          setEditRateios([{
+            id: crypto.randomUUID(),
+            categoriaId: firstEntry.categoria_id,
+            percentual: 100,
+            valor: firstEntry.valor
+          }]);
+        }
+      }
     } catch (error: any) {
       toast.error('Erro ao carregar itens do pagamento: ' + error.message);
     } finally {
@@ -1065,6 +1111,62 @@ export function RHPagamentos() {
         .eq('id', editingPagamento.id);
 
       if (error) throw error;
+
+      // Gerenciar lançamentos financeiros (rateio)
+      const { data: user } = await supabase.auth.getUser();
+      const colaboradorNome = editingPagamento.profiles.full_name;
+
+      // Deletar lançamentos financeiros antigos vinculados
+      const { data: oldFinEntries } = await supabase
+        .from('fin_lancamentos')
+        .select('id')
+        .ilike('descricao', `%${colaboradorNome}%`)
+        .eq('tipo', 'despesa')
+        .is('deleted_at', null);
+
+      if (oldFinEntries && oldFinEntries.length > 0) {
+        await supabase
+          .from('fin_lancamentos')
+          .delete()
+          .in('id', oldFinEntries.map(e => e.id));
+      }
+
+      // Criar novos lançamentos financeiros
+      if (totaisEdit.liquido > 0 && editContaId) {
+        if (editUsarRateio && editRateios.length > 0) {
+          for (const rateio of editRateios) {
+            if (rateio.valor > 0 && rateio.categoriaId) {
+              const categoriaRateio = categorias.find(c => c.id === rateio.categoriaId);
+              await supabase
+                .from('fin_lancamentos')
+                .insert({
+                  tipo: 'despesa',
+                  categoria_id: rateio.categoriaId,
+                  conta_origem_id: editContaId,
+                  valor: rateio.valor,
+                  descricao: `${editObservacoes || 'Pagamento'} - ${colaboradorNome} (${categoriaRateio?.nome || 'Rateio'})`,
+                  data_lancamento: editDataPagamento,
+                  origem: 'escritorio',
+                  status: 'pago',
+                  created_by: user.user?.id
+                });
+            }
+          }
+        } else {
+          await supabase
+            .from('fin_lancamentos')
+            .insert({
+              tipo: 'despesa',
+              conta_origem_id: editContaId,
+              valor: totaisEdit.liquido,
+              descricao: `${editObservacoes || 'Pagamento'} - ${colaboradorNome}`,
+              data_lancamento: editDataPagamento,
+              origem: 'escritorio',
+              status: 'pago',
+              created_by: user.user?.id
+            });
+        }
+      }
 
       // Atualizar sugestões para próximos pagamentos
       const sugestoesToUpsert = Object.entries(editItens)
@@ -1678,6 +1780,196 @@ export function RHPagamentos() {
                           </div>
                         ))}
                       </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Lançamento Financeiro - Edição */}
+                    <div className="space-y-4 p-4 border rounded-lg">
+                      <h4 className="font-semibold flex items-center gap-2">
+                        <DollarSign className="h-4 w-4" />
+                        Lançar no Financeiro
+                      </h4>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Conta de Saída</Label>
+                          <Select value={editContaId} onValueChange={setEditContaId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a conta..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {contas.map(c => (
+                                <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Deixe vazio para não lançar no financeiro
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <Label>Usar Rateio?</Label>
+                            <p className="text-xs text-muted-foreground">
+                              Dividir por categorias
+                            </p>
+                          </div>
+                          <Switch 
+                            checked={editUsarRateio} 
+                            onCheckedChange={(checked) => {
+                              setEditUsarRateio(checked);
+                              if (checked && editRateios.length === 0) {
+                                const editTotais = calcularTotaisEdit();
+                                setEditRateios([{
+                                  id: crypto.randomUUID(),
+                                  categoriaId: '',
+                                  percentual: 100,
+                                  valor: editTotais.liquido
+                                }]);
+                              }
+                            }} 
+                            disabled={!editContaId}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Rateio Edit */}
+                      {editUsarRateio && editContaId && (
+                        <div className="space-y-3 mt-4">
+                          <div className="flex items-center justify-between">
+                            <Label className="flex items-center gap-2">
+                              <PieChart className="h-4 w-4" />
+                              Rateio por Categoria
+                            </Label>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditRateios([...editRateios, {
+                                id: crypto.randomUUID(),
+                                categoriaId: '',
+                                percentual: 0,
+                                valor: 0
+                              }])}
+                            >
+                              <Plus className="h-3 w-3 mr-1" />
+                              Adicionar
+                            </Button>
+                          </div>
+
+                          <p className="text-xs text-muted-foreground">
+                            💡 Digite o <strong>percentual</strong> ou o <strong>valor</strong> - o outro será calculado automaticamente.
+                          </p>
+
+                          <div className="grid grid-cols-12 gap-2 items-center text-xs text-muted-foreground font-medium">
+                            <div className="col-span-5">Categoria</div>
+                            <div className="col-span-2 text-center">%</div>
+                            <div className="col-span-3 text-center">ou Valor (R$)</div>
+                            <div className="col-span-2"></div>
+                          </div>
+
+                          {editRateios.map((rateio) => {
+                            const editTotais = calcularTotaisEdit();
+                            return (
+                              <div key={rateio.id} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-5">
+                                  <Select 
+                                    value={rateio.categoriaId} 
+                                    onValueChange={(v) => {
+                                      setEditRateios(editRateios.map(r => 
+                                        r.id === rateio.id ? { ...r, categoriaId: v } : r
+                                      ));
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-9">
+                                      <SelectValue placeholder="Categoria" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {categorias.map(c => (
+                                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="col-span-2">
+                                  <div className="relative">
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      placeholder="0"
+                                      className="h-9 pr-6 text-center"
+                                      value={editRateioDisplayPct[rateio.id] ?? (rateio.percentual > 0 ? rateio.percentual.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '')}
+                                      onChange={(e) => {
+                                        const raw = e.target.value.replace(/[^\d,]/g, '');
+                                        setEditRateioDisplayPct(prev => ({ ...prev, [rateio.id]: raw }));
+                                        const pct = parseFloat(raw.replace(',', '.')) || 0;
+                                        const newVal = (editTotais.liquido * pct) / 100;
+                                        setEditRateioDisplayValues(prev => ({ ...prev, [rateio.id]: maskCurrency(newVal.toFixed(2).replace('.', ',')) }));
+                                        setEditRateios(editRateios.map(r => 
+                                          r.id === rateio.id ? { ...r, percentual: pct, valor: newVal } : r
+                                        ));
+                                      }}
+                                    />
+                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+                                  </div>
+                                </div>
+                                <div className="col-span-3">
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">R$</span>
+                                    <Input
+                                      type="text"
+                                      inputMode="decimal"
+                                      placeholder="0,00"
+                                      className="h-9 pl-8"
+                                      value={editRateioDisplayValues[rateio.id] ?? (rateio.valor > 0 ? maskCurrency(rateio.valor.toFixed(2).replace('.', ',')) : '')}
+                                      onChange={(e) => {
+                                        const masked = maskCurrency(e.target.value);
+                                        setEditRateioDisplayValues(prev => ({ ...prev, [rateio.id]: masked }));
+                                        const val = parseCurrency(masked);
+                                        const newPct = editTotais.liquido > 0 ? (val / editTotais.liquido) * 100 : 0;
+                                        setEditRateioDisplayPct(prev => ({ ...prev, [rateio.id]: newPct > 0 ? newPct.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '' }));
+                                        setEditRateios(editRateios.map(r => 
+                                          r.id === rateio.id ? { ...r, valor: val, percentual: newPct } : r
+                                        ));
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="col-span-2 flex justify-center">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-9 w-9"
+                                    onClick={() => {
+                                      if (editRateios.length > 1) {
+                                        setEditRateios(editRateios.filter(r => r.id !== rateio.id));
+                                      }
+                                    }}
+                                    disabled={editRateios.length <= 1}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <div className="flex justify-between text-sm mt-2 p-2 bg-muted/50 rounded-md">
+                            <span className="text-muted-foreground">Total alocado:</span>
+                            <span className={
+                              Math.abs(editRateios.reduce((acc, r) => acc + r.percentual, 0) - 100) < 0.1
+                                ? 'text-green-600 font-medium'
+                                : 'text-destructive font-medium'
+                            }>
+                              {editRateios.reduce((acc, r) => acc + r.percentual, 0).toFixed(1)}%
+                              {' '}({formatCurrency(editRateios.reduce((acc, r) => acc + r.valor, 0))})
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <Separator />
