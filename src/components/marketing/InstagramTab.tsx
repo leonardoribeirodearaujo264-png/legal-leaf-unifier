@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -85,7 +85,7 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
     retry: 1,
   });
 
-  const { data: dailyInsights = [], isLoading: loadingDaily } = useQuery({
+  const { data: dailyInsightsResponse, isLoading: loadingDaily } = useQuery({
     queryKey: ['instagram-daily-insights', dateFrom, dateTo],
     queryFn: async () => {
       const resp = await supabase.functions.invoke('instagram-insights', {
@@ -95,12 +95,26 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
       const parsed = typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
       console.log('[InstagramTab] daily_insights raw resp.data type:', typeof resp.data, 'parsed:', parsed);
       if (parsed?.error) throw new Error(parsed.error);
-      const daily = parsed?.daily || [];
+      const daily = Array.isArray(parsed?.daily)
+        ? parsed.daily.map((item: any) => ({
+            date: item?.date,
+            reach: Number(item?.reach ?? 0),
+            follower_count: Number(item?.follower_count ?? 0),
+            profile_views: Number(item?.profile_views ?? 0),
+            views: Number(item?.views ?? 0),
+          }))
+        : [];
       console.log('[InstagramTab] daily array length:', daily.length, 'first item:', daily[0]);
-      return daily;
+      return { daily };
     },
     enabled: !!accountInfo,
   });
+
+  useEffect(() => {
+    console.log('daily insights data:', dailyInsightsResponse);
+  }, [dailyInsightsResponse]);
+
+  const dailyInsights = useMemo(() => dailyInsightsResponse?.daily ?? [], [dailyInsightsResponse]);
 
   const { data: topPosts = [], isLoading: loadingPosts } = useQuery({
     queryKey: ['instagram-top-posts'],
@@ -126,14 +140,10 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
   const totals = useMemo(() => {
     const t = { impressions: 0, reach: 0, profileViews: 0, followerGrowth: 0 };
     for (const d of dailyInsights) {
+      t.followerGrowth += d.follower_count || 0;
       t.impressions += d.views || 0;
       t.reach += d.reach || 0;
       t.profileViews += d.profile_views || 0;
-    }
-    if (dailyInsights.length >= 2) {
-      const first = dailyInsights[0]?.follower_count || 0;
-      const last = dailyInsights[dailyInsights.length - 1]?.follower_count || 0;
-      t.followerGrowth = last - first;
     }
     return t;
   }, [dailyInsights]);
