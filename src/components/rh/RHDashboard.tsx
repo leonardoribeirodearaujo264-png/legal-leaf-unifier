@@ -187,7 +187,7 @@ export function RHDashboard() {
                 <SelectContent>
                   <SelectItem value="all">Todos os colaboradores</SelectItem>
                   {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
+                    <SelectItem key={c.id} value={c.id}>{c.full_name}{(!c.is_active || c.is_suspended) ? ' (Desligado)' : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

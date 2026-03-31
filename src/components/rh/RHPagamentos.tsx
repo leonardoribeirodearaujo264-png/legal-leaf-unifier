@@ -1149,7 +1149,7 @@ export function RHPagamentos() {
                           <SelectContent>
                             {colaboradores.map(c => (
                               <SelectItem key={c.id} value={c.id}>
-                                {c.full_name}
+                                {c.full_name}{(!c.is_active || c.is_suspended) ? ' (Desligado)' : ''}
                               </SelectItem>
                             ))}
                           </SelectContent>
