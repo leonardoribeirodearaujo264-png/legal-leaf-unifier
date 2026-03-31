@@ -62,10 +62,8 @@ export function RHDashboard() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, is_active, is_suspended')
         .eq('approval_status', 'approved')
-        .eq('is_active', true)
-        .eq('is_suspended', false)
         .order('full_name');
 
       if (error) throw error;
