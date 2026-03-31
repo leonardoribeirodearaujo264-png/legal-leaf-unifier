@@ -1112,6 +1112,62 @@ export function RHPagamentos() {
 
       if (error) throw error;
 
+      // Gerenciar lançamentos financeiros (rateio)
+      const { data: user } = await supabase.auth.getUser();
+      const colaboradorNome = editingPagamento.profiles.full_name;
+
+      // Deletar lançamentos financeiros antigos vinculados
+      const { data: oldFinEntries } = await supabase
+        .from('fin_lancamentos')
+        .select('id')
+        .ilike('descricao', `%${colaboradorNome}%`)
+        .eq('tipo', 'despesa')
+        .is('deleted_at', null);
+
+      if (oldFinEntries && oldFinEntries.length > 0) {
+        await supabase
+          .from('fin_lancamentos')
+          .delete()
+          .in('id', oldFinEntries.map(e => e.id));
+      }
+
+      // Criar novos lançamentos financeiros
+      if (totaisEdit.liquido > 0 && editContaId) {
+        if (editUsarRateio && editRateios.length > 0) {
+          for (const rateio of editRateios) {
+            if (rateio.valor > 0 && rateio.categoriaId) {
+              const categoriaRateio = categorias.find(c => c.id === rateio.categoriaId);
+              await supabase
+                .from('fin_lancamentos')
+                .insert({
+                  tipo: 'despesa',
+                  categoria_id: rateio.categoriaId,
+                  conta_origem_id: editContaId,
+                  valor: rateio.valor,
+                  descricao: `${editObservacoes || 'Pagamento'} - ${colaboradorNome} (${categoriaRateio?.nome || 'Rateio'})`,
+                  data_lancamento: editDataPagamento,
+                  origem: 'escritorio',
+                  status: 'pago',
+                  created_by: user.user?.id
+                });
+            }
+          }
+        } else {
+          await supabase
+            .from('fin_lancamentos')
+            .insert({
+              tipo: 'despesa',
+              conta_origem_id: editContaId,
+              valor: totaisEdit.liquido,
+              descricao: `${editObservacoes || 'Pagamento'} - ${colaboradorNome}`,
+              data_lancamento: editDataPagamento,
+              origem: 'escritorio',
+              status: 'pago',
+              created_by: user.user?.id
+            });
+        }
+      }
+
       // Atualizar sugestões para próximos pagamentos
       const sugestoesToUpsert = Object.entries(editItens)
         .filter(([_, item]) => item.valor > 0)
