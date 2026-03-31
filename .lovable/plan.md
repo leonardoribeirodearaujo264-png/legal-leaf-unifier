@@ -1,53 +1,43 @@
 
 
-## Corrigir contagem incorreta de tarefas atrasadas no CRM
+## Zerar tarefas pendentes no CRM para refletir o RD Station
 
-### Causa raiz
+### Problema
 
-Há **6.267 tarefas** no banco com dados inconsistentes: `completed = true` mas `status = 'pending'`. Isso acontece porque a sincronização com o RD Station marca `completed = true` quando a tarefa é concluída lá, mas não atualiza o campo `status` para `'completed'`.
+A migração anterior corrigiu 6.267 tarefas que tinham `completed=true` mas `status='pending'`. Porém, restam **283 tarefas** com `completed=false` e `status='pending'`. Como você confirmou que o RD Station tem zero tarefas pendentes, essas 283 precisam ser marcadas como concluídas também.
 
-A função `getTaskStatus()` no frontend prioriza o campo `status` sobre `completed`:
-```typescript
-const getTaskStatus = (a: Activity): TaskStatus => {
-  return ((a as any).status as TaskStatus) || (a.completed ? 'completed' : 'pending');
-};
-```
-
-Como `status = 'pending'` é um valor truthy, ele é retornado diretamente — ignorando que `completed = true`. Resultado: tarefas já concluídas no RD Station aparecem como "pendentes e atrasadas" na Intranet.
-
-**Dados reais do banco:**
-| status | completed | quantidade |
-|--------|-----------|------------|
-| pending | true | **6.267** ← o problema |
-| pending | false | 283 |
-| completed | true | 123 |
+**Causa raiz da recorrência**: A função de sincronização (`crm-sync`) não inclui o campo `status` no upsert (linhas 1062-1074). Ela só define `completed: task.done === true`, mas nunca define `status`. Quando o banco recebe o registro sem `status`, ele usa o valor padrão `'pending'` — criando inconsistência novamente a cada sync.
 
 ### Correção (2 partes)
 
-**1. Migração SQL — Corrigir dados existentes**
+**1. Migração SQL — Marcar as 283 tarefas restantes como concluídas**
 
-Atualizar as 6.267 linhas inconsistentes para `status = 'completed'`:
 ```sql
 UPDATE crm_activities 
-SET status = 'completed', 
+SET status = 'completed',
+    completed = true,
     completed_at = COALESCE(completed_at, updated_at, created_at)
-WHERE completed = true AND (status IS NULL OR status = 'pending');
+WHERE status = 'pending' AND (completed = false OR completed IS NULL);
 ```
 
-**2. Frontend — Corrigir `getTaskStatus()` em `CRMTasks.tsx`**
+**2. Edge Function `crm-sync/index.ts` — Incluir `status` no mapeamento de tarefas**
 
-Alterar a lógica para que `completed = true` sempre retorne `'completed'`, independente do valor de `status`:
+Na função `syncActivities`, adicionar o campo `status` ao objeto retornado no `.map()` (após a linha 1071):
+
 ```typescript
-const getTaskStatus = (a: Activity): TaskStatus => {
-  if (a.completed) return 'completed';
-  return ((a as any).status as TaskStatus) || 'pending';
+return {
+  rd_station_id: task._id,
+  // ... campos existentes ...
+  completed: task.done === true,
+  completed_at: task.done_date || null,
+  status: task.done === true ? 'completed' : 'pending',  // NOVO
+  created_at: task.created_at || new Date().toISOString()
 };
 ```
 
-Isso garante que mesmo que futuras sincronizações tragam a mesma inconsistência, o frontend tratará corretamente.
+Isso garante que futuras sincronizações definam `status` corretamente, mantendo consistência entre `completed` e `status`.
 
 ### Resultado esperado
-- Card "Atrasadas" cairá de ~891 para o número real (~283 ou menos)
-- Dados ficarão consistentes com o que o RD Station mostra
-- Proteção contra futuras inconsistências de sincronização
+- Card "Atrasadas" e "Pendentes" ficarão zerados, refletindo o RD Station
+- Futuras sincronizações manterão `status` e `completed` sempre consistentes
 
