@@ -39,7 +39,7 @@ export function RHDashboard() {
   const [periodoInicio, setPeriodoInicio] = useState(format(subMonths(new Date(), 6), 'yyyy-MM'));
   const [periodoFim, setPeriodoFim] = useState(format(new Date(), 'yyyy-MM'));
   const [colaboradorFiltro, setColaboradorFiltro] = useState('all');
-  const [colaboradores, setColaboradores] = useState<{ id: string; full_name: string }[]>([]);
+  const [colaboradores, setColaboradores] = useState<{ id: string; full_name: string; is_active: boolean; is_suspended: boolean }[]>([]);
   const [dashboardData, setDashboardData] = useState<DashboardData>({
     totalPago: 0,
     totalVantagens: 0,
@@ -62,10 +62,8 @@ export function RHDashboard() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, is_active, is_suspended')
         .eq('approval_status', 'approved')
-        .eq('is_active', true)
-        .eq('is_suspended', false)
         .order('full_name');
 
       if (error) throw error;
@@ -189,7 +187,7 @@ export function RHDashboard() {
                 <SelectContent>
                   <SelectItem value="all">Todos os colaboradores</SelectItem>
                   {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>
+                    <SelectItem key={c.id} value={c.id}>{c.full_name}{(!c.is_active || c.is_suspended) ? ' (Desligado)' : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
