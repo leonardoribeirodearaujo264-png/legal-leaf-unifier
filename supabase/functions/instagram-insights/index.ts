@@ -111,7 +111,7 @@ serve(async (req) => {
       return data;
     }
 
-    const fromDate = date_from || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    const fromDate = date_from || new Date(Date.now() - 29 * 86400000).toISOString().split('T')[0];
     const toDate = date_to || new Date().toISOString().split('T')[0];
 
     if (action === 'account_info') {
