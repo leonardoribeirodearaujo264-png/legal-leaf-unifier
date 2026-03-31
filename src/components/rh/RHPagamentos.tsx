@@ -178,10 +178,8 @@ export function RHPagamentos() {
       const [colabRes, rubRes, cargosRes, contasRes, catRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, full_name, email, position, cargo_id')
+          .select('id, full_name, email, position, cargo_id, is_active, is_suspended')
           .eq('approval_status', 'approved')
-          .eq('is_active', true)
-          .eq('is_suspended', false)
           .order('full_name'),
         supabase
           .from('rh_rubricas')
