@@ -164,7 +164,9 @@ export default function Dashboard() {
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url')
-          .in('id', Array.from(absenceMap.keys()));
+          .in('id', Array.from(absenceMap.keys()))
+          .eq('is_active', true)
+          .eq('is_suspended', false);
 
         const result: AbsenceRecord[] = (profiles || []).map(p => ({
           id: p.id,
