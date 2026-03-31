@@ -65,7 +65,13 @@ function NotConfiguredState({ errorMessage }: { errorMessage?: string }) {
 }
 
 export default function InstagramTab({ dateRange }: InstagramTabProps) {
-  const dateFrom = format(dateRange.from, 'yyyy-MM-dd');
+  // Meta API limita insights a no máximo 30 dias; clampar para 28 dias de segurança
+  const maxDays = 28;
+  const msRange = dateRange.to.getTime() - dateRange.from.getTime();
+  const clampedFrom = msRange > maxDays * 86400000
+    ? new Date(dateRange.to.getTime() - maxDays * 86400000)
+    : dateRange.from;
+  const dateFrom = format(clampedFrom, 'yyyy-MM-dd');
   const dateTo = format(dateRange.to, 'yyyy-MM-dd');
 
   const { data: accountInfo, isLoading: loadingAccount, error: accountError } = useQuery({

@@ -111,8 +111,14 @@ serve(async (req) => {
       return data;
     }
 
-    const fromDate = date_from || new Date(Date.now() - 29 * 86400000).toISOString().split('T')[0];
     const toDate = date_to || new Date().toISOString().split('T')[0];
+    const maxMs = 28 * 86400000; // Meta API: max ~30 days, usar 28 por segurança
+    let fromDate = date_from || new Date(Date.now() - maxMs).toISOString().split('T')[0];
+    // Clamp: garantir que nunca exceda 28 dias
+    if (new Date(toDate).getTime() - new Date(fromDate).getTime() > maxMs) {
+      fromDate = new Date(new Date(toDate).getTime() - maxMs).toISOString().split('T')[0];
+      console.log('Clamped fromDate to', fromDate, 'to stay within 28-day limit');
+    }
 
     if (action === 'account_info') {
       const data = await metaFetch(
