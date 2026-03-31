@@ -92,8 +92,12 @@ export default function InstagramTab({ dateRange }: InstagramTabProps) {
         body: { action: 'daily_insights', date_from: dateFrom, date_to: dateTo },
       });
       if (resp.error) throw new Error(resp.error.message || 'Erro ao buscar insights diários');
-      if (resp.data?.error) throw new Error(resp.data.error);
-      return resp.data?.daily || [];
+      const parsed = typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
+      console.log('[InstagramTab] daily_insights raw resp.data type:', typeof resp.data, 'parsed:', parsed);
+      if (parsed?.error) throw new Error(parsed.error);
+      const daily = parsed?.daily || [];
+      console.log('[InstagramTab] daily array length:', daily.length, 'first item:', daily[0]);
+      return daily;
     },
     enabled: !!accountInfo,
   });
