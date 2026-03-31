@@ -1,43 +1,32 @@
 
 
-## Corrigir erro ao criar pagamento de parceiros
+## Corrigir erro "column observacao does not exist" nos pagamentos de parceiros
 
-### Investigação
-Analisei a tabela `parceiros_pagamentos`, suas políticas RLS, constraints, tipos e o código do dialog. A tabela está **completamente vazia** — nenhum pagamento foi criado com sucesso até hoje. As políticas RLS e constraints parecem corretas, mas o toast genérico "Erro ao criar pagamento" esconde o erro real do banco.
+### Causa raiz
 
-### Problemas identificados
+A trigger `sync_parceiro_pagamento_to_financeiro` usa o nome de coluna `observacao` em dois lugares, mas a coluna real na tabela `fin_lancamentos` se chama `observacoes` (com "s" no final).
 
-1. **Erro genérico esconde a causa real**: O `catch` mostra apenas "Erro ao criar pagamento" sem o detalhe do banco. Precisa mostrar `error.message` para diagnosticar.
+Isso impede QUALQUER criação de pagamento de parceiro, pois a trigger dispara automaticamente e falha.
 
-2. **`SelectItem value=""` inválido no Radix UI**: O componente Select tem `<SelectItem value="">Nenhuma</SelectItem>`. Radix UI não suporta string vazia como value, o que pode corromper o estado do formulário e enviar dados inválidos para o `indicacao_id`.
+### Correção
 
-3. **Falta política de UPDATE/DELETE para não-admins**: Apenas admins têm ALL. Se um colaborador precisar alterar status de pagamento no futuro, será bloqueado.
+Uma única migração SQL para recriar a função `sync_parceiro_pagamento_to_financeiro` com o nome correto da coluna:
 
-### Correções
-
-**1. PagamentoParceiroDialog.tsx — Mostrar erro real + corrigir SelectItem**
-- No `catch`, usar `toast.error(\`Erro ao criar pagamento: \${error.message}\`)` para mostrar o erro real do banco
-- Trocar `<SelectItem value="">Nenhuma</SelectItem>` por `<SelectItem value="none">Nenhuma</SelectItem>`
-- No insert, converter `indicacao_id`: `formData.indicacao_id && formData.indicacao_id !== 'none' ? formData.indicacao_id : null`
-- Adicionar validação antes do insert para garantir dados limpos
-
-**2. Migração SQL — Adicionar política UPDATE para aprovados**
+**Linha 1 (UPDATE):** Trocar `observacao` por `observacoes`:
 ```sql
-CREATE POLICY "Usuarios aprovados podem atualizar pagamentos"
-ON public.parceiros_pagamentos FOR UPDATE TO authenticated
-USING (is_approved(auth.uid()))
-WITH CHECK (is_approved(auth.uid()));
+-- DE:
+observacao = COALESCE(NEW.descricao_abatimentos, observacao),
+-- PARA:
+observacoes = COALESCE(NEW.descricao_abatimentos, observacoes),
 ```
 
-### Arquivos a modificar
+**Linha 2 (INSERT):** Trocar `observacao` por `observacoes`:
+```sql
+-- DE:
+observacao,
+-- PARA:
+observacoes,
+```
 
-| Arquivo | Alteração |
-|---|---|
-| `src/components/parceiros/PagamentoParceiroDialog.tsx` | Mostrar erro real no toast, corrigir `SelectItem value`, validar dados |
-| Migração SQL | Adicionar política UPDATE para aprovados |
-
-### Resultado
-- O toast mostrará o erro exato do banco, facilitando diagnóstico
-- O SelectItem "Nenhuma" funcionará corretamente com Radix UI
-- Se o erro persistir após essas correções, a mensagem detalhada revelará a causa exata
+Nenhuma alteração de código frontend é necessária. Apenas a função do banco precisa ser corrigida.
 
