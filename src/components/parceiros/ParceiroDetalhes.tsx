@@ -199,9 +199,9 @@ export function ParceiroDetalhes({ open, onOpenChange, parceiro, onRefresh }: Pa
       setPagarDialogOpen(false);
       setPagandoPagamento(null);
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao marcar como pago:', error);
-      toast.error('Erro ao marcar como pago');
+      toast.error(error?.message || 'Erro ao marcar como pago');
     } finally {
       setLoadingPagar(false);
     }
