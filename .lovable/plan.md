@@ -1,45 +1,36 @@
 
 
-## Corrigir acesso de Letícia (admin) à folha de pagamento
+## Incluir colaboradores inativos na área de Pagamentos do RH
 
-### Causa raiz
+### Problema
 
-No arquivo `src/pages/RH.tsx`, linha 14, o hook `useUserRole()` é chamado mas o campo `loading` **não é verificado**. O código pula direto para o check de permissão na linha 25:
-
-```typescript
-const { isAdmin, profile } = useUserRole(); // ← não pega 'loading'
-// ...
-if (!canAccess && !isSelfProfile) { // ← roda antes do role carregar
-  return <Acesso Restrito />;
-}
-```
-
-Enquanto a query de role está em andamento, `isAdmin` é `false` (valor inicial). O resultado é que a tela "Acesso Restrito" aparece permanentemente — a página nunca re-renderiza porque `loading` não é observado.
-
-Letícia **é admin** no banco de dados (confirmado). O problema é puramente de timing no frontend.
+Os componentes de pagamentos (RHPagamentos e RHDashboard) filtram colaboradores com `is_active = true` e `is_suspended = false`. Isso impede que a Tatiane (desligada) apareça na lista para lançar pagamentos retroativos como acerto de rescisão.
 
 ### Correção
 
-**Arquivo: `src/pages/RH.tsx`**
+**1. `src/components/rh/RHPagamentos.tsx` (linha 177-183)**
 
-1. Extrair `loading` do `useUserRole()` na linha 14
-2. Adicionar check de loading antes do check de permissão — mostrar spinner enquanto carrega
+Remover os filtros `is_active` e `is_suspended` da query de colaboradores, mantendo apenas `approval_status = 'approved'`. Assim todos os colaboradores aprovados (ativos ou não) aparecem na lista de pagamentos.
 
-```typescript
-const { isAdmin, profile, loading } = useUserRole();
+Opcionalmente, ordenar mostrando inativos ao final ou com indicação visual (badge "Desligado").
 
-if (loading) {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-muted-foreground">Carregando...</div>
-    </div>
-  );
-}
-```
+**2. `src/components/rh/RHDashboard.tsx` (linhas 63-69)**
 
-Apenas essas 2 alterações no mesmo arquivo. Nenhuma outra mudança necessária.
+Mesma alteração: remover filtros `is_active` e `is_suspended` da query de colaboradores do dashboard de pagamentos, para que o filtro de colaborador também inclua inativos.
+
+**3. Indicação visual (ambos arquivos)**
+
+Adicionar um badge "(Desligado)" ou "(Inativo)" ao lado do nome do colaborador inativo nos selects e tabelas, para que fique claro quem está ativo e quem não está.
+
+### Arquivos a modificar
+
+| Arquivo | Alteração |
+|---|---|
+| `src/components/rh/RHPagamentos.tsx` | Remover `.eq('is_active', true).eq('is_suspended', false)` da query de profiles; adicionar badge visual para inativos |
+| `src/components/rh/RHDashboard.tsx` | Mesma remoção de filtros na query de colaboradores |
 
 ### Resultado
-- Letícia (e qualquer admin) verá um spinner rápido enquanto o role carrega, depois acessa normalmente a folha de pagamento
-- Nenhum dado ou RLS foi alterado — o problema nunca foi de permissão real
+- Tatiane e qualquer outro colaborador desligado aparecerá na lista de pagamentos
+- Será possível lançar pagamentos retroativos (acerto, rescisão, etc.)
+- Os demais módulos do RH continuam ocultando inativos normalmente
 
