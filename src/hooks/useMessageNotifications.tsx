@@ -329,26 +329,29 @@ export const useMessageNotifications = () => {
       
       // Generate favicon with red badge
       const canvas = document.createElement('canvas');
-      canvas.width = 32;
-      canvas.height = 32;
+      canvas.width = 64;
+      canvas.height = 64;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.src = '/favicon.ico';
         img.onload = () => {
-          ctx.drawImage(img, 0, 0, 32, 32);
-          // Red circle
-          const badgeSize = 14;
-          const x = 32 - badgeSize / 2;
-          const y = badgeSize / 2;
+          ctx.drawImage(img, 0, 0, 64, 64);
+          // Red circle - larger badge
+          const badgeRadius = 16;
+          const x = 64 - badgeRadius;
+          const y = badgeRadius;
           ctx.beginPath();
-          ctx.arc(x, y, badgeSize / 2 + 1, 0, Math.PI * 2);
+          ctx.arc(x, y, badgeRadius, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444';
           ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
           // White text
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 10px Arial';
+          ctx.font = 'bold 20px Arial';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), x, y);
@@ -359,16 +362,15 @@ export const useMessageNotifications = () => {
           }
         };
         img.onerror = () => {
-          // If no favicon, just draw the badge alone
           ctx.beginPath();
-          ctx.arc(16, 16, 14, 0, Math.PI * 2);
+          ctx.arc(32, 32, 28, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444';
           ctx.fill();
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 14px Arial';
+          ctx.font = 'bold 28px Arial';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), 16, 16);
+          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), 32, 32);
           const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
           if (link) {
             link.href = canvas.toDataURL('image/png');
