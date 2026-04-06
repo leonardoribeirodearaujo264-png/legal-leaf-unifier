@@ -180,6 +180,9 @@ const Mensagens = () => {
   const [messageSearchTerm, setMessageSearchTerm] = useState('');
   const [showMessageSearch, setShowMessageSearch] = useState(false);
 
+  // Unread filter
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1176,7 +1179,10 @@ const Mensagens = () => {
 
   const filteredConversations = conversations.filter(conv => {
     const name = getConversationName(conv);
-    return name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+    if (showUnreadOnly && (!conv.unread_count || conv.unread_count === 0)) return false;
+    return true;
   });
 
   // Filter messages by favorites and search
@@ -1284,7 +1290,7 @@ const Mensagens = () => {
             "w-full md:w-[360px] border-r flex flex-col min-w-0 md:min-w-[360px] md:max-w-[360px]",
             showMobileChat && "hidden md:flex"
           )}>
-            <div className="p-3 border-b">
+            <div className="p-3 border-b space-y-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -1294,6 +1300,14 @@ const Mensagens = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
+              <Button
+                variant={showUnreadOnly ? "default" : "outline"}
+                size="sm"
+                className="w-full text-xs h-7"
+                onClick={() => setShowUnreadOnly(!showUnreadOnly)}
+              >
+                {showUnreadOnly ? "Mostrando não lidas" : "Filtrar não lidas"}
+              </Button>
             </div>
 
             <ScrollArea className="flex-1">
@@ -1320,12 +1334,14 @@ const Mensagens = () => {
                   {filteredConversations.map(conv => (
                     <div key={conv.id} className="relative group">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setActiveConversation(conv);
                           setShowMobileChat(true);
                           setShowFavorites(false);
                           setShowMessageSearch(false);
                           setMessageSearchTerm('');
+                          // After messages load and are marked read, refresh list
+                          setTimeout(() => fetchConversations(), 1500);
                         }}
                         className={cn(
                           "w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors",
@@ -1360,9 +1376,9 @@ const Mensagens = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <p className={cn(
-                              "line-clamp-2 leading-tight",
+                              "leading-tight break-words",
                               conv.unread_count && conv.unread_count > 0 ? "font-bold" : "font-medium"
-                            )}>
+                            )} style={{ wordBreak: 'break-word' }}>
                               {getConversationName(conv)}
                             </p>
                           </div>
