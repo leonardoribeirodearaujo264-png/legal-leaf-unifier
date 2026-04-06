@@ -98,6 +98,7 @@ interface Deal {
   won: boolean | null;
   closed_at: string | null;
   loss_reason: string | null;
+  star_rating: number;
   contact?: Contact;
   owner?: {
     id: string;
@@ -802,10 +803,20 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
     const deal = deals.find(d => d.id === dealId);
     if (!deal) return;
 
-    const newStageId = over.id as string;
+    let newStageId = over.id as string;
     const currentStageId = deal.stage_id;
 
-    if (newStageId !== currentStageId && stages.some(s => s.id === newStageId)) {
+    // If dropped on a deal card instead of a stage column, resolve the stage
+    if (!stages.some(s => s.id === newStageId)) {
+      const targetDeal = deals.find(d => d.id === newStageId);
+      if (targetDeal) {
+        newStageId = targetDeal.stage_id;
+      } else {
+        return;
+      }
+    }
+
+    if (newStageId !== currentStageId) {
       handleMoveToStage(dealId, newStageId, currentStageId);
     }
   };
