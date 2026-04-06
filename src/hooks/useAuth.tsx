@@ -1,5 +1,5 @@
 // Auth provider with auto-logout after 6 hours of inactivity
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
@@ -124,15 +124,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [user, resetInactivityTimer, checkInactivityOnLoad, signOut]);
 
+  // Stable ref to track current user id without causing re-renders
+  const currentUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+      (event, newSession) => {
+        // Avoid unnecessary re-renders on TOKEN_REFRESHED when user is the same
+        if (event === 'TOKEN_REFRESHED' && newSession?.user?.id === currentUserIdRef.current) {
+          // Same user, just token renewal — no state update needed
+          return;
+        }
+
+        currentUserIdRef.current = newSession?.user?.id ?? null;
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
         setLoading(false);
         
         // Check inactivity on session restore (deferred to avoid deadlock)
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session) {
+        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && newSession) {
           setTimeout(() => {
             const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
             if (lastActivity) {

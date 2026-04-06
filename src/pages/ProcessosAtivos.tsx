@@ -10,13 +10,16 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Briefcase, Search, Filter, RefreshCw, ListTodo, MessageSquare, Send, X, Sparkles, Download, CheckCircle, XCircle } from 'lucide-react';
+import { Briefcase, Search, Filter, RefreshCw, ListTodo, MessageSquare, Send, X, Sparkles, Download, CheckCircle, XCircle, FileSignature, Scale, FileCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { TaskCreationDialog } from '@/components/TaskCreationDialog';
 import { PetitionSuggestionDialog } from '@/components/PetitionSuggestionDialog';
 import { AdvboxDataStatus } from '@/components/AdvboxDataStatus';
+import { ContractGenerator } from '@/components/ContractGenerator';
+import { ProcuracaoGenerator } from '@/components/ProcuracaoGenerator';
+import { DeclaracaoGenerator } from '@/components/DeclaracaoGenerator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, subDays, subMonths, isBefore, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -98,6 +101,14 @@ export default function ProcessosAtivos() {
   const [messageDialogLawsuit, setMessageDialogLawsuit] = useState<Lawsuit | null>(null);
   const [selectedMessageType, setSelectedMessageType] = useState<string>('');
   const [sendingDocRequest, setSendingDocRequest] = useState<number | null>(null);
+
+  // Document generation dialogs
+  const [contractDialogOpen, setContractDialogOpen] = useState(false);
+  const [procuracaoDialogOpen, setProcuracaoDialogOpen] = useState(false);
+  const [declaracaoDialogOpen, setDeclaracaoDialogOpen] = useState(false);
+  const [selectedDocClient, setSelectedDocClient] = useState<any>(null);
+  const [selectedDocQualification, setSelectedDocQualification] = useState('');
+  const [selectedDocProduct, setSelectedDocProduct] = useState('');
 
   const { toast } = useToast();
 
@@ -265,6 +276,112 @@ export default function ProcessosAtivos() {
     if (selectedMessageType === 'cobranca_documentos') await sendDocumentRequest(messageDialogLawsuit);
     setMessageDialogLawsuit(null);
     setSelectedMessageType('');
+  };
+
+  const handleDocumentFromLawsuit = async (lawsuit: Lawsuit, type: 'contrato' | 'procuracao' | 'declaracao') => {
+    let customerId: number | null = null;
+    let customerName = '';
+
+    if (lawsuit.customers) {
+      if (typeof lawsuit.customers === 'string') {
+        customerName = lawsuit.customers;
+      } else if (Array.isArray(lawsuit.customers) && lawsuit.customers.length > 0) {
+        customerName = lawsuit.customers[0].name || '';
+        customerId = lawsuit.customers[0].customer_id || null;
+      } else if (typeof lawsuit.customers === 'object') {
+        const c = lawsuit.customers as { name: string; customer_id?: number };
+        customerName = c.name || '';
+        customerId = c.customer_id || null;
+      }
+    }
+
+    // Fetch customer data from advbox_customers
+    let clientData: any = null;
+    if (customerId) {
+      const { data } = await supabase
+        .from('advbox_customers')
+        .select('*')
+        .eq('advbox_id', customerId)
+        .single();
+      clientData = data;
+    } else if (customerName) {
+      const { data } = await supabase
+        .from('advbox_customers')
+        .select('*')
+        .ilike('name', `%${customerName}%`)
+        .limit(1)
+        .single();
+      clientData = data;
+    }
+
+    // Build Client object
+    const client = {
+      id: clientData?.advbox_id || 0,
+      nomeCompleto: clientData?.name || customerName,
+      cpf: clientData?.cpf || clientData?.tax_id || '',
+      documentoIdentidade: '',
+      dataNascimento: clientData?.birthday || '',
+      estadoCivil: '',
+      profissao: '',
+      telefone: clientData?.phone || '',
+      email: clientData?.email || '',
+      cep: '',
+      cidade: '',
+      rua: '',
+      numero: '',
+      complemento: '',
+      bairro: '',
+      estado: '',
+    };
+
+    // Try to get extra data from client_form_overrides
+    if (clientData?.advbox_id) {
+      const { data: overrides } = await supabase
+        .from('client_form_overrides')
+        .select('*')
+        .eq('client_row_id', clientData.advbox_id)
+        .single();
+      if (overrides) {
+        client.documentoIdentidade = overrides.documento_identidade || '';
+        client.estadoCivil = overrides.estado_civil || '';
+        client.profissao = overrides.profissao || '';
+        client.cep = overrides.cep || '';
+        client.cidade = overrides.cidade || '';
+        client.rua = overrides.rua || '';
+        client.numero = overrides.numero || '';
+        client.complemento = overrides.complemento || '';
+        client.bairro = overrides.bairro || '';
+        client.estado = overrides.estado || '';
+        if (!client.cpf && overrides.cpf) client.cpf = overrides.cpf;
+        if (!client.dataNascimento && overrides.data_nascimento) client.dataNascimento = overrides.data_nascimento;
+        if (!client.telefone && overrides.telefone) client.telefone = overrides.telefone;
+        if (!client.email && overrides.email) client.email = overrides.email;
+      }
+    }
+
+    // Build qualification string
+    const parts = [client.nomeCompleto];
+    if (client.estadoCivil) parts.push(client.estadoCivil);
+    if (client.profissao) parts.push(client.profissao);
+    if (client.cpf) parts.push(`inscrito(a) no CPF sob o nº ${client.cpf}`);
+    if (client.documentoIdentidade) parts.push(`portador(a) do RG nº ${client.documentoIdentidade}`);
+    if (client.rua) {
+      let endereco = `residente e domiciliado(a) na ${client.rua}`;
+      if (client.numero) endereco += `, nº ${client.numero}`;
+      if (client.bairro) endereco += `, ${client.bairro}`;
+      if (client.cidade) endereco += `, ${client.cidade}`;
+      if (client.estado) endereco += `/${client.estado}`;
+      parts.push(endereco);
+    }
+    const qualification = parts.join(', ');
+
+    setSelectedDocClient(client);
+    setSelectedDocQualification(qualification);
+    setSelectedDocProduct(lawsuit.type || 'Processo Judicial');
+
+    if (type === 'contrato') setContractDialogOpen(true);
+    else if (type === 'procuracao') setProcuracaoDialogOpen(true);
+    else setDeclaracaoDialogOpen(true);
   };
 
   const handleExportExcel = () => {
@@ -598,6 +715,15 @@ export default function ProcessosAtivos() {
                             <ListTodo className="h-4 w-4 mr-1" />
                             <span className="hidden md:inline">Tarefa</span>
                           </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'contrato')} title="Gerar Contrato">
+                            <FileSignature className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'procuracao')} title="Gerar Procuração">
+                            <Scale className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'declaracao')} title="Gerar Declaração">
+                            <FileCheck className="h-4 w-4" />
+                          </Button>
                           <Button size="sm" variant="outline" onClick={() => setPetitionDialogLawsuit(lawsuit)} title="Sugestão de petição por IA">
                             <Sparkles className="h-4 w-4" />
                           </Button>
@@ -699,6 +825,29 @@ export default function ProcessosAtivos() {
         {/* Message Dialog */}
         <Dialog open={!!messageDialogLawsuit} onOpenChange={(open) => { if (!open) { setMessageDialogLawsuit(null); setSelectedMessageType(''); } }}>
           <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+
+        {/* Document Generation Dialogs */}
+        <ContractGenerator
+          open={contractDialogOpen}
+          onOpenChange={setContractDialogOpen}
+          client={selectedDocClient}
+          productName={selectedDocProduct}
+          qualification={selectedDocQualification}
+        />
+
+        <ProcuracaoGenerator
+          open={procuracaoDialogOpen}
+          onOpenChange={setProcuracaoDialogOpen}
+          client={selectedDocClient}
+          qualification={selectedDocQualification}
+        />
+
+        <DeclaracaoGenerator
+          open={declaracaoDialogOpen}
+          onOpenChange={setDeclaracaoDialogOpen}
+          client={selectedDocClient}
+          qualification={selectedDocQualification}
+        />
             <DialogHeader>
               <DialogTitle>Enviar Mensagem</DialogTitle>
               <DialogDescription>
