@@ -652,6 +652,30 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
     setEditForm({});
   };
 
+  const handleStarRating = async (dealId: string, rating: number) => {
+    // If clicking the same star, toggle off
+    const currentDeal = deals.find(d => d.id === dealId);
+    const newRating = currentDeal?.star_rating === rating ? 0 : rating;
+
+    // Optimistic update
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, star_rating: newRating } : d));
+    if (selectedDeal?.id === dealId) {
+      setSelectedDeal(prev => prev ? { ...prev, star_rating: newRating } : prev);
+    }
+
+    const { error } = await supabase
+      .from('crm_deals')
+      .update({ star_rating: newRating } as any)
+      .eq('id', dealId);
+
+    if (error) {
+      console.error('Error updating star rating:', error);
+      toast.error('Erro ao salvar classificação');
+      // Revert
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, star_rating: currentDeal?.star_rating || 0 } : d));
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedDeal) return;
     setSaving(true);
@@ -1186,6 +1210,27 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
                         </span>
                       </div>
                     )}
+
+                    {/* Star Rating */}
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground font-medium">Classificação</p>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <button
+                            key={i}
+                            onClick={() => handleStarRating(selectedDeal.id, i)}
+                            className="p-0.5 hover:scale-125 transition-transform"
+                          >
+                            <Star
+                              className={`h-5 w-5 ${i <= (selectedDeal.star_rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40 hover:text-amber-300'}`}
+                            />
+                          </button>
+                        ))}
+                        {(selectedDeal.star_rating || 0) > 0 && (
+                          <span className="text-xs text-muted-foreground ml-1">{selectedDeal.star_rating}/5</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-3">
