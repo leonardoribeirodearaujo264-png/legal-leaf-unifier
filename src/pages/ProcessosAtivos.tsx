@@ -102,6 +102,14 @@ export default function ProcessosAtivos() {
   const [selectedMessageType, setSelectedMessageType] = useState<string>('');
   const [sendingDocRequest, setSendingDocRequest] = useState<number | null>(null);
 
+  // Document generation dialogs
+  const [contractDialogOpen, setContractDialogOpen] = useState(false);
+  const [procuracaoDialogOpen, setProcuracaoDialogOpen] = useState(false);
+  const [declaracaoDialogOpen, setDeclaracaoDialogOpen] = useState(false);
+  const [selectedDocClient, setSelectedDocClient] = useState<any>(null);
+  const [selectedDocQualification, setSelectedDocQualification] = useState('');
+  const [selectedDocProduct, setSelectedDocProduct] = useState('');
+
   const { toast } = useToast();
 
   const getCustomerName = (customers: Lawsuit['customers']): string => {
