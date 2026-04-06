@@ -10,13 +10,16 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { Briefcase, Search, Filter, RefreshCw, ListTodo, MessageSquare, Send, X, Sparkles, Download, CheckCircle, XCircle } from 'lucide-react';
+import { Briefcase, Search, Filter, RefreshCw, ListTodo, MessageSquare, Send, X, Sparkles, Download, CheckCircle, XCircle, FileSignature, Scale, FileCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { TaskCreationDialog } from '@/components/TaskCreationDialog';
 import { PetitionSuggestionDialog } from '@/components/PetitionSuggestionDialog';
 import { AdvboxDataStatus } from '@/components/AdvboxDataStatus';
+import { ContractGenerator } from '@/components/ContractGenerator';
+import { ProcuracaoGenerator } from '@/components/ProcuracaoGenerator';
+import { DeclaracaoGenerator } from '@/components/DeclaracaoGenerator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format, subDays, subMonths, isBefore, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
