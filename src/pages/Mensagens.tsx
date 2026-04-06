@@ -180,6 +180,9 @@ const Mensagens = () => {
   const [messageSearchTerm, setMessageSearchTerm] = useState('');
   const [showMessageSearch, setShowMessageSearch] = useState(false);
 
+  // Unread filter
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);

@@ -124,19 +124,15 @@ export const useMessaging = () => {
 
         const lastMessage = lastMessages?.find(m => m.conversation_id === conv.id);
         
-        // Count unread messages
+        // Store participation for later exact count
         const myParticipation = convParticipants.find(p => p.user_id === user.id);
-        const unreadCount = lastMessages?.filter(
-          m => m.conversation_id === conv.id && 
-               new Date(m.created_at) > new Date(myParticipation?.last_read_at || 0) &&
-               m.sender_id !== user.id
-        ).length || 0;
 
         return {
           ...conv,
           participants: enrichedParticipants,
           last_message: lastMessage,
-          unread_count: unreadCount
+          unread_count: 0, // will be updated below
+          _lastReadAt: myParticipation?.last_read_at || null
         };
       }) || [];
 
