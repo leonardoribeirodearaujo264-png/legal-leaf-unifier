@@ -21,7 +21,7 @@ export const useTaskNotifications = (tasks: Task[]) => {
     if ('Notification' in window && Notification.permission === 'granted') {
       const notification = new Notification(title, {
         body,
-        icon: '/favicon.ico',
+        icon: '/logo-eggnunes.png',
         tag: tag || 'task-notification',
         requireInteraction: true,
       });
