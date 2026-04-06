@@ -1281,7 +1281,7 @@ const Mensagens = () => {
         <div className="flex-1 flex rounded-lg border overflow-hidden bg-card mx-4 mb-4 md:mx-6 md:mb-6 lg:mx-8 lg:mb-8 min-h-0">
           {/* Conversations List */}
           <div className={cn(
-            "w-full md:w-80 border-r flex flex-col min-w-0 md:min-w-[320px] md:max-w-[320px]",
+            "w-full md:w-[360px] border-r flex flex-col min-w-0 md:min-w-[360px] md:max-w-[360px]",
             showMobileChat && "hidden md:flex"
           )}>
             <div className="p-3 border-b">
@@ -1331,42 +1331,49 @@ const Mensagens = () => {
                           "w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors",
                           activeConversation?.id === conv.id
                             ? "bg-primary/10"
-                            : "hover:bg-muted"
+                            : conv.unread_count && conv.unread_count > 0
+                              ? "bg-primary/5 hover:bg-primary/10"
+                              : "hover:bg-muted"
                         )}
                       >
-                        <Avatar className="h-10 w-10">
-                          {conv.is_group ? (
-                            <AvatarFallback className="bg-primary/20">
-                              <Users className="h-5 w-5" />
-                            </AvatarFallback>
-                          ) : (
-                            <>
-                              <AvatarImage src={getConversationAvatar(conv) || ''} />
-                              <AvatarFallback>
-                                {getConversationName(conv)[0]}
+                        <div className="relative">
+                          <Avatar className="h-10 w-10">
+                            {conv.is_group ? (
+                              <AvatarFallback className="bg-primary/20">
+                                <Users className="h-5 w-5" />
                               </AvatarFallback>
-                            </>
+                            ) : (
+                              <>
+                                <AvatarImage src={getConversationAvatar(conv) || ''} />
+                                <AvatarFallback>
+                                  {getConversationName(conv)[0]}
+                                </AvatarFallback>
+                              </>
+                            )}
+                          </Avatar>
+                          {conv.unread_count && conv.unread_count > 0 && (
+                            <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                              {conv.unread_count}
+                            </span>
                           )}
-                        </Avatar>
+                        </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <p className="font-medium truncate">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className={cn(
+                              "line-clamp-2 leading-tight",
+                              conv.unread_count && conv.unread_count > 0 ? "font-bold" : "font-medium"
+                            )}>
                               {getConversationName(conv)}
                             </p>
-                            {conv.last_message && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatMessageDate(conv.last_message.created_at)}
-                              </span>
-                            )}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground truncate">
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-sm text-muted-foreground truncate flex-1">
                               {conv.last_message?.content || 'Nenhuma mensagem'}
                             </p>
-                            {conv.unread_count && conv.unread_count > 0 && (
-                              <Badge variant="default" className="ml-2 h-5 min-w-[20px] justify-center">
-                                {conv.unread_count}
-                              </Badge>
+                            {conv.last_message && (
+                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                {formatMessageDate(conv.last_message.created_at)}
+                              </span>
                             )}
                           </div>
                         </div>
