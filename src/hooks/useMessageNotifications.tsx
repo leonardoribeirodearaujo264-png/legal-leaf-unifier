@@ -320,6 +320,71 @@ export const useMessageNotifications = () => {
     return () => window.removeEventListener('popup-preference-changed', handler);
   }, [fetchPopupPreference]);
 
+  // Update document title and favicon with unread count
+  useEffect(() => {
+    const baseTitle = 'Intranet Egg Nunes';
+    
+    if (unreadCount > 0) {
+      document.title = `(${unreadCount}) ${baseTitle}`;
+      
+      // Generate favicon with red badge
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = '/favicon.ico';
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, 32, 32);
+          // Red circle
+          const badgeSize = 14;
+          const x = 32 - badgeSize / 2;
+          const y = badgeSize / 2;
+          ctx.beginPath();
+          ctx.arc(x, y, badgeSize / 2 + 1, 0, Math.PI * 2);
+          ctx.fillStyle = '#ef4444';
+          ctx.fill();
+          // White text
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 10px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), x, y);
+          // Apply
+          const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+          if (link) {
+            link.href = canvas.toDataURL('image/png');
+          }
+        };
+        img.onerror = () => {
+          // If no favicon, just draw the badge alone
+          ctx.beginPath();
+          ctx.arc(16, 16, 14, 0, Math.PI * 2);
+          ctx.fillStyle = '#ef4444';
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 14px Arial';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), 16, 16);
+          const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+          if (link) {
+            link.href = canvas.toDataURL('image/png');
+          }
+        };
+      }
+    } else {
+      document.title = baseTitle;
+      // Restore original favicon
+      const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      if (link) {
+        link.href = '/favicon.ico';
+      }
+    }
+  }, [unreadCount]);
+
   return {
     unreadCount,
     refetchUnreadCount: fetchUnreadCount,
