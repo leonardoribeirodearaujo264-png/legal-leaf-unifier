@@ -1,38 +1,35 @@
 
-## Corrigir favicon e reforçar o alerta na aba do navegador
 
-### Diagnóstico
-- O contador em tempo real já funciona no título da aba, mas o ícone base usado pelo código continua sendo `/favicon.ico`.
-- Pelo comportamento atual e pelos arquivos do projeto, esse ícone não é o branding correto do Egg Nunes; a arte da marca já existe em `public/logo-eggnunes.png`.
-- O badge desenhado no favicon ainda está pequeno demais para leitura confortável na aba.
+## Três correções nas Mensagens Internas
 
-### Implementação
-1. **Restaurar a favicon correta**
-   - Em `index.html`, parar de usar o ícone atual e apontar explicitamente para a arte da marca do Egg Nunes, com URL versionada para forçar atualização no navegador.
-   - Dar um `id` ao `<link rel="icon">` para o hook atualizar sempre o link certo.
-   - Remover ou substituir o `public/favicon.ico` atual para impedir que o navegador continue puxando o ícone antigo por cache/padrão.
+### 1. Contagem de não lidas inconsistente entre lista e aba do navegador
 
-2. **Corrigir o badge dinâmico**
-   - Em `src/hooks/useMessageNotifications.tsx`, desenhar o badge sobre a favicon correta da marca, não sobre `/favicon.ico`.
-   - Aumentar bastante o badge: canvas maior, círculo maior, fonte mais grossa e melhor contraste.
-   - Mostrar no favicon apenas algo legível em aba pequena (`1–9` e `9+`), enquanto o número exato continua aparecendo no título da aba.
-   - Quando zerar as não lidas, restaurar a favicon original do Egg Nunes.
+**Causa**: O `useMessaging.tsx` conta não lidas filtrando `lastMessages` — que é uma query de até 1000 mensagens ordenada por `created_at desc` em todas as conversas. Já o `useMessageNotifications.tsx` faz queries individuais por conversa com `count: 'exact'`. Isso gera divergência: a aba do navegador pode mostrar não lidas que a lista de conversas não mostra (e vice-versa).
 
-3. **Reforçar o alerta fora da favicon**
-   - Como a área nativa da aba só permite favicon e título, reforçar o alerta também no `document.title`.
-   - Trocar o formato atual por algo mais visível, como `[3] Intranet Egg Nunes` ou `● 3 Intranet Egg Nunes`, mantendo atualização em tempo real.
+**Correção em `src/hooks/useMessaging.tsx`** (linhas 127-133):
+- Substituir a contagem baseada em `lastMessages` por queries individuais com `count: 'exact'` por conversa (mesmo método do `useMessageNotifications`), garantindo que os dois contadores usem a mesma lógica.
+- Alternativamente, após carregar as conversas, fazer uma query separada para cada conversa buscando `count` de mensagens onde `sender_id != user.id` e `created_at > last_read_at`.
 
-4. **Ajuste de consistência**
-   - Alinhar também o ícone das notificações nativas de mensagem para a mesma arte da marca, evitando qualquer aparição do ícone do Lovable.
+### 2. Filtro de mensagens não lidas na lista de conversas
 
-### Arquivos / itens a ajustar
-- `index.html`
-- `src/hooks/useMessageNotifications.tsx`
-- `public/favicon.ico` (remover ou substituir)
-- opcional de consistência: `src/hooks/useTaskNotifications.tsx`
+**Correção em `src/pages/Mensagens.tsx`**:
+- Adicionar um estado `showUnreadOnly` (boolean, default false).
+- Ao lado da barra de busca (linha ~1287), adicionar um botão/toggle "Não lidas" que ativa/desativa o filtro.
+- No `filteredConversations` (linha 1177), quando `showUnreadOnly` estiver ativo, filtrar apenas `conv.unread_count > 0`.
+- Ao clicar numa conversa, o `fetchMessages` já marca como lida (linha 212-220). Após marcar, disparar `fetchConversations()` para atualizar a contagem na lista e o `messages-read` event para atualizar a aba.
 
-### Resultado esperado
-- A aba volta a mostrar a identidade visual do Egg Nunes.
-- O badge fica realmente legível.
-- O alerta continua em tempo real.
-- Mesmo quando a favicon ficar pequena demais no navegador, o contador continuará claro no título da aba.
+### 3. Nomes cortados na lista de conversas
+
+**Causa**: O nome usa `line-clamp-2` mas a largura do contêiner ainda é insuficiente para nomes longos como "Mariana Alves Amorim Corrêa Fulgêncio".
+
+**Correção em `src/pages/Mensagens.tsx`** (linhas 1362-1367):
+- Trocar `line-clamp-2` por `break-words` com wrap natural, sem truncar. Usar `word-break: break-word` e remover o `line-clamp` para que o nome quebre livremente para a linha de baixo.
+- Manter `min-w-0` no container pai para funcionar com flexbox.
+
+### Arquivos a modificar
+
+| Arquivo | Alteração |
+|---|---|
+| `src/hooks/useMessaging.tsx` | Corrigir contagem de não lidas para usar queries exatas por conversa |
+| `src/pages/Mensagens.tsx` | Adicionar filtro "Não lidas", corrigir nome truncado |
+
