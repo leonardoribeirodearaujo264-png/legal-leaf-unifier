@@ -724,6 +724,9 @@ export default function ProcessosAtivos() {
                           <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'declaracao')} title="Gerar Declaração">
                             <FileCheck className="h-4 w-4" />
                           </Button>
+                          <Button size="sm" variant="outline" onClick={() => setPetitionDialogLawsuit(lawsuit)} title="Sugestão de petição por IA">
+                            <Sparkles className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                       <div className="text-xs">
