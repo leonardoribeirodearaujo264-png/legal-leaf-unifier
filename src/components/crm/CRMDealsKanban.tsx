@@ -274,6 +274,18 @@ const DraggableDealCard = ({
               <span className="truncate text-blue-600 font-medium">{profiles[deal.owner_id].full_name}</span>
             </div>
           )}
+
+          {/* Star Rating */}
+          {(deal.star_rating || 0) > 0 && (
+            <div className="flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map(i => (
+                <Star
+                  key={i}
+                  className={`h-3 w-3 ${i <= (deal.star_rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/30'}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
