@@ -1,11 +1,40 @@
 // Auth provider with auto-logout after 6 hours of inactivity
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 
-const INACTIVITY_TIMEOUT = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+const INACTIVITY_TIMEOUT = 6 * 60 * 60 * 1000; // 6 hours
 const LAST_ACTIVITY_KEY = 'egg_nunes_last_activity';
+
+interface StoredActivity {
+  userId: string;
+  timestamp: number;
+}
+
+function getStoredActivity(): StoredActivity | null {
+  try {
+    const raw = localStorage.getItem(LAST_ACTIVITY_KEY);
+    if (!raw) return null;
+    // Handle legacy format (plain number)
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'number') return null; // legacy, treat as invalid
+    if (parsed && typeof parsed.userId === 'string' && typeof parsed.timestamp === 'number') {
+      return parsed as StoredActivity;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredActivity(userId: string) {
+  localStorage.setItem(LAST_ACTIVITY_KEY, JSON.stringify({ userId, timestamp: Date.now() }));
+}
+
+function clearStoredActivity() {
+  localStorage.removeItem(LAST_ACTIVITY_KEY);
+}
 
 interface AuthContextType {
   user: User | null;
@@ -22,162 +51,132 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
 
-  const signOut = useCallback(async () => {
-    localStorage.removeItem(LAST_ACTIVITY_KEY);
+  const forceSignOut = useCallback(async () => {
+    clearStoredActivity();
+    if (inactivityTimerRef.current) {
+      clearTimeout(inactivityTimerRef.current);
+      inactivityTimerRef.current = null;
+    }
     await supabase.auth.signOut();
     navigate('/auth');
   }, [navigate]);
 
-  // Check if session should be invalidated due to inactivity
-  const checkInactivityOnLoad = useCallback(() => {
-    const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
-    if (lastActivity) {
-      const lastActivityTime = parseInt(lastActivity, 10);
-      const now = Date.now();
-      const timeSinceLastActivity = now - lastActivityTime;
-      
-      if (timeSinceLastActivity > INACTIVITY_TIMEOUT) {
-        console.log('Auto-logout: Session expired due to inactivity (more than 6 hours since last activity)');
-        return true; // Should sign out
-      }
+  const signOut = useCallback(async () => {
+    await forceSignOut();
+  }, [forceSignOut]);
+
+  // Check if a restored session should be invalidated due to inactivity
+  const shouldInvalidateRestoredSession = useCallback((userId: string): boolean => {
+    const stored = getStoredActivity();
+    if (!stored) return false; // No activity record — fresh or cleared, allow
+    if (stored.userId !== userId) {
+      // Different user's activity — clear it and allow
+      clearStoredActivity();
+      return false;
     }
-    return false;
+    return (Date.now() - stored.timestamp) > INACTIVITY_TIMEOUT;
   }, []);
 
-  // Update last activity timestamp
-  const updateLastActivity = useCallback(() => {
-    localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
-  }, []);
-
-  // Reset inactivity timer on user activity
-  const resetInactivityTimer = useCallback(() => {
-    // Update last activity in localStorage
-    updateLastActivity();
-    
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-    }
-    
+  // Reset inactivity timer
+  const resetInactivityTimer = useCallback((userId: string) => {
+    setStoredActivity(userId);
+    if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     inactivityTimerRef.current = setTimeout(() => {
       console.log('Auto-logout due to 6 hours of inactivity');
-      signOut();
+      forceSignOut();
     }, INACTIVITY_TIMEOUT);
-  }, [signOut, updateLastActivity]);
+  }, [forceSignOut]);
 
-  // Setup activity listeners for auto-logout
+  // Activity listeners
   useEffect(() => {
     if (!user) return;
+    const userId = user.id;
 
     const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click'];
-    
-    // Throttle activity updates to avoid excessive localStorage writes
     let lastUpdate = 0;
-    const throttleMs = 60000; // Update localStorage at most once per minute
-    
+    const throttleMs = 60000;
+
     const handleActivity = () => {
       const now = Date.now();
       if (now - lastUpdate > throttleMs) {
         lastUpdate = now;
-        resetInactivityTimer();
-      } else if (inactivityTimerRef.current) {
-        // Still reset the timer even if we don't update localStorage
-        clearTimeout(inactivityTimerRef.current);
+        resetInactivityTimer(userId);
+      } else {
+        // Just reset the JS timer without writing to localStorage
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
         inactivityTimerRef.current = setTimeout(() => {
           console.log('Auto-logout due to 6 hours of inactivity');
-          signOut();
+          forceSignOut();
         }, INACTIVITY_TIMEOUT);
       }
     };
 
-    // Start the timer and set initial activity
-    resetInactivityTimer();
+    resetInactivityTimer(userId);
 
-    // Add event listeners
     activityEvents.forEach(event => {
       document.addEventListener(event, handleActivity, { passive: true });
     });
 
-    // Also listen for visibility change to handle when user comes back to tab
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Only check inactivity - don't trigger any state updates that could cause re-renders
-        // This prevents the page from refreshing when switching tabs
-        if (checkInactivityOnLoad()) {
-          signOut();
+        if (shouldInvalidateRestoredSession(userId)) {
+          console.log('Auto-logout: tab returned after 6h inactivity');
+          forceSignOut();
         }
-        // Note: We intentionally DON'T call resetInactivityTimer() here
-        // to avoid triggering re-renders that could cause form data loss
-        // The timer will be reset on the next user interaction anyway
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current);
-      }
-      activityEvents.forEach(event => {
-        document.removeEventListener(event, handleActivity);
-      });
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      activityEvents.forEach(event => document.removeEventListener(event, handleActivity));
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user, resetInactivityTimer, checkInactivityOnLoad, signOut]);
+  }, [user, resetInactivityTimer, shouldInvalidateRestoredSession, forceSignOut]);
 
-  // Stable ref to track current user id without causing re-renders
-  const currentUserIdRef = useRef<string | null>(null);
-
+  // Auth state listener
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
-        // Avoid unnecessary re-renders on TOKEN_REFRESHED when user is the same
-        if (event === 'TOKEN_REFRESHED' && newSession?.user?.id === currentUserIdRef.current) {
-          // Same user, just token renewal — no state update needed
+        const newUserId = newSession?.user?.id ?? null;
+
+        // Skip redundant token refreshes for same user
+        if (event === 'TOKEN_REFRESHED' && newUserId === currentUserIdRef.current) {
           return;
         }
 
-        currentUserIdRef.current = newSession?.user?.id ?? null;
+        currentUserIdRef.current = newUserId;
         setSession(newSession);
         setUser(newSession?.user ?? null);
         setLoading(false);
-        
-        // Check inactivity on session restore (deferred to avoid deadlock)
-        if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && newSession) {
+
+        if (event === 'SIGNED_IN' && newSession) {
+          // Fresh login — always allow, overwrite activity immediately
           setTimeout(() => {
-            const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
-            if (lastActivity) {
-              const lastActivityTime = parseInt(lastActivity, 10);
-              const now = Date.now();
-              if (now - lastActivityTime > INACTIVITY_TIMEOUT) {
-                console.log('Auto-logout: Session expired due to inactivity');
-                supabase.auth.signOut();
-                return;
-              }
-            }
-            // Update last activity on successful sign in
-            localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+            setStoredActivity(newSession.user.id);
           }, 0);
         }
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      // Check if we should invalidate the session due to inactivity
-      if (session) {
-        const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
-        if (lastActivity) {
-          const lastActivityTime = parseInt(lastActivity, 10);
-          const now = Date.now();
-          if (now - lastActivityTime > INACTIVITY_TIMEOUT) {
-            console.log('Invalidating session due to inactivity on page load');
-            supabase.auth.signOut();
-            return;
-          }
+    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      if (existingSession) {
+        const uid = existingSession.user.id;
+        // Check inactivity only for restored sessions (not fresh logins)
+        if (shouldInvalidateRestoredSession(uid)) {
+          console.log('Invalidating restored session due to inactivity on page load');
+          clearStoredActivity();
+          supabase.auth.signOut();
+          setLoading(false);
+          return;
         }
       }
-      
-      setSession(session);
-      setUser(session?.user ?? null);
+
+      currentUserIdRef.current = existingSession?.user?.id ?? null;
+      setSession(existingSession);
+      setUser(existingSession?.user ?? null);
       setLoading(false);
     });
 
