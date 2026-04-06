@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Search, User, DollarSign, Calendar, ChevronDown, Phone, Mail, RefreshCw, GripVertical, Eye, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Tag, FileText, Package, Target, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Filter, ArrowUpDown, SortAsc, SortDesc, LayoutGrid, List } from 'lucide-react';
+import { Loader2, Search, User, DollarSign, Calendar, ChevronDown, Phone, Mail, RefreshCw, GripVertical, Eye, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Tag, FileText, Package, Target, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Filter, ArrowUpDown, SortAsc, SortDesc, LayoutGrid, List, Star } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CRMDealsListView } from './CRMDealsListView';
 import { supabase } from '@/integrations/supabase/client';
@@ -98,6 +98,7 @@ interface Deal {
   won: boolean | null;
   closed_at: string | null;
   loss_reason: string | null;
+  star_rating: number;
   contact?: Contact;
   owner?: {
     id: string;
@@ -271,6 +272,18 @@ const DraggableDealCard = ({
             <div className="flex items-center gap-1.5 text-xs">
               <UserCircle className="h-3 w-3 text-blue-600 shrink-0" />
               <span className="truncate text-blue-600 font-medium">{profiles[deal.owner_id].full_name}</span>
+            </div>
+          )}
+
+          {/* Star Rating */}
+          {(deal.star_rating || 0) > 0 && (
+            <div className="flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map(i => (
+                <Star
+                  key={i}
+                  className={`h-3 w-3 ${i <= (deal.star_rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/30'}`}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -639,6 +652,30 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
     setEditForm({});
   };
 
+  const handleStarRating = async (dealId: string, rating: number) => {
+    // If clicking the same star, toggle off
+    const currentDeal = deals.find(d => d.id === dealId);
+    const newRating = currentDeal?.star_rating === rating ? 0 : rating;
+
+    // Optimistic update
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, star_rating: newRating } : d));
+    if (selectedDeal?.id === dealId) {
+      setSelectedDeal(prev => prev ? { ...prev, star_rating: newRating } : prev);
+    }
+
+    const { error } = await supabase
+      .from('crm_deals')
+      .update({ star_rating: newRating } as any)
+      .eq('id', dealId);
+
+    if (error) {
+      console.error('Error updating star rating:', error);
+      toast.error('Erro ao salvar classificação');
+      // Revert
+      setDeals(prev => prev.map(d => d.id === dealId ? { ...d, star_rating: currentDeal?.star_rating || 0 } : d));
+    }
+  };
+
   const handleSave = async () => {
     if (!selectedDeal) return;
     setSaving(true);
@@ -802,10 +839,20 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
     const deal = deals.find(d => d.id === dealId);
     if (!deal) return;
 
-    const newStageId = over.id as string;
+    let newStageId = over.id as string;
     const currentStageId = deal.stage_id;
 
-    if (newStageId !== currentStageId && stages.some(s => s.id === newStageId)) {
+    // If dropped on a deal card instead of a stage column, resolve the stage
+    if (!stages.some(s => s.id === newStageId)) {
+      const targetDeal = deals.find(d => d.id === newStageId);
+      if (targetDeal) {
+        newStageId = targetDeal.stage_id;
+      } else {
+        return;
+      }
+    }
+
+    if (newStageId !== currentStageId) {
       handleMoveToStage(dealId, newStageId, currentStageId);
     }
   };
@@ -1163,6 +1210,27 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
                         </span>
                       </div>
                     )}
+
+                    {/* Star Rating */}
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground font-medium">Classificação</p>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map(i => (
+                          <button
+                            key={i}
+                            onClick={() => handleStarRating(selectedDeal.id, i)}
+                            className="p-0.5 hover:scale-125 transition-transform"
+                          >
+                            <Star
+                              className={`h-5 w-5 ${i <= (selectedDeal.star_rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground/40 hover:text-amber-300'}`}
+                            />
+                          </button>
+                        ))}
+                        {(selectedDeal.star_rating || 0) > 0 && (
+                          <span className="text-xs text-muted-foreground ml-1">{selectedDeal.star_rating}/5</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-3">

@@ -2296,6 +2296,7 @@ export type Database = {
           rd_station_id: string | null
           stage_changed_at: string | null
           stage_id: string | null
+          star_rating: number | null
           updated_at: string
           value: number | null
           won: boolean | null
@@ -2317,6 +2318,7 @@ export type Database = {
           rd_station_id?: string | null
           stage_changed_at?: string | null
           stage_id?: string | null
+          star_rating?: number | null
           updated_at?: string
           value?: number | null
           won?: boolean | null
@@ -2338,6 +2340,7 @@ export type Database = {
           rd_station_id?: string | null
           stage_changed_at?: string | null
           stage_id?: string | null
+          star_rating?: number | null
           updated_at?: string
           value?: number | null
           won?: boolean | null
