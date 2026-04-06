@@ -1,62 +1,71 @@
 
 
-## Duas correções: Gerar documentos a partir do ADVBox + Evitar perda de dados ao trocar de janela
+## Três correções no CRM
 
-### 1. Gerar Contrato/Procuração/Declaração a partir da busca de clientes no ADVBox
+### 1. Tela inteira no CRM (sem sidebar)
 
-**Problema**: Hoje, só é possível gerar esses documentos pela aba "Setor Comercial" (que puxa dados do Google Sheets). O usuário quer poder gerar documentos diretamente ao pesquisar um cliente na página de Processos Ativos (dados do ADVBox).
+**Problema**: O menu lateral da intranet ocupa espaço, deixando o CRM apertado, especialmente o Kanban.
 
-**Solução**: Adicionar botões de "Contrato", "Procuração" e "Declaração" na página `ProcessosAtivos.tsx`, junto aos botões já existentes (Mensagem, Tarefa, Petição). Ao clicar, o sistema monta o objeto `Client` a partir dos dados do ADVBox (`advbox_customers`) e abre o respectivo gerador.
+**Solução**: Modificar `src/pages/CRM.tsx` para não usar o `<Layout>` padrão quando o CRM estiver ativo. Em vez disso, renderizar o CRM em tela inteira com um botão "Voltar" no topo que navega para o Dashboard (ou página anterior).
 
-**Arquivo: `src/pages/ProcessosAtivos.tsx`**
-- Importar `ContractGenerator`, `ProcuracaoGenerator`, `DeclaracaoGenerator`
-- Adicionar estados para controlar abertura dos dialogs e cliente selecionado
-- Criar função `handleDocumentFromLawsuit(lawsuit, type)` que:
-  - Extrai o `customer_id` do campo `customers` do processo
-  - Busca dados completos do cliente em `advbox_customers` (nome, cpf, email, phone, birthday)
-  - Também busca dados extras do `client_form_overrides` se existirem (RG, endereço, estado civil, profissão)
-  - Monta o objeto `Client` com os campos disponíveis
-  - Abre o dialog correspondente
-- Adicionar os 3 botões na área de ações de cada card de processo (FileSignature, Scale, FileCheck)
-- Renderizar os 3 componentes de geração no final da página
+**Arquivo: `src/pages/CRM.tsx`**
+- Remover o wrapper `<Layout>` do conteúdo principal do CRM
+- Renderizar uma barra superior simples com botão "Voltar", título "CRM" e tema toggle
+- O conteúdo do CRM ocupará 100% da largura da tela
 
-**Limitação conhecida**: O ADVBox armazena menos dados que o Google Sheets (não tem RG, endereço, estado civil, profissão nativamente). Os campos faltantes ficarão com placeholders que o usuário pode preencher manualmente no formulário do documento.
+### 2. Estrelas de classificação nos deals (1-5)
 
----
+**Problema**: O usuário quer classificar clientes/oportunidades com estrelas (1-5) para priorizar quem está mais propenso a fechar.
 
-### 2. Evitar recarga da página ao trocar de janela
+**Solução**:
+- **Migração**: Adicionar coluna `star_rating` (integer, default 0) à tabela `crm_deals`
+- **`src/components/crm/CRMDealsKanban.tsx`**:
+  - Adicionar componente de estrelas clicáveis no dialog de detalhes do deal (aba "Oportunidade")
+  - Ao clicar uma estrela, salvar no banco imediatamente via `supabase.update`
+  - Exibir estrelas também no card do Kanban (abaixo do nome), de forma compacta
+  - Permitir filtrar/ordenar por estrelas
 
-**Problema**: Quando o usuário alterna para outra janela e volta, a página recarrega e perde os dados preenchidos.
+### 3. Corrigir drag-and-drop no Pipeline
 
-**Causa raiz**: O `onAuthStateChange` no `useAuth.tsx` recebe o evento `TOKEN_REFRESHED` quando o token é renovado automaticamente pelo Supabase. Isso atualiza o estado `user` e `session`, causando re-render do `ProtectedRoute`. O `useUserRole` re-busca o perfil, `roleLoading` fica `true` momentaneamente, o componente protegido é desmontado (mostra "Carregando...") e remontado — perdendo todo estado local dos formulários.
+**Problema**: Ao arrastar um card e soltar em outra etapa, ele não fixa. O `closestCenter` pode resolver para um deal card (que é draggable) em vez da coluna droppable. Quando `over.id` é um deal ID, o check `stages.some(s => s.id === newStageId)` falha silenciosamente.
 
-**Solução no `src/hooks/useAuth.tsx`** (linha 128-151):
-- No handler de `onAuthStateChange`, evitar atualizar `user` e `session` se os valores são os mesmos (comparar `session?.user?.id`). Isso previne re-renders desnecessários quando apenas o token é renovado mas o usuário é o mesmo.
+**Solução no `handleDragEnd`** (`src/components/crm/CRMDealsKanban.tsx`):
+- Quando `over.id` não corresponde a nenhum stage, verificar se `over.id` é um deal. Se for, encontrar o `stage_id` desse deal e usar como destino.
+- Isso garante que soltar sobre um card dentro de uma coluna funcione corretamente.
 
 ```typescript
-(event, session) => {
-  // Avoid unnecessary re-renders on TOKEN_REFRESHED
-  if (event === 'TOKEN_REFRESHED' && session?.user?.id === user?.id) {
-    return; // Same user, no need to update state
-  }
-  setSession(session);
-  setUser(session?.user ?? null);
-  ...
-}
-```
+const handleDragEnd = (event: DragEndEvent) => {
+  const { active, over } = event;
+  setActiveDeal(null);
+  if (!over) return;
 
-**Solução complementar no `src/hooks/useUserRole.tsx`**:
-- Verificar se o `useUserRole` re-busca o perfil desnecessariamente. Adicionar cache ou evitar re-set de `loading` quando o perfil já está carregado para o mesmo usuário.
+  const dealId = active.id as string;
+  const deal = deals.find(d => d.id === dealId);
+  if (!deal) return;
+
+  let newStageId = over.id as string;
+  
+  // If dropped on a deal card, find which stage that deal belongs to
+  if (!stages.some(s => s.id === newStageId)) {
+    const targetDeal = deals.find(d => d.id === newStageId);
+    if (targetDeal) {
+      newStageId = targetDeal.stage_id;
+    } else {
+      return; // Unknown target
+    }
+  }
+
+  if (newStageId !== deal.stage_id) {
+    handleMoveToStage(dealId, newStageId, deal.stage_id);
+  }
+};
+```
 
 ### Arquivos a modificar
 
 | Arquivo | Alteração |
 |---|---|
-| `src/pages/ProcessosAtivos.tsx` | Adicionar botões e dialogs de Contrato/Procuração/Declaração por processo |
-| `src/hooks/useAuth.tsx` | Evitar re-render no `TOKEN_REFRESHED` quando o user é o mesmo |
-| `src/hooks/useUserRole.tsx` | Evitar re-set de loading quando perfil já carregado |
-
-### Resultado
-- Ao pesquisar um cliente no ADVBox (Processos Ativos), botões para gerar Contrato, Procuração e Declaração estarão disponíveis
-- Ao alternar janelas e voltar, os formulários manterão os dados preenchidos sem recarregar
+| `src/pages/CRM.tsx` | Remover `<Layout>`, renderizar tela inteira com botão voltar |
+| `src/components/crm/CRMDealsKanban.tsx` | Corrigir drag-and-drop + adicionar estrelas no card e dialog |
+| Migração SQL | `ALTER TABLE crm_deals ADD COLUMN star_rating integer DEFAULT 0` |
 
