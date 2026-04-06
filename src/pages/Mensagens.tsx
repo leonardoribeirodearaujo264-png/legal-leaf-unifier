@@ -1334,12 +1334,14 @@ const Mensagens = () => {
                   {filteredConversations.map(conv => (
                     <div key={conv.id} className="relative group">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           setActiveConversation(conv);
                           setShowMobileChat(true);
                           setShowFavorites(false);
                           setShowMessageSearch(false);
                           setMessageSearchTerm('');
+                          // After messages load and are marked read, refresh list
+                          setTimeout(() => fetchConversations(), 1500);
                         }}
                         className={cn(
                           "w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors",
