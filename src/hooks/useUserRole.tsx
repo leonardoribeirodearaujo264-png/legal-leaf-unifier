@@ -40,14 +40,24 @@ export const useUserRole = () => {
     return () => clearTimeout(safetyTimeout);
   }, [loading]);
 
+  // Track which user we already fetched to avoid redundant queries
+  const fetchedUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (authLoading) {
       return;
     }
     
     if (!user) {
+      fetchedUserIdRef.current = null;
       setRole(null);
       setProfile(null);
+      setLoading(false);
+      return;
+    }
+
+    // Skip re-fetch if we already have data for the same user
+    if (fetchedUserIdRef.current === user.id && profile && role) {
       setLoading(false);
       return;
     }
@@ -68,6 +78,7 @@ export const useUserRole = () => {
         .single();
 
       setRole(roleData?.role as UserRole || 'user');
+      fetchedUserIdRef.current = user.id;
       setLoading(false);
     };
 
