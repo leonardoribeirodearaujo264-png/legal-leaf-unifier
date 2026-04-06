@@ -155,6 +155,23 @@ export const useMessaging = () => {
         deduplicatedConversations.push(conv);
       }
 
+      // Fetch exact unread counts per conversation
+      for (const conv of deduplicatedConversations) {
+        const lastReadAt = (conv as any)._lastReadAt || '1970-01-01';
+        const { count, error: countError } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conv.id)
+          .neq('sender_id', user.id)
+          .gt('created_at', lastReadAt);
+
+        if (!countError && count) {
+          conv.unread_count = count;
+        }
+        // Clean up internal property
+        delete (conv as any)._lastReadAt;
+      }
+
       setConversations(deduplicatedConversations);
     } catch (error) {
       console.error('Error fetching conversations:', error);
