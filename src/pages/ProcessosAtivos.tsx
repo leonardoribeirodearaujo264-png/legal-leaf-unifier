@@ -278,6 +278,112 @@ export default function ProcessosAtivos() {
     setSelectedMessageType('');
   };
 
+  const handleDocumentFromLawsuit = async (lawsuit: Lawsuit, type: 'contrato' | 'procuracao' | 'declaracao') => {
+    let customerId: number | null = null;
+    let customerName = '';
+
+    if (lawsuit.customers) {
+      if (typeof lawsuit.customers === 'string') {
+        customerName = lawsuit.customers;
+      } else if (Array.isArray(lawsuit.customers) && lawsuit.customers.length > 0) {
+        customerName = lawsuit.customers[0].name || '';
+        customerId = lawsuit.customers[0].customer_id || null;
+      } else if (typeof lawsuit.customers === 'object') {
+        const c = lawsuit.customers as { name: string; customer_id?: number };
+        customerName = c.name || '';
+        customerId = c.customer_id || null;
+      }
+    }
+
+    // Fetch customer data from advbox_customers
+    let clientData: any = null;
+    if (customerId) {
+      const { data } = await supabase
+        .from('advbox_customers')
+        .select('*')
+        .eq('advbox_id', customerId)
+        .single();
+      clientData = data;
+    } else if (customerName) {
+      const { data } = await supabase
+        .from('advbox_customers')
+        .select('*')
+        .ilike('name', `%${customerName}%`)
+        .limit(1)
+        .single();
+      clientData = data;
+    }
+
+    // Build Client object
+    const client = {
+      id: clientData?.advbox_id || 0,
+      nomeCompleto: clientData?.name || customerName,
+      cpf: clientData?.cpf || clientData?.tax_id || '',
+      documentoIdentidade: '',
+      dataNascimento: clientData?.birthday || '',
+      estadoCivil: '',
+      profissao: '',
+      telefone: clientData?.phone || '',
+      email: clientData?.email || '',
+      cep: '',
+      cidade: '',
+      rua: '',
+      numero: '',
+      complemento: '',
+      bairro: '',
+      estado: '',
+    };
+
+    // Try to get extra data from client_form_overrides
+    if (clientData?.advbox_id) {
+      const { data: overrides } = await supabase
+        .from('client_form_overrides')
+        .select('*')
+        .eq('client_row_id', clientData.advbox_id)
+        .single();
+      if (overrides) {
+        client.documentoIdentidade = overrides.documento_identidade || '';
+        client.estadoCivil = overrides.estado_civil || '';
+        client.profissao = overrides.profissao || '';
+        client.cep = overrides.cep || '';
+        client.cidade = overrides.cidade || '';
+        client.rua = overrides.rua || '';
+        client.numero = overrides.numero || '';
+        client.complemento = overrides.complemento || '';
+        client.bairro = overrides.bairro || '';
+        client.estado = overrides.estado || '';
+        if (!client.cpf && overrides.cpf) client.cpf = overrides.cpf;
+        if (!client.dataNascimento && overrides.data_nascimento) client.dataNascimento = overrides.data_nascimento;
+        if (!client.telefone && overrides.telefone) client.telefone = overrides.telefone;
+        if (!client.email && overrides.email) client.email = overrides.email;
+      }
+    }
+
+    // Build qualification string
+    const parts = [client.nomeCompleto];
+    if (client.estadoCivil) parts.push(client.estadoCivil);
+    if (client.profissao) parts.push(client.profissao);
+    if (client.cpf) parts.push(`inscrito(a) no CPF sob o nº ${client.cpf}`);
+    if (client.documentoIdentidade) parts.push(`portador(a) do RG nº ${client.documentoIdentidade}`);
+    if (client.rua) {
+      let endereco = `residente e domiciliado(a) na ${client.rua}`;
+      if (client.numero) endereco += `, nº ${client.numero}`;
+      if (client.bairro) endereco += `, ${client.bairro}`;
+      if (client.cidade) endereco += `, ${client.cidade}`;
+      if (client.estado) endereco += `/${client.estado}`;
+      parts.push(endereco);
+    }
+    const qualification = parts.join(', ');
+
+    setSelectedDocClient(client);
+    setSelectedDocQualification(qualification);
+    setSelectedDocProduct(lawsuit.type || 'Processo Judicial');
+
+    if (type === 'contrato') setContractDialogOpen(true);
+    else if (type === 'procuracao') setProcuracaoDialogOpen(true);
+    else setDeclaracaoDialogOpen(true);
+  };
+
   const handleExportExcel = () => {
     try {
       const data = filteredLawsuits.map(l => ({
