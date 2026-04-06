@@ -120,8 +120,8 @@ export const useMessageNotifications = () => {
       try {
         const notification = new Notification(title, {
           body,
-          icon: '/favicon.ico',
-          tag: `msg-${conversationId}`,
+        icon: '/logo-eggnunes.png',
+        tag: `msg-${conversationId}`,
         } as NotificationOptions);
         notification.onclick = () => {
           window.focus();
@@ -323,55 +323,59 @@ export const useMessageNotifications = () => {
   // Update document title and favicon with unread count
   useEffect(() => {
     const baseTitle = 'Intranet Egg Nunes';
+    const faviconPath = '/logo-eggnunes.png?v=2';
     
     if (unreadCount > 0) {
-      document.title = `(${unreadCount}) ${baseTitle}`;
+      document.title = `● (${unreadCount}) ${baseTitle}`;
       
-      // Generate favicon with red badge
+      // Generate favicon with red badge - large canvas for clarity
       const canvas = document.createElement('canvas');
-      canvas.width = 64;
-      canvas.height = 64;
+      canvas.width = 128;
+      canvas.height = 128;
       const ctx = canvas.getContext('2d');
       if (ctx) {
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        img.src = '/favicon.ico';
+        img.src = faviconPath;
         img.onload = () => {
-          ctx.drawImage(img, 0, 0, 64, 64);
-          // Red circle - larger badge
-          const badgeRadius = 16;
-          const x = 64 - badgeRadius;
+          ctx.drawImage(img, 0, 0, 128, 128);
+          // Large red badge in top-right corner
+          const badgeRadius = 36;
+          const x = 128 - badgeRadius;
           const y = badgeRadius;
           ctx.beginPath();
           ctx.arc(x, y, badgeRadius, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444';
           ctx.fill();
           ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 5;
           ctx.stroke();
-          // White text
+          // White text - show simplified count for legibility
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 20px Arial';
+          ctx.font = 'bold 42px Arial';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), x, y);
+          const displayCount = unreadCount > 9 ? '9+' : String(unreadCount);
+          ctx.fillText(displayCount, x, y + 1);
           // Apply
-          const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+          const link = document.getElementById('app-favicon') as HTMLLinkElement;
           if (link) {
             link.href = canvas.toDataURL('image/png');
           }
         };
         img.onerror = () => {
+          // Fallback: red circle only
           ctx.beginPath();
-          ctx.arc(32, 32, 28, 0, Math.PI * 2);
+          ctx.arc(64, 64, 56, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444';
           ctx.fill();
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 28px Arial';
+          ctx.font = 'bold 56px Arial';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(unreadCount > 99 ? '99+' : String(unreadCount), 32, 32);
-          const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+          const displayCount = unreadCount > 9 ? '9+' : String(unreadCount);
+          ctx.fillText(displayCount, 64, 64);
+          const link = document.getElementById('app-favicon') as HTMLLinkElement;
           if (link) {
             link.href = canvas.toDataURL('image/png');
           }
@@ -380,9 +384,9 @@ export const useMessageNotifications = () => {
     } else {
       document.title = baseTitle;
       // Restore original favicon
-      const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+      const link = document.getElementById('app-favicon') as HTMLLinkElement;
       if (link) {
-        link.href = '/favicon.ico';
+        link.href = faviconPath;
       }
     }
   }, [unreadCount]);
