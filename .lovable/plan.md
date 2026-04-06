@@ -1,71 +1,42 @@
 
+## Corrigir queda imediata de sessão após login
 
-## Três correções no CRM
+### Diagnóstico
+- O cadastro da Ludmilla no backend está normal: aprovado, ativo e não suspenso.
+- Então o problema não parece ser permissão nem bloqueio de acesso.
+- A causa mais provável está em `src/hooks/useAuth.tsx`, na lógica de inatividade de 6 horas.
+- Hoje o sistema usa uma chave global no `localStorage` (`egg_nunes_last_activity`).
+- Quando o login acontece, o código ainda lê esse valor antigo e, se ele estiver “velho”, derruba a sessão recém-criada.
+- Pior: em alguns pontos o logout é feito com `supabase.auth.signOut()` direto, sem limpar essa chave, o que pode gerar loop de login/logout.
 
-### 1. Tela inteira no CRM (sem sidebar)
+### Correção
+1. Ajustar `src/hooks/useAuth.tsx`
+   - Trocar o controle de atividade para armazenar `userId + timestamp`, e não só um timestamp solto.
+   - No evento `SIGNED_IN`, tratar como sessão nova válida e sobrescrever a atividade imediatamente.
+   - Não invalidar login recém-feito com base em atividade antiga do navegador.
+   - Aplicar a checagem de inatividade apenas para sessão restaurada/retorno ao app, não para login novo.
+   - Centralizar o logout forçado em uma única função que também limpe o estado de atividade.
 
-**Problema**: O menu lateral da intranet ocupa espaço, deixando o CRM apertado, especialmente o Kanban.
+2. Eliminar o loop de sessão caindo
+   - Substituir os `supabase.auth.signOut()` usados nas checagens de inatividade pelo helper centralizado.
+   - Se o valor salvo no `localStorage` estiver inválido, antigo ou de outro usuário, limpar e seguir normalmente.
 
-**Solução**: Modificar `src/pages/CRM.tsx` para não usar o `<Layout>` padrão quando o CRM estiver ativo. Em vez disso, renderizar o CRM em tela inteira com um botão "Voltar" no topo que navega para o Dashboard (ou página anterior).
+3. Blindagem extra
+   - Garantir que dois usuários no mesmo navegador não herdem a inatividade um do outro.
+   - Preservar o comportamento correto de expirar sessões realmente antigas.
 
-**Arquivo: `src/pages/CRM.tsx`**
-- Remover o wrapper `<Layout>` do conteúdo principal do CRM
-- Renderizar uma barra superior simples com botão "Voltar", título "CRM" e tema toggle
-- O conteúdo do CRM ocupará 100% da largura da tela
+### Resultado esperado
+- A Ludmilla conseguirá logar normalmente sem cair logo em seguida.
+- Sessões antigas continuarão sendo encerradas quando necessário.
+- O problema deixará de ocorrer com qualquer colaborador que use navegador com storage antigo.
 
-### 2. Estrelas de classificação nos deals (1-5)
+### Verificação
+- Testar login com storage antigo: o usuário deve entrar normalmente.
+- Testar sessão restaurada após mais de 6 horas: o sistema deve encerrar só essa sessão antiga.
+- Testar troca de usuários no mesmo navegador: o segundo login não pode cair por causa do primeiro.
 
-**Problema**: O usuário quer classificar clientes/oportunidades com estrelas (1-5) para priorizar quem está mais propenso a fechar.
+### Arquivo a alterar
+- `src/hooks/useAuth.tsx`
 
-**Solução**:
-- **Migração**: Adicionar coluna `star_rating` (integer, default 0) à tabela `crm_deals`
-- **`src/components/crm/CRMDealsKanban.tsx`**:
-  - Adicionar componente de estrelas clicáveis no dialog de detalhes do deal (aba "Oportunidade")
-  - Ao clicar uma estrela, salvar no banco imediatamente via `supabase.update`
-  - Exibir estrelas também no card do Kanban (abaixo do nome), de forma compacta
-  - Permitir filtrar/ordenar por estrelas
-
-### 3. Corrigir drag-and-drop no Pipeline
-
-**Problema**: Ao arrastar um card e soltar em outra etapa, ele não fixa. O `closestCenter` pode resolver para um deal card (que é draggable) em vez da coluna droppable. Quando `over.id` é um deal ID, o check `stages.some(s => s.id === newStageId)` falha silenciosamente.
-
-**Solução no `handleDragEnd`** (`src/components/crm/CRMDealsKanban.tsx`):
-- Quando `over.id` não corresponde a nenhum stage, verificar se `over.id` é um deal. Se for, encontrar o `stage_id` desse deal e usar como destino.
-- Isso garante que soltar sobre um card dentro de uma coluna funcione corretamente.
-
-```typescript
-const handleDragEnd = (event: DragEndEvent) => {
-  const { active, over } = event;
-  setActiveDeal(null);
-  if (!over) return;
-
-  const dealId = active.id as string;
-  const deal = deals.find(d => d.id === dealId);
-  if (!deal) return;
-
-  let newStageId = over.id as string;
-  
-  // If dropped on a deal card, find which stage that deal belongs to
-  if (!stages.some(s => s.id === newStageId)) {
-    const targetDeal = deals.find(d => d.id === newStageId);
-    if (targetDeal) {
-      newStageId = targetDeal.stage_id;
-    } else {
-      return; // Unknown target
-    }
-  }
-
-  if (newStageId !== deal.stage_id) {
-    handleMoveToStage(dealId, newStageId, deal.stage_id);
-  }
-};
-```
-
-### Arquivos a modificar
-
-| Arquivo | Alteração |
-|---|---|
-| `src/pages/CRM.tsx` | Remover `<Layout>`, renderizar tela inteira com botão voltar |
-| `src/components/crm/CRMDealsKanban.tsx` | Corrigir drag-and-drop + adicionar estrelas no card e dialog |
-| Migração SQL | `ALTER TABLE crm_deals ADD COLUMN star_rating integer DEFAULT 0` |
-
+### Observação técnica
+O indício mais forte é que o perfil da Ludmilla está aprovado e ativo; por isso a correção deve focar na rotina de autenticação/inatividade, não em permissões.
