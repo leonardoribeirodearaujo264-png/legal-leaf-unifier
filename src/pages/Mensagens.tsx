@@ -1675,8 +1675,17 @@ const Mensagens = () => {
                                       {msg.is_edited && (
                                         <span className="text-[10px]">(editado)</span>
                                       )}
-                                      {isMe && isMessageRead(msg) && (
-                                        <span className="text-[10px] ml-1">✓✓</span>
+                                      {isMe && (
+                                        isMessageRead(msg) ? (
+                                          <span className="ml-1 inline-flex items-center">
+                                            <Check className="h-3 w-3 text-blue-500" />
+                                            <Check className="h-3 w-3 -ml-1.5 text-blue-500" />
+                                          </span>
+                                        ) : (
+                                          <span className="ml-1 inline-flex items-center">
+                                            <Check className="h-3 w-3 text-muted-foreground" />
+                                          </span>
+                                        )
                                       )}
                                     </div>
                                   </>
