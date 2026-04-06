@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Search, User, DollarSign, Calendar, ChevronDown, Phone, Mail, RefreshCw, GripVertical, Eye, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Tag, FileText, Package, Target, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Filter, ArrowUpDown, SortAsc, SortDesc, LayoutGrid, List } from 'lucide-react';
+import { Loader2, Search, User, DollarSign, Calendar, ChevronDown, Phone, Mail, RefreshCw, GripVertical, Eye, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Tag, FileText, Package, Target, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Filter, ArrowUpDown, SortAsc, SortDesc, LayoutGrid, List, Star } from 'lucide-react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CRMDealsListView } from './CRMDealsListView';
 import { supabase } from '@/integrations/supabase/client';
