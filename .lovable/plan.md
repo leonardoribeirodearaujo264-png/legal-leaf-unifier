@@ -1,50 +1,46 @@
 
 
-## Três melhorias nas Mensagens Internas
+## Implementar tiques de status nas mensagens internas (estilo WhatsApp)
 
-### 1. Nome do colaborador cortado na lista de conversas
+### Situação atual
+Já existe uma função `isMessageRead` que verifica se algum participante leu a mensagem, e mostra `✓✓` quando lida. Mas falta diferenciar os 3 estados: enviada, recebida e lida.
 
-**Causa**: A coluna da lista tem `md:max-w-[320px]` e o nome usa `truncate`, mas compete com a data na mesma linha (`flex justify-between`). Nomes longos ficam cortados.
+### Lógica dos 3 estados
 
-**Correção em `src/pages/Mensagens.tsx`** (linhas 1283-1354):
-- Aumentar a largura da lista de `320px` para `360px`
-- Mover a data para baixo do nome (junto com o preview), liberando espaço horizontal para o nome completo
-- Permitir que o nome ocupe até 2 linhas com `line-clamp-2` em vez de `truncate`
+| Estado | Visual | Condição |
+|---|---|---|
+| **Enviada** | ✓ (cinza) | Mensagem existe no banco (já está salva) |
+| **Recebida** | ✓✓ (cinza) | Pelo menos 1 outro participante tem `last_read_at` posterior OU a mensagem foi entregue via Realtime (participante está online) |
+| **Lida** | ✓✓ (azul) | Pelo menos 1 outro participante tem `last_read_at >= msg.created_at` |
 
-### 2. Badge de mensagens não lidas por conversa
+Como o sistema atual não rastreia "entrega" separadamente de "leitura", usaremos uma abordagem simplificada:
+- ✓ = enviada (sempre, para mensagens minhas)
+- ✓✓ cinza = pelo menos um participante está na conversa (tem atividade recente) mas ainda não leu
+- ✓✓ azul = pelo menos um participante leu a mensagem
 
-**Situação atual**: Já existe um badge de unread (linha 1366), mas ele fica espremido ao lado do preview da mensagem e pode não ser visível.
+**Simplificação prática**: Como não há campo de "delivered_at", usaremos:
+- **1 tique cinza** (✓): mensagem enviada
+- **2 tiques cinza** (✓✓): mensagem não lida ainda por ninguém
+- **2 tiques azuis** (✓✓): mensagem lida por pelo menos 1 participante
 
-**Correção em `src/pages/Mensagens.tsx`**:
-- Mover o badge de não lidas para ao lado do nome (mais visível)
-- Dar destaque visual ao badge com cor de fundo mais forte (vermelho ou primary)
-- Destacar o nome em negrito bold quando houver mensagens não lidas
-- Adicionar estilo visual diferenciado na conversa inteira quando há não lidas (fundo levemente colorido)
+Na prática, como não temos delivery tracking separado, faremos **2 estados visuais claros**:
+- ✓ cinza = enviada, não lida
+- ✓✓ azul = lida
 
-### 3. Contador de não lidas na aba do navegador (favicon + title)
+### Correção
 
-**Implementação**: Criar um hook `useDocumentTitleNotification` ou adicionar lógica ao `useMessageNotifications` existente.
+**Arquivo: `src/pages/Mensagens.tsx`** (linhas 1668-1680)
 
-**Alterações em `src/hooks/useMessageNotifications.tsx`**:
-- Adicionar `useEffect` que monitora `unreadCount`
-- Quando `unreadCount > 0`: atualizar `document.title` para `(5) Intranet Egg Nunes` e trocar o favicon por um com badge vermelho gerado via canvas
-- Quando `unreadCount === 0`: restaurar título e favicon originais
-- O Realtime já está configurado — o `unreadCount` já atualiza em tempo real, então o title/favicon acompanharão automaticamente
+Substituir o bloco atual que mostra apenas `✓✓` quando lida por:
+- Se `isMe` e `isMessageRead(msg)`: mostrar 2 checks azuis (ícones Check do Lucide, cor azul)
+- Se `isMe` e não lida: mostrar 1 check cinza (ícone Check do Lucide)
+- Se não é `isMe`: não mostrar tiques
 
-**Lógica do favicon dinâmico**:
-```typescript
-// Gerar favicon com badge via canvas
-const canvas = document.createElement('canvas');
-canvas.width = 32; canvas.height = 32;
-const ctx = canvas.getContext('2d');
-// Desenhar círculo vermelho + número branco
-// Aplicar como favicon via link[rel="icon"]
-```
+Usar ícones SVG do Lucide (`Check`) em tamanho pequeno em vez de caracteres texto, para visual mais limpo e colorido.
 
 ### Arquivos a modificar
 
 | Arquivo | Alteração |
 |---|---|
-| `src/pages/Mensagens.tsx` | Aumentar largura da lista, reorganizar layout do nome/data, destacar conversas com não lidas |
-| `src/hooks/useMessageNotifications.tsx` | Adicionar efeito para atualizar document.title e favicon com contador de não lidas |
+| `src/pages/Mensagens.tsx` | Substituir o `✓✓` por componente com ícones Check coloridos (azul para lido, cinza para enviado) |
 
