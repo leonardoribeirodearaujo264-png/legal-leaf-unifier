@@ -715,8 +715,14 @@ export default function ProcessosAtivos() {
                             <ListTodo className="h-4 w-4 mr-1" />
                             <span className="hidden md:inline">Tarefa</span>
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => setPetitionDialogLawsuit(lawsuit)} title="Sugestão de petição por IA">
-                            <Sparkles className="h-4 w-4" />
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'contrato')} title="Gerar Contrato">
+                            <FileSignature className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'procuracao')} title="Gerar Procuração">
+                            <Scale className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleDocumentFromLawsuit(lawsuit, 'declaracao')} title="Gerar Declaração">
+                            <FileCheck className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
@@ -816,6 +822,29 @@ export default function ProcessosAtivos() {
         {/* Message Dialog */}
         <Dialog open={!!messageDialogLawsuit} onOpenChange={(open) => { if (!open) { setMessageDialogLawsuit(null); setSelectedMessageType(''); } }}>
           <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto">
+
+        {/* Document Generation Dialogs */}
+        <ContractGenerator
+          open={contractDialogOpen}
+          onOpenChange={setContractDialogOpen}
+          client={selectedDocClient}
+          productName={selectedDocProduct}
+          qualification={selectedDocQualification}
+        />
+
+        <ProcuracaoGenerator
+          open={procuracaoDialogOpen}
+          onOpenChange={setProcuracaoDialogOpen}
+          client={selectedDocClient}
+          qualification={selectedDocQualification}
+        />
+
+        <DeclaracaoGenerator
+          open={declaracaoDialogOpen}
+          onOpenChange={setDeclaracaoDialogOpen}
+          client={selectedDocClient}
+          qualification={selectedDocQualification}
+        />
             <DialogHeader>
               <DialogTitle>Enviar Mensagem</DialogTitle>
               <DialogDescription>
