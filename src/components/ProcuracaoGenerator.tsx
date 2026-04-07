@@ -408,29 +408,35 @@ Retorne APENAS a frase.`;
   };
 
   // Gerar poderes especiais com IA (manual - quando usuário clica no botão)
+  // Usa a mesma lógica unificada: preset primeiro, depois IA curta
   const gerarPoderesComIA = async () => {
     const objetoParaUsar = objetoContrato || objetoContratoDetectado;
     
+    // Tentar preset pelo produto ou objeto
+    const produtoParaPreset = productName || productNameDetectado || objetoParaUsar;
+    const preset = getPresetPower(produtoParaPreset);
+    if (preset) {
+      setPoderesEspeciais(preset);
+      toast.success("Poderes especiais definidos com base no produto!");
+      return;
+    }
+
     setGerandoPoderes(true);
     try {
       const contexto = objetoParaUsar?.trim() 
         ? `Objeto do contrato: ${objetoParaUsar}`
         : `Cliente: ${client?.nomeCompleto || 'não informado'}`;
       
-      const prompt = `Você é um advogado especialista em procurações advocatícias.
+      const prompt = `Você é um advogado. Gere UMA ÚNICA FRASE curta de poderes especiais para uma procuração.
 
-Gere os poderes especiais para uma procuração com base no seguinte contexto:
+Contexto: ${contexto}
 
-${contexto}
+REGRAS:
+- Comece com "Especificamente para" seguido da ação judicial.
+- Máximo 1-2 linhas. Sem listas, sem explicações, sem parágrafos longos.
+- Exemplo: "Especificamente para requerer em espécie as férias prêmio não gozadas no Estado de Minas Gerais."
 
-Os poderes especiais devem ser específicos e relacionados ao contexto informado, permitindo que o advogado execute todas as ações necessárias para a defesa dos interesses do cliente.
-
-Formato esperado:
-- Os poderes devem ser listados de forma clara e direta.
-- O texto deve ser em português jurídico formal.
-- Seja objetivo e conciso.
-
-Retorne APENAS o texto dos poderes especiais, sem explicações adicionais.`;
+Retorne APENAS a frase.`;
 
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
@@ -443,7 +449,8 @@ Retorne APENAS o texto dos poderes especiais, sem explicações adicionais.`;
 
       const response = data?.content || data?.choices?.[0]?.message?.content;
       if (response) {
-        setPoderesEspeciais(response.trim());
+        const sanitized = response.trim().split('\n')[0].trim();
+        setPoderesEspeciais(sanitized);
         toast.success("Poderes especiais gerados com sucesso!");
       }
     } catch (error) {
