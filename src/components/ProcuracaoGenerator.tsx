@@ -95,7 +95,8 @@ export const ProcuracaoGenerator = ({
   onOpenChange, 
   client, 
   qualification,
-  objetoContrato 
+  objetoContrato,
+  productName 
 }: ProcuracaoGeneratorProps) => {
   const [localQualification, setLocalQualification] = useState(qualification);
   const [temPoderesEspeciais, setTemPoderesEspeciais] = useState(false);
