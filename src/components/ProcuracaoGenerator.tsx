@@ -236,7 +236,7 @@ export const ProcuracaoGenerator = ({
       try {
         const { data, error } = await supabase
           .from('contract_drafts')
-          .select('objeto_contrato')
+          .select('objeto_contrato, product_name')
           .eq('client_id', client.id)
           .eq('user_id', user.id)
           .maybeSingle();
@@ -245,6 +245,9 @@ export const ProcuracaoGenerator = ({
         
         if (data?.objeto_contrato) {
           setObjetoContratoDetectado(data.objeto_contrato);
+        }
+        if (data?.product_name) {
+          setProductNameDetectado(data.product_name);
         }
       } catch (error) {
         console.error('Erro ao carregar rascunho de contrato:', error);
