@@ -260,31 +260,33 @@ export const ProcuracaoGenerator = ({
     loadContractDraft();
   }, [user, open, client]);
 
-  // Não gerar poderes automaticamente - deixar o usuário clicar no botão
-  // useEffect removido para evitar geração automática
-
-  // Função para gerar poderes automaticamente
+  // Função unificada para gerar poderes especiais
+  // 1) Tenta modelo fixo por produto
+  // 2) Se não encontrar, usa IA com prompt curto
   const gerarPoderesAutomaticamente = async (objeto: string) => {
+    // Tentar preset pelo produto ou objeto
+    const produtoParaPreset = productName || productNameDetectado || objeto;
+    const preset = getPresetPower(produtoParaPreset);
+    if (preset) {
+      setPoderesEspeciais(preset);
+      setPoderesGeradosAutomaticamente(true);
+      toast.success("Poderes especiais definidos com base no produto!");
+      return;
+    }
+
     setGerandoPoderes(true);
     setPoderesGeradosAutomaticamente(true);
     try {
-      const prompt = `Você é um advogado especialista em procurações advocatícias.
+      const prompt = `Você é um advogado. Gere UMA ÚNICA FRASE curta de poderes especiais para uma procuração.
 
-Gere os poderes especiais para uma procuração com base no seguinte objeto do contrato:
+Contexto: ${objeto}
 
-${objeto}
+REGRAS:
+- Comece com "Especificamente para" seguido da ação judicial.
+- Máximo 1-2 linhas. Sem listas, sem explicações.
+- Exemplo: "Especificamente para requerer em espécie as férias prêmio não gozadas no Estado de Minas Gerais."
 
-INSTRUÇÕES OBRIGATÓRIAS:
-- Seja EXTREMAMENTE breve e direto.
-- O texto deve começar com: "Esta procuração destina-se exclusivamente para"
-- Liste apenas a ação judicial específica relacionada ao objeto.
-- Use no máximo 1-2 linhas.
-- Não adicione explicações, não seja prolixo.
-
-Exemplo de formato correto:
-"Esta procuração destina-se exclusivamente para propor ação de revisão de aposentadoria por invalidez."
-
-Retorne APENAS o texto curto dos poderes especiais, sem explicações adicionais.`;
+Retorne APENAS a frase.`;
 
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
@@ -297,11 +299,13 @@ Retorne APENAS o texto curto dos poderes especiais, sem explicações adicionais
 
       const response = data?.content || data?.choices?.[0]?.message?.content;
       if (response) {
-        setPoderesEspeciais(response.trim());
-        toast.success("Poderes especiais gerados automaticamente com base no contrato!");
+        // Sanitizar: pegar apenas a primeira frase significativa
+        const sanitized = response.trim().split('\n')[0].trim();
+        setPoderesEspeciais(sanitized);
+        toast.success("Poderes especiais gerados com base no contrato!");
       }
     } catch (error) {
-      console.error('Erro ao gerar poderes especiais automaticamente:', error);
+      console.error('Erro ao gerar poderes especiais:', error);
       toast.error("Erro ao gerar poderes especiais. Tente manualmente.");
     } finally {
       setGerandoPoderes(false);
