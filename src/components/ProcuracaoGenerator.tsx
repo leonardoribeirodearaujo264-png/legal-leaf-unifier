@@ -503,8 +503,32 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
   };
 
   // Gerar PDF da procuração conforme modelo oficial EXATO
+  // Se o usuário editou a prévia, extraímos os campos atualizados do previewText
   const gerarPDF = async () => {
     if (!client) return;
+    
+    // Se a prévia foi editada, sincronizar os campos com o texto editado
+    if (showPreview && previewText) {
+      // Extrair qualificação editada (entre "PROCURAÇÃO\n\n" e "; nomeia(m)")
+      const matchQual = previewText.match(/PROCURAÇÃO\s*\n\n([\s\S]*?);?\s*nomeia\(m\)/);
+      if (matchQual) {
+        setLocalQualification(matchQual[1].trim());
+      }
+      
+      // Extrair poderes especiais editados (texto após "substabelecimento." e antes de "Belo Horizonte")
+      const matchPoderes = previewText.match(/substabelecimento\.\s*\n\n([\s\S]*?)\n\nBelo Horizonte/);
+      if (matchPoderes && matchPoderes[1].trim()) {
+        setPoderesEspeciais(matchPoderes[1].trim());
+        setTemPoderesEspeciais(true);
+      } else {
+        // Verificar se não há poderes especiais no texto editado
+        const matchSemPoderes = previewText.match(/substabelecimento\.\s*\n\nBelo Horizonte/);
+        if (matchSemPoderes) {
+          setTemPoderesEspeciais(false);
+          setPoderesEspeciais("");
+        }
+      }
+    }
     
     setGerandoPDF(true);
     try {
