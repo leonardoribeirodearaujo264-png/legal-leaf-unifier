@@ -840,6 +840,7 @@ export default function ProcessosAtivos() {
           onOpenChange={setProcuracaoDialogOpen}
           client={selectedDocClient}
           qualification={selectedDocQualification}
+          productName={selectedDocProduct}
         />
 
         <DeclaracaoGenerator
