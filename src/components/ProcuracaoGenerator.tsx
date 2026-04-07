@@ -56,6 +56,7 @@ interface ProcuracaoGeneratorProps {
   client: Client | null;
   qualification: string;
   objetoContrato?: string;
+  productName?: string;
 }
 
 interface PowerTemplate {
