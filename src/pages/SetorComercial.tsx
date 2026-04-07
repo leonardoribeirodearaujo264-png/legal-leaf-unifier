@@ -1261,6 +1261,7 @@ const SetorComercial = () => {
         client={clientForProcuracao}
         qualification={clientForProcuracao ? (qualificationSaved && selectedClient?.id === clientForProcuracao.id ? editedQualification : generateClientQualification(clientForProcuracao)) : ''}
         objetoContrato={objetoContratoForProcuracao}
+        productName={products.find(p => p._id === selectedProduct)?.name || ''}
       />
 
       {/* Document Templates Manager */}
