@@ -115,8 +115,9 @@ export const ProcuracaoGenerator = ({
    const [templateSearch, setTemplateSearch] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   
-  // Objeto do contrato detectado automaticamente
+  // Objeto do contrato e produto detectados automaticamente
   const [objetoContratoDetectado, setObjetoContratoDetectado] = useState<string | null>(null);
+  const [productNameDetectado, setProductNameDetectado] = useState<string | null>(null);
   const [loadingContractDraft, setLoadingContractDraft] = useState(false);
   const [poderesGeradosAutomaticamente, setPoderesGeradosAutomaticamente] = useState(false);
 
