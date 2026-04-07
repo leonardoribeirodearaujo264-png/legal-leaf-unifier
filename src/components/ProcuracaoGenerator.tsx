@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { getPresetPower } from "@/lib/procuracaoPowerPresets";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -55,6 +56,7 @@ interface ProcuracaoGeneratorProps {
   client: Client | null;
   qualification: string;
   objetoContrato?: string;
+  productName?: string;
 }
 
 interface PowerTemplate {
@@ -93,7 +95,8 @@ export const ProcuracaoGenerator = ({
   onOpenChange, 
   client, 
   qualification,
-  objetoContrato 
+  objetoContrato,
+  productName 
 }: ProcuracaoGeneratorProps) => {
   const [localQualification, setLocalQualification] = useState(qualification);
   const [temPoderesEspeciais, setTemPoderesEspeciais] = useState(false);
@@ -112,8 +115,9 @@ export const ProcuracaoGenerator = ({
    const [templateSearch, setTemplateSearch] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   
-  // Objeto do contrato detectado automaticamente
+  // Objeto do contrato e produto detectados automaticamente
   const [objetoContratoDetectado, setObjetoContratoDetectado] = useState<string | null>(null);
+  const [productNameDetectado, setProductNameDetectado] = useState<string | null>(null);
   const [loadingContractDraft, setLoadingContractDraft] = useState(false);
   const [poderesGeradosAutomaticamente, setPoderesGeradosAutomaticamente] = useState(false);
 
@@ -233,7 +237,7 @@ export const ProcuracaoGenerator = ({
       try {
         const { data, error } = await supabase
           .from('contract_drafts')
-          .select('objeto_contrato')
+          .select('objeto_contrato, product_name')
           .eq('client_id', client.id)
           .eq('user_id', user.id)
           .maybeSingle();
@@ -242,6 +246,9 @@ export const ProcuracaoGenerator = ({
         
         if (data?.objeto_contrato) {
           setObjetoContratoDetectado(data.objeto_contrato);
+        }
+        if (data?.product_name) {
+          setProductNameDetectado(data.product_name);
         }
       } catch (error) {
         console.error('Erro ao carregar rascunho de contrato:', error);
@@ -253,31 +260,33 @@ export const ProcuracaoGenerator = ({
     loadContractDraft();
   }, [user, open, client]);
 
-  // Não gerar poderes automaticamente - deixar o usuário clicar no botão
-  // useEffect removido para evitar geração automática
-
-  // Função para gerar poderes automaticamente
+  // Função unificada para gerar poderes especiais
+  // 1) Tenta modelo fixo por produto
+  // 2) Se não encontrar, usa IA com prompt curto
   const gerarPoderesAutomaticamente = async (objeto: string) => {
+    // Tentar preset pelo produto ou objeto
+    const produtoParaPreset = productName || productNameDetectado || objeto;
+    const preset = getPresetPower(produtoParaPreset);
+    if (preset) {
+      setPoderesEspeciais(preset);
+      setPoderesGeradosAutomaticamente(true);
+      toast.success("Poderes especiais definidos com base no produto!");
+      return;
+    }
+
     setGerandoPoderes(true);
     setPoderesGeradosAutomaticamente(true);
     try {
-      const prompt = `Você é um advogado especialista em procurações advocatícias.
+      const prompt = `Você é um advogado. Gere UMA ÚNICA FRASE curta de poderes especiais para uma procuração.
 
-Gere os poderes especiais para uma procuração com base no seguinte objeto do contrato:
+Contexto: ${objeto}
 
-${objeto}
+REGRAS:
+- Comece com "Especificamente para" seguido da ação judicial.
+- Máximo 1-2 linhas. Sem listas, sem explicações.
+- Exemplo: "Especificamente para requerer em espécie as férias prêmio não gozadas no Estado de Minas Gerais."
 
-INSTRUÇÕES OBRIGATÓRIAS:
-- Seja EXTREMAMENTE breve e direto.
-- O texto deve começar com: "Esta procuração destina-se exclusivamente para"
-- Liste apenas a ação judicial específica relacionada ao objeto.
-- Use no máximo 1-2 linhas.
-- Não adicione explicações, não seja prolixo.
-
-Exemplo de formato correto:
-"Esta procuração destina-se exclusivamente para propor ação de revisão de aposentadoria por invalidez."
-
-Retorne APENAS o texto curto dos poderes especiais, sem explicações adicionais.`;
+Retorne APENAS a frase.`;
 
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
@@ -290,11 +299,13 @@ Retorne APENAS o texto curto dos poderes especiais, sem explicações adicionais
 
       const response = data?.content || data?.choices?.[0]?.message?.content;
       if (response) {
-        setPoderesEspeciais(response.trim());
-        toast.success("Poderes especiais gerados automaticamente com base no contrato!");
+        // Sanitizar: pegar apenas a primeira frase significativa
+        const sanitized = response.trim().split('\n')[0].trim();
+        setPoderesEspeciais(sanitized);
+        toast.success("Poderes especiais gerados com base no contrato!");
       }
     } catch (error) {
-      console.error('Erro ao gerar poderes especiais automaticamente:', error);
+      console.error('Erro ao gerar poderes especiais:', error);
       toast.error("Erro ao gerar poderes especiais. Tente manualmente.");
     } finally {
       setGerandoPoderes(false);
@@ -397,29 +408,35 @@ Retorne APENAS o texto curto dos poderes especiais, sem explicações adicionais
   };
 
   // Gerar poderes especiais com IA (manual - quando usuário clica no botão)
+  // Usa a mesma lógica unificada: preset primeiro, depois IA curta
   const gerarPoderesComIA = async () => {
     const objetoParaUsar = objetoContrato || objetoContratoDetectado;
     
+    // Tentar preset pelo produto ou objeto
+    const produtoParaPreset = productName || productNameDetectado || objetoParaUsar;
+    const preset = getPresetPower(produtoParaPreset);
+    if (preset) {
+      setPoderesEspeciais(preset);
+      toast.success("Poderes especiais definidos com base no produto!");
+      return;
+    }
+
     setGerandoPoderes(true);
     try {
       const contexto = objetoParaUsar?.trim() 
         ? `Objeto do contrato: ${objetoParaUsar}`
         : `Cliente: ${client?.nomeCompleto || 'não informado'}`;
       
-      const prompt = `Você é um advogado especialista em procurações advocatícias.
+      const prompt = `Você é um advogado. Gere UMA ÚNICA FRASE curta de poderes especiais para uma procuração.
 
-Gere os poderes especiais para uma procuração com base no seguinte contexto:
+Contexto: ${contexto}
 
-${contexto}
+REGRAS:
+- Comece com "Especificamente para" seguido da ação judicial.
+- Máximo 1-2 linhas. Sem listas, sem explicações, sem parágrafos longos.
+- Exemplo: "Especificamente para requerer em espécie as férias prêmio não gozadas no Estado de Minas Gerais."
 
-Os poderes especiais devem ser específicos e relacionados ao contexto informado, permitindo que o advogado execute todas as ações necessárias para a defesa dos interesses do cliente.
-
-Formato esperado:
-- Os poderes devem ser listados de forma clara e direta.
-- O texto deve ser em português jurídico formal.
-- Seja objetivo e conciso.
-
-Retorne APENAS o texto dos poderes especiais, sem explicações adicionais.`;
+Retorne APENAS a frase.`;
 
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
@@ -432,7 +449,8 @@ Retorne APENAS o texto dos poderes especiais, sem explicações adicionais.`;
 
       const response = data?.content || data?.choices?.[0]?.message?.content;
       if (response) {
-        setPoderesEspeciais(response.trim());
+        const sanitized = response.trim().split('\n')[0].trim();
+        setPoderesEspeciais(sanitized);
         toast.success("Poderes especiais gerados com sucesso!");
       }
     } catch (error) {
@@ -485,8 +503,32 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
   };
 
   // Gerar PDF da procuração conforme modelo oficial EXATO
+  // Se o usuário editou a prévia, extraímos os campos atualizados do previewText
   const gerarPDF = async () => {
     if (!client) return;
+    
+    // Se a prévia foi editada, sincronizar os campos com o texto editado
+    if (showPreview && previewText) {
+      // Extrair qualificação editada (entre "PROCURAÇÃO\n\n" e "; nomeia(m)")
+      const matchQual = previewText.match(/PROCURAÇÃO\s*\n\n([\s\S]*?);?\s*nomeia\(m\)/);
+      if (matchQual) {
+        setLocalQualification(matchQual[1].trim());
+      }
+      
+      // Extrair poderes especiais editados (texto após "substabelecimento." e antes de "Belo Horizonte")
+      const matchPoderes = previewText.match(/substabelecimento\.\s*\n\n([\s\S]*?)\n\nBelo Horizonte/);
+      if (matchPoderes && matchPoderes[1].trim()) {
+        setPoderesEspeciais(matchPoderes[1].trim());
+        setTemPoderesEspeciais(true);
+      } else {
+        // Verificar se não há poderes especiais no texto editado
+        const matchSemPoderes = previewText.match(/substabelecimento\.\s*\n\nBelo Horizonte/);
+        if (matchSemPoderes) {
+          setTemPoderesEspeciais(false);
+          setPoderesEspeciais("");
+        }
+      }
+    }
     
     setGerandoPDF(true);
     try {

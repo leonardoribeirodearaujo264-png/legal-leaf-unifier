@@ -115,8 +115,17 @@ ${nomeCliente}`;
   };
 
   // Gerar PDF da declaração conforme modelo oficial EXATO
+  // Se a prévia foi editada, sincronizar os campos antes
   const gerarPDF = async () => {
     if (!client) return;
+    
+    // Se a prévia foi editada, extrair qualificação atualizada
+    if (showPreview && previewText) {
+      const matchQual = previewText.match(/DECLARAÇÃO DE HIPOSSUFICIÊNCIA\s*\n\n([\s\S]*?)\s*venho,\s*respeitosamente/);
+      if (matchQual) {
+        setLocalQualification(matchQual[1].trim());
+      }
+    }
     
     setGerandoPDF(true);
     try {
