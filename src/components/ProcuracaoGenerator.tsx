@@ -520,13 +520,13 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderes}`;
         setLocalQualification(matchQual[1].trim());
       }
       
-      // Extrair poderes especiais editados (texto após "substabelecimento." e antes de "Belo Horizonte")
-      const matchPoderes = previewText.match(/substabelecimento\.\s*\n\n([\s\S]*?)\n\nBelo Horizonte/);
-      if (matchPoderes && matchPoderes[1].trim()) {
-        setPoderesEspeciais(matchPoderes[1].trim());
+      // Extrair poderes especiais inline (após "substabelecimento; " e antes do ponto final)
+      const matchPoderesInline = previewText.match(/substabelecimento;\s*(.+?)\.?\s*\n\nBelo Horizonte/s);
+      if (matchPoderesInline && matchPoderesInline[1].trim()) {
+        setPoderesEspeciais(matchPoderesInline[1].trim());
         setTemPoderesEspeciais(true);
       } else {
-        // Verificar se não há poderes especiais no texto editado
+        // Sem poderes especiais (termina com "substabelecimento.")
         const matchSemPoderes = previewText.match(/substabelecimento\.\s*\n\nBelo Horizonte/);
         if (matchSemPoderes) {
           setTemPoderesEspeciais(false);
