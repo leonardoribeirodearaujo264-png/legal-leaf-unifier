@@ -472,18 +472,23 @@ Retorne APENAS a frase.`;
       `${adv.nome}, ${adv.nacionalidade}, ${adv.estadoCivil}, advogado(a) inscrito(a) na ${adv.oab}`
     ).join('\n');
     
+    // Montar texto dos poderes: se tem poderes especiais, inserir inline após "substabelecimento"
+    let textoPoderes = TEXTO_PODERES;
+    if (temPoderesEspeciais && poderesEspeciais.trim()) {
+      // Substituir "substabelecimento." por "substabelecimento; [poderes especiais]."
+      textoPoderes = textoPoderes.replace(
+        /substabelecimento\.$/,
+        `substabelecimento; ${poderesEspeciais.trim().replace(/\.$/, '')}.`
+      );
+    }
+
     let texto = `PROCURAÇÃO
 
 ${localQualification}; nomeia(m) e constitui(em), seus bastantes procuradores os advogados:
 
 ${advogadosTexto}
 
-todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
-
-    // Inserir poderes especiais se houver
-    if (temPoderesEspeciais && poderesEspeciais.trim()) {
-      texto += `\n\n${poderesEspeciais.trim()}`;
-    }
+todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderes}`;
     
     texto += `\n\nBelo Horizonte, ${dataAtual}.\n\n\n_____________________________________\n${client.nomeCompleto.toUpperCase()}`;
     
@@ -515,13 +520,13 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
         setLocalQualification(matchQual[1].trim());
       }
       
-      // Extrair poderes especiais editados (texto após "substabelecimento." e antes de "Belo Horizonte")
-      const matchPoderes = previewText.match(/substabelecimento\.\s*\n\n([\s\S]*?)\n\nBelo Horizonte/);
-      if (matchPoderes && matchPoderes[1].trim()) {
-        setPoderesEspeciais(matchPoderes[1].trim());
+      // Extrair poderes especiais inline (após "substabelecimento; " e antes do ponto final)
+      const matchPoderesInline = previewText.match(/substabelecimento;\s*(.+?)\.?\s*\n\nBelo Horizonte/s);
+      if (matchPoderesInline && matchPoderesInline[1].trim()) {
+        setPoderesEspeciais(matchPoderesInline[1].trim());
         setTemPoderesEspeciais(true);
       } else {
-        // Verificar se não há poderes especiais no texto editado
+        // Sem poderes especiais (termina com "substabelecimento.")
         const matchSemPoderes = previewText.match(/substabelecimento\.\s*\n\nBelo Horizonte/);
         if (matchSemPoderes) {
           setTemPoderesEspeciais(false);
@@ -706,11 +711,20 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
 
       yPosition += 2;
 
-      // Texto do escritório + poderes (sem poderes especiais aqui) - JUSTIFICADO
+      // Texto do escritório + poderes (com especiais inline) - JUSTIFICADO
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       
-      const textoPoderesCompleto = `todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
+      // Inserir poderes especiais inline após "substabelecimento"
+      let textoPoderesParaPDF = TEXTO_PODERES;
+      if (temPoderesEspeciais && poderesEspeciais.trim()) {
+        textoPoderesParaPDF = textoPoderesParaPDF.replace(
+          /substabelecimento\.$/,
+          `substabelecimento; ${poderesEspeciais.trim().replace(/\.$/, '')}.`
+        );
+      }
+      
+      const textoPoderesCompleto = `todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderesParaPDF}`;
       
       // Usar justificação manual para o texto dos poderes
       const renderJustifiedPoderes = (text: string, startY: number) => {
@@ -758,14 +772,6 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${TEXTO_PODERES}`;
       };
       
       yPosition = renderJustifiedPoderes(textoPoderesCompleto, yPosition);
-      
-      // Poderes especiais ao FINAL, em NEGRITO, separado - também justificado
-      if (temPoderesEspeciais && poderesEspeciais.trim()) {
-        yPosition += 4;
-        doc.setFont('helvetica', 'bold');
-        yPosition = renderJustifiedPoderes(poderesEspeciais.trim(), yPosition);
-        doc.setFont('helvetica', 'normal');
-      }
       yPosition += 6;
 
       // Data e local
