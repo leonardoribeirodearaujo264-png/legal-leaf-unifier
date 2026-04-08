@@ -508,31 +508,41 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderes}`;
   };
 
   // Gerar PDF da procuração conforme modelo oficial EXATO
-  // Se o usuário editou a prévia, extraímos os campos atualizados do previewText
+  // Usa variáveis locais extraídas do previewText para garantir que edições manuais sejam respeitadas
   const gerarPDF = async () => {
     if (!client) return;
     
-    // Se a prévia foi editada, sincronizar os campos com o texto editado
+    // Variáveis locais que serão usadas para montar o PDF
+    // Se a prévia foi editada, extraímos os campos atualizados do previewText
+    let pdfQualification = localQualification;
+    let pdfTemPoderes = temPoderesEspeciais;
+    let pdfPoderesTexto = poderesEspeciais;
+    
     if (showPreview && previewText) {
       // Extrair qualificação editada (entre "PROCURAÇÃO\n\n" e "; nomeia(m)")
       const matchQual = previewText.match(/PROCURAÇÃO\s*\n\n([\s\S]*?);?\s*nomeia\(m\)/);
       if (matchQual) {
-        setLocalQualification(matchQual[1].trim());
+        pdfQualification = matchQual[1].trim();
       }
       
       // Extrair poderes especiais inline (após "substabelecimento; " e antes do ponto final)
       const matchPoderesInline = previewText.match(/substabelecimento;\s*(.+?)\.?\s*\n\nBelo Horizonte/s);
       if (matchPoderesInline && matchPoderesInline[1].trim()) {
-        setPoderesEspeciais(matchPoderesInline[1].trim());
-        setTemPoderesEspeciais(true);
+        pdfPoderesTexto = matchPoderesInline[1].trim();
+        pdfTemPoderes = true;
       } else {
         // Sem poderes especiais (termina com "substabelecimento.")
         const matchSemPoderes = previewText.match(/substabelecimento\.\s*\n\nBelo Horizonte/);
         if (matchSemPoderes) {
-          setTemPoderesEspeciais(false);
-          setPoderesEspeciais("");
+          pdfTemPoderes = false;
+          pdfPoderesTexto = "";
         }
       }
+      
+      // Sincronizar estado também (para manter consistência visual)
+      setLocalQualification(pdfQualification);
+      setTemPoderesEspeciais(pdfTemPoderes);
+      setPoderesEspeciais(pdfPoderesTexto);
     }
     
     setGerandoPDF(true);
