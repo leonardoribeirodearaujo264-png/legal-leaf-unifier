@@ -61,7 +61,9 @@ export const useMessaging = () => {
     if (!user) return;
 
     try {
-      setLoading(true);
+      if (conversations.length === 0) {
+        setLoading(true);
+      }
       
       // Get conversations where user is a participant
       const { data: participations, error: partError } = await supabase
