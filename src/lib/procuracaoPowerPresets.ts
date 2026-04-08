@@ -9,12 +9,24 @@ const POWER_PRESETS: Record<string, string> = {
     "Especificamente para requerer em espécie as férias prêmio não gozadas no Estado de Minas Gerais.",
   "devolução ipsm":
     "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
+  "ipsm":
+    "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
+  "alíquota":
+    "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
+  "aliquota":
+    "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
+  "retroativo":
+    "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
+  "psm":
+    "Especificamente para requerer o retroativo da contribuição previdenciária paga ao IPSM de forma excedente.",
   "terço de férias":
     "Especificamente para requerer o pagamento do terço de férias excedente aos 30 dias anuais e que não foram quitados.",
   "vale refeição":
     "Especificamente para requerer o pagamento retroativo do auxílio/vale alimentação em face do Estado de Minas Gerais.",
   "vale alimentação":
     "Especificamente para requerer o pagamento retroativo do auxílio/vale alimentação em face do Estado de Minas Gerais.",
+  "atraso de obra":
+    "Especificamente para requerer a indenização por atraso na entrega de imóvel adquirido pelo(a) Outorgante.",
 };
 
 /**
