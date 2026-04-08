@@ -1,26 +1,26 @@
 
 
-## Corrigir flash dos nomes na sidebar ao clicar em uma conversa
+## Remover Jhonny da lista de testemunhas de contrato
 
 ### Problema
-Quando você clica em uma conversa, o hook `useMessaging` chama `fetchConversations()` internamente (via realtime handler e após marcar como lido). Cada chamada executa `setLoading(true)` na linha 64, o que faz a sidebar mostrar skeletons por alguns segundos antes de recarregar os dados.
-
-### Solução
-Usar `setLoading(true)` apenas no carregamento inicial (quando `conversations` está vazio). Nas atualizações subsequentes, atualizar os dados silenciosamente sem mostrar skeletons.
+O colaborador Jhonny foi desligado do escritório. Ele ainda aparece como opção de testemunha na assinatura digital de contratos (ZapSign) e vem pré-selecionado por padrão.
 
 ### Alteração
 
-**`src/hooks/useMessaging.tsx`** — Modificar `fetchConversations`:
-- Trocar `setLoading(true)` por uma verificação: só ativar loading se `conversations` estiver vazio (primeira carga)
-- Nas recargas subsequentes (realtime, clique, envio), os dados atualizam sem flash
+**Arquivo: `src/components/ZapSignDialog.tsx`**
 
-Concretamente, a linha `setLoading(true)` será substituída por:
+1. **Linha 71-75** — Remover Jhonny do array `WITNESSES`:
 ```ts
-// Só mostra skeleton no primeiro carregamento
-if (conversations.length === 0) {
-  setLoading(true);
-}
+const WITNESSES = [
+  { key: 'daniel', label: 'Daniel' },
+  { key: 'lucas', label: 'Lucas' },
+];
 ```
 
-Isso é seguro porque o `setConversations(...)` e `setLoading(false)` no final já garantem que a UI atualiza com os novos dados.
+2. **Linha 101** — Atualizar seleção padrão para Daniel e Lucas:
+```ts
+const [selectedWitnesses, setSelectedWitnesses] = useState<string[]>(['daniel', 'lucas']);
+```
+
+Apenas essas duas linhas precisam ser alteradas. O restante da lógica (validação de 2 testemunhas, toggle, envio para ZapSign) já funciona corretamente com qualquer combinação de 2 testemunhas.
 
