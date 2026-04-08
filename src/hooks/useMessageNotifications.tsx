@@ -25,6 +25,16 @@ export const useMessageNotifications = () => {
   const [lastReceivedMessage, setLastReceivedMessage] = useState<NewMessage | null>(null);
   const processedMessages = useRef<Set<string>>(new Set());
 
+  // Stable refs to avoid re-creating the realtime subscription
+  const popupEnabledRef = useRef(popupEnabled);
+  const locationRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
+  const conversationIdsRef = useRef<string[]>([]);
+
+  useEffect(() => { popupEnabledRef.current = popupEnabled; }, [popupEnabled]);
+  useEffect(() => { locationRef.current = location.pathname; }, [location.pathname]);
+  useEffect(() => { navigateRef.current = navigate; }, [navigate]);
+
   // Fetch popup preference
   const fetchPopupPreference = useCallback(async () => {
     if (!user) return;
@@ -41,7 +51,7 @@ export const useMessageNotifications = () => {
     if (user) fetchPopupPreference();
   }, [user, fetchPopupPreference]);
 
-  // Fetch unread messages count
+  // Fetch unread messages count — also updates conversationIdsRef
   const fetchUnreadCount = useCallback(async () => {
     if (!user) {
       setUnreadCount(0);
@@ -57,8 +67,12 @@ export const useMessageNotifications = () => {
       if (partError) throw partError;
       if (!participations || participations.length === 0) {
         setUnreadCount(0);
+        conversationIdsRef.current = [];
         return;
       }
+
+      // Update the dynamic conversation list
+      conversationIdsRef.current = participations.map(p => p.conversation_id);
 
       let totalUnread = 0;
 
@@ -91,22 +105,6 @@ export const useMessageNotifications = () => {
     return data?.full_name || 'Alguém';
   };
 
-  // Get conversation display name
-  const getConversationName = async (conversationId: string, senderId: string): Promise<string> => {
-    const { data: conv } = await supabase
-      .from('conversations')
-      .select('name, is_group')
-      .eq('id', conversationId)
-      .single();
-
-    if (conv?.is_group && conv?.name) {
-      return conv.name;
-    }
-
-    const senderName = await getSenderName(senderId);
-    return senderName;
-  };
-
   // Request native notification permission
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -114,18 +112,18 @@ export const useMessageNotifications = () => {
     }
   }, []);
 
-  // Send native browser notification
+  // Send native browser notification (stable — uses refs)
   const sendNativeNotification = useCallback((title: string, body: string, conversationId: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         const notification = new Notification(title, {
           body,
-        icon: '/logo-eggnunes.png',
-        tag: `msg-${conversationId}`,
+          icon: '/logo-eggnunes.png',
+          tag: `msg-${conversationId}`,
         } as NotificationOptions);
         notification.onclick = () => {
           window.focus();
-          navigate('/mensagens', { state: { openConversation: conversationId } });
+          navigateRef.current('/mensagens', { state: { openConversation: conversationId } });
           notification.close();
         };
         setTimeout(() => notification.close(), 10000);
@@ -133,19 +131,26 @@ export const useMessageNotifications = () => {
         // Fallback silently
       }
     }
-  }, [navigate]);
+  }, []);
 
   // Dismiss popup
   const dismissPopup = useCallback(() => {
     setLastReceivedMessage(null);
   }, []);
 
-  // Show notification pop-up
-  const showNotification = useCallback(async (message: NewMessage) => {
+  // Show notification — stable via refs
+  const showNotificationRef = useRef<(message: NewMessage) => Promise<void>>();
+
+  showNotificationRef.current = async (message: NewMessage) => {
     // Don't show notification if already on mensagens page
-    if (location.pathname === '/mensagens') {
+    if (locationRef.current === '/mensagens') {
       fetchUnreadCount();
       return;
+    }
+
+    // Request permission if not yet granted
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
 
     const senderName = await getSenderName(message.sender_id);
@@ -161,7 +166,7 @@ export const useMessageNotifications = () => {
     );
 
     // If popup is enabled, set the message for the popup dialog
-    if (popupEnabled) {
+    if (popupEnabledRef.current) {
       setLastReceivedMessage(message);
     } else {
       // Fallback: show toast
@@ -185,7 +190,7 @@ export const useMessageNotifications = () => {
                   className="mt-2 h-7 text-xs"
                   onClick={() => {
                     toast.dismiss(t);
-                    navigate('/mensagens', {
+                    navigateRef.current('/mensagens', {
                       state: { openConversation: message.conversation_id }
                     });
                   }}
@@ -215,64 +220,50 @@ export const useMessageNotifications = () => {
       audio.volume = 0.5;
       audio.play().catch(() => {});
     } catch {}
-  }, [location.pathname, navigate, fetchUnreadCount, popupEnabled, sendNativeNotification]);
+  };
 
-  // Subscribe to new messages
+  // Subscribe to new messages — STABLE, only depends on user
   useEffect(() => {
     if (!user) return;
 
     fetchUnreadCount();
 
-    const setupSubscription = async () => {
-      const { data: participations } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id')
-        .eq('user_id', user.id);
+    const channel = supabase
+      .channel('message-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async (payload) => {
+          const newMessage = payload.new as NewMessage;
 
-      if (!participations || participations.length === 0) return;
+          // Check against dynamic conversation list
+          if (!conversationIdsRef.current.includes(newMessage.conversation_id)) return;
+          if (newMessage.sender_id === user.id) return;
+          if (processedMessages.current.has(newMessage.id)) return;
 
-      const conversationIds = participations.map(p => p.conversation_id);
+          processedMessages.current.add(newMessage.id);
 
-      const channel = supabase
-        .channel('message-notifications')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-          },
-          async (payload) => {
-            const newMessage = payload.new as NewMessage;
-
-            if (!conversationIds.includes(newMessage.conversation_id)) return;
-            if (newMessage.sender_id === user.id) return;
-            if (processedMessages.current.has(newMessage.id)) return;
-
-            processedMessages.current.add(newMessage.id);
-
-            if (processedMessages.current.size > 100) {
-              const arr = Array.from(processedMessages.current);
-              processedMessages.current = new Set(arr.slice(-50));
-            }
-
-            await showNotification(newMessage);
-            fetchUnreadCount();
+          if (processedMessages.current.size > 100) {
+            const arr = Array.from(processedMessages.current);
+            processedMessages.current = new Set(arr.slice(-50));
           }
-        )
-        .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    };
-
-    const cleanup = setupSubscription();
+          await showNotificationRef.current?.(newMessage);
+          fetchUnreadCount();
+        }
+      )
+      .subscribe((status) => {
+        console.log('[MessageNotifications] Channel status:', status);
+      });
 
     return () => {
-      cleanup.then(fn => fn?.());
+      supabase.removeChannel(channel);
     };
-  }, [user, fetchUnreadCount, showNotification]);
+  }, [user, fetchUnreadCount]);
 
   // Listen for 'messages-read' events
   useEffect(() => {
@@ -328,7 +319,6 @@ export const useMessageNotifications = () => {
     if (unreadCount > 0) {
       document.title = `● (${unreadCount}) ${baseTitle}`;
       
-      // Generate favicon with red badge - large canvas for clarity
       const canvas = document.createElement('canvas');
       canvas.width = 128;
       canvas.height = 128;
@@ -339,7 +329,6 @@ export const useMessageNotifications = () => {
         img.src = faviconPath;
         img.onload = () => {
           ctx.drawImage(img, 0, 0, 128, 128);
-          // Large red badge in top-right corner
           const badgeRadius = 36;
           const x = 128 - badgeRadius;
           const y = badgeRadius;
@@ -350,21 +339,18 @@ export const useMessageNotifications = () => {
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 5;
           ctx.stroke();
-          // White text - show simplified count for legibility
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 42px Arial';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const displayCount = unreadCount > 9 ? '9+' : String(unreadCount);
           ctx.fillText(displayCount, x, y + 1);
-          // Apply
           const link = document.getElementById('app-favicon') as HTMLLinkElement;
           if (link) {
             link.href = canvas.toDataURL('image/png');
           }
         };
         img.onerror = () => {
-          // Fallback: red circle only
           ctx.beginPath();
           ctx.arc(64, 64, 56, 0, Math.PI * 2);
           ctx.fillStyle = '#ef4444';
@@ -383,7 +369,6 @@ export const useMessageNotifications = () => {
       }
     } else {
       document.title = baseTitle;
-      // Restore original favicon
       const link = document.getElementById('app-favicon') as HTMLLinkElement;
       if (link) {
         link.href = faviconPath;
