@@ -1,78 +1,48 @@
 
-## Revisão do problema da procuração
 
-Analisei a transcrição nova e o código atual. Ainda não está 100% corrigido. Há dois pontos que explicam exatamente o que seu colaborador relatou:
+## Gerar blueprint completo da integração ADVBox como arquivo para download
 
-### O que ainda está errado
+O sistema ADVBox no projeto é extremamente extenso (~10.000+ linhas distribuídas em 20+ arquivos). Vou consolidar tudo num documento Markdown organizado por seções.
 
-1. **Texto do IPSM ainda pode sair errado**
-   - O preset atual só reconhece com segurança `devolução ipsm`.
-   - No projeto existem nomes de produto legados como `IPSM`, `alíquota`, `Retroativo - Alíquota e PSM`.
-   - Se o fluxo vier com um desses nomes, o sistema pode cair no texto antigo/IA e não usar o modelo curto correto.
+### Escopo do blueprint
 
-2. **A edição da pré-visualização ainda não está valendo no PDF**
-   - Hoje o `gerarPDF()` lê o `previewText`, mas faz `setLocalQualification` e `setPoderesEspeciais` imediatamente antes de montar o PDF.
-   - Como atualização de estado em React não é síncrona, o PDF ainda pode ser gerado com os valores anteriores.
-   - Isso bate exatamente com o relato: a pessoa edita a prévia, mas o PDF final volta para a versão antiga.
+**Edge Functions (8 funções):**
+1. `advbox-integration` (1877 linhas) — Hub central: processos, movimentações, tarefas, transações, clientes, publicações, usuários, criação de tarefas, busca de responsáveis
+2. `sync-advbox-tasks` (280 linhas) — Sincronização incremental de tarefas para tabela local
+3. `sync-advbox-customers` (303 linhas) — Sincronização incremental de clientes com trava de concorrência e retomada
+4. `sync-advbox-financial` (955 linhas) — Sincronização de transações financeiras com mapeamento de categorias
+5. `sync-advbox-status` — Sincronizar status de processos para contratos
+6. `advbox-cache-refresh` — Cron job de atualização automática de cache
+7. `translate-movement` (111 linhas) — Tradução de andamentos jurídicos via IA (Claude)
+8. `suggest-task` (264 linhas) — Sugestão de tarefas via IA baseado em movimentações
+9. `advbox-manual-registration` (341 linhas) — Cadastro manual de cliente/processo no ADVBox
 
-## Correções que vou aplicar
+**Páginas Frontend (8 páginas):**
+1. `ProcessosDashboard.tsx` (1724 linhas) — Dashboard principal com gráficos e estatísticas
+2. `ProcessosAtivos.tsx` (883 linhas) — Lista de processos ativos com geração de contratos/procurações
+3. `MovimentacoesAdvbox.tsx` (591 linhas) — Movimentações com criação de tarefas e sugestões IA
+4. `TarefasAdvbox.tsx` (1520 linhas) — Gestão de tarefas com calendário, relatórios e prioridades
+5. `AdvboxAnalytics.tsx` (868 linhas) — Análises com gráficos e exportação PDF/Excel
+6. `AdvboxConfig.tsx` (197 linhas) — Configurações de cache e rate limiting
+7. `ControlePrazos.tsx` — Controle de prazos processuais com verificação
+8. `TraducaoAndamentos.tsx` — Tradução de andamentos técnicos para linguagem simples
 
-### 1) Fortalecer o reconhecimento do produto IPSM
-Vou ampliar o helper de presets para reconhecer também variações como:
-- `ipsm`
-- `alíquota`
-- `aliquota`
-- `retroativo - alíquota e psm`
-- `retroativo - aliquota e psm`
+**Componentes compartilhados (6):**
+- `AdvboxCacheAlert`, `AdvboxDataStatus`, `TaskCreationDialog`, `TaskCreationForm`, `TaskSuggestionsPanel`, `AdvboxFinancialSync`
 
-E padronizar o texto curto do IPSM para o modelo desejado, removendo qualquer sobra de “contratante” do fluxo automático.
+**Tabelas de banco (7+):**
+- `advbox_customers`, `advbox_tasks`, `advbox_sync_status`, `advbox_tasks_sync_status`, `advbox_settings`, `advbox_dashboard_cache`, `advbox_financial_sync`
 
-### 2) Fazer o PDF usar a prévia editada como fonte real
-Em vez de:
-- extrair do `previewText`
-- chamar `setState`
-- e gerar o PDF com estados possivelmente antigos
+### O que vou incluir no arquivo
 
-vou ajustar para:
-- extrair qualificação e poderes especiais do `previewText`
-- guardar isso em variáveis locais
-- gerar o PDF diretamente com essas variáveis locais
+1. Visão geral da arquitetura
+2. Tabelas SQL completas com RLS
+3. Código completo de todas as 9 Edge Functions
+4. Código completo de todas as 8 páginas e 6 componentes
+5. Erros conhecidos e soluções já aplicadas (rate limiting, ID composto, classificação de categorias, trava de concorrência, timeout)
+6. Dependências e rotas
 
-Assim, o PDF final sai exatamente com o que a pessoa editou na pré-visualização.
+### Formato de entrega
 
-### 3) Garantir coerência entre preview e PDF
-Vou unificar a montagem do bloco final da procuração para que:
-- a pré-visualização use a mesma lógica do PDF
-- os poderes especiais continuem em linha após `substabelecimento;`
-- se a pessoa apagar ou reescrever esse trecho na prévia, o PDF respeite a edição
+Arquivo Markdown em `/mnt/documents/blueprint-advbox-integration.md`
 
-### 4) Ajustar o fluxo do comercial para não depender de nome de produto frágil
-No `SetorComercial`, a procuração hoje depende do `selectedProduct`, que pode não refletir bem o contexto quando o usuário abre a procuração fora do fluxo do contrato.
-Vou revisar esse repasse para priorizar:
-1. produto explícito do fluxo
-2. produto detectado do rascunho de contrato
-3. objeto do contrato
-
-Isso reduz a chance de o preset correto não ser encontrado.
-
-## Arquivos que precisam de ajuste
-
-- `src/lib/procuracaoPowerPresets.ts`
-- `src/components/ProcuracaoGenerator.tsx`
-- `src/pages/SetorComercial.tsx`
-
-## Resultado esperado após a correção
-
-- O modelo do **IPSM** passa a sair com o texto curto correto, sem “contratante” indevido.
-- A edição feita na **pré-visualização da procuração** passa a ser respeitada no PDF final.
-- O texto dos poderes especiais não volta mais para a versão antiga ao exportar.
-- O comportamento fica consistente tanto no fluxo do **Comercial** quanto quando houver rascunho prévio do contrato.
-
-## Detalhe técnico
-O bug principal não é de layout nem de PDF em si; é de sincronização de estado:
-- o componente extrai o texto editado da prévia,
-- chama `setState`,
-- mas gera o PDF no mesmo ciclo,
-- então o PDF usa os valores anteriores.
-
-A correção é gerar o PDF com variáveis derivadas do `previewText` no próprio método, sem depender de atualização de estado antes da renderização do documento.
