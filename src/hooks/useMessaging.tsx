@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
-import { useEmailNotification } from './useEmailNotification';
+
 import { toast } from 'sonner';
 
 export interface Conversation {
