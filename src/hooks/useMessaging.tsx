@@ -49,7 +49,7 @@ export interface Message {
 
 export const useMessaging = () => {
   const { user } = useAuth();
-  const { sendNewMessageEmail } = useEmailNotification();
+  
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
@@ -280,24 +280,6 @@ export const useMessaging = () => {
             action_url: '/mensagens'
           });
 
-        // Send email notification
-        if (participant.profile?.id) {
-          const { data: recipientProfile } = await supabase
-            .from('profiles')
-            .select('email, full_name')
-            .eq('id', participant.user_id)
-            .maybeSingle();
-
-          if (recipientProfile?.email) {
-            sendNewMessageEmail(
-              recipientProfile.email,
-              participant.user_id,
-              recipientProfile.full_name || 'Colaborador',
-              senderName,
-              content.trim().substring(0, 100)
-            ).catch(err => console.error('Email notification error:', err));
-          }
-        }
       }
 
       return data;
