@@ -1,26 +1,28 @@
 
 
-## Remover Jhonny da lista de testemunhas de contrato
+## Corrigir notificações de mensagens internas que não chegam
 
-### Problema
-O colaborador Jhonny foi desligado do escritório. Ele ainda aparece como opção de testemunha na assinatura digital de contratos (ZapSign) e vem pré-selecionado por padrão.
+### Diagnóstico
 
-### Alteração
+Encontrei o problema principal: **a assinatura Realtime é instável**. O `useEffect` que cria o canal de escuta (linha 221) tem `showNotification` nas dependências. Como `showNotification` depende de `location.pathname` e `popupEnabled`, **toda vez que o usuário muda de página**, o canal é destruído e recriado. Durante essa janela de reconexão, mensagens podem ser perdidas.
 
-**Arquivo: `src/components/ZapSignDialog.tsx`**
+Além disso, a lista de `conversationIds` é capturada uma única vez no momento da assinatura — se o usuário entrar em uma nova conversa, não recebe notificação dela.
 
-1. **Linha 71-75** — Remover Jhonny do array `WITNESSES`:
-```ts
-const WITNESSES = [
-  { key: 'daniel', label: 'Daniel' },
-  { key: 'lucas', label: 'Lucas' },
-];
-```
+### Solução
 
-2. **Linha 101** — Atualizar seleção padrão para Daniel e Lucas:
-```ts
-const [selectedWitnesses, setSelectedWitnesses] = useState<string[]>(['daniel', 'lucas']);
-```
+**Arquivo: `src/hooks/useMessageNotifications.tsx`**
 
-Apenas essas duas linhas precisam ser alteradas. O restante da lógica (validação de 2 testemunhas, toggle, envio para ZapSign) já funciona corretamente com qualquer combinação de 2 testemunhas.
+1. **Estabilizar a assinatura Realtime** — Usar `useRef` para `showNotification`, `popupEnabled` e `location.pathname`, removendo-os das dependências do `useEffect`. Assim o canal é criado uma única vez e sobrevive a mudanças de rota.
+
+2. **Atualizar lista de conversas dinamicamente** — Guardar `conversationIds` em um `useRef` e atualizar sempre que `fetchUnreadCount` roda (que já busca as participações).
+
+3. **Garantir pedido de permissão nativa** — Mover o `Notification.requestPermission()` para ser chamado também quando o primeiro evento de mensagem chega (caso o usuário não tenha respondido ao prompt inicial).
+
+4. **Adicionar log de diagnóstico temporário** — Console.log discreto no subscribe para confirmar que o canal está ativo.
+
+### Resultado esperado
+
+- O banner nativo do Windows (como Teams) aparecerá próximo ao relógio sempre que uma mensagem chegar, mesmo se o usuário estiver navegando entre páginas
+- O popup dentro da aplicação (MessagePopupDialog) também continuará funcionando
+- A assinatura será estável e não será destruída/recriada a cada navegação
 
