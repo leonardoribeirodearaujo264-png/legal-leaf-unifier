@@ -596,7 +596,7 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderes}`;
       doc.text(nomeCliente, marginLeft, yPosition);
       
       // Resto da qualificação em fonte normal (sem o nome)
-      const qualificacaoLimpa = localQualification.replace(/[;,.]$/, '').trim();
+      const qualificacaoLimpa = pdfQualification.replace(/[;,.]$/, '').trim();
       let restoQualificacao = qualificacaoLimpa;
       
       // Remover o nome do início da qualificação
@@ -727,10 +727,10 @@ todos com escritório na ${ENDERECO_ESCRITORIO}, ${textoPoderes}`;
       
       // Inserir poderes especiais inline após "substabelecimento"
       let textoPoderesParaPDF = TEXTO_PODERES;
-      if (temPoderesEspeciais && poderesEspeciais.trim()) {
+      if (pdfTemPoderes && pdfPoderesTexto.trim()) {
         textoPoderesParaPDF = textoPoderesParaPDF.replace(
           /substabelecimento\.$/,
-          `substabelecimento; ${poderesEspeciais.trim().replace(/\.$/, '')}.`
+          `substabelecimento; ${pdfPoderesTexto.trim().replace(/\.$/, '')}.`
         );
       }
       
