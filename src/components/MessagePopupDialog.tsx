@@ -34,12 +34,11 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-dismiss after 30s
   const startTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       onDismiss();
-    }, 30000);
+    }, 15000);
   }, [onDismiss]);
 
   const resetTimer = useCallback(() => {
@@ -102,7 +101,6 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
 
       if (error) throw error;
 
-      // Update last_read_at
       await supabase
         .from('conversation_participants')
         .update({ last_read_at: new Date().toISOString() })
@@ -134,23 +132,29 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
   return (
     <AnimatePresence>
       <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.95 }}
-        transition={{ duration: 0.2 }}
-        className="fixed bottom-20 right-4 z-[60] w-[340px] max-w-[calc(100vw-2rem)] bg-card border border-border rounded-xl shadow-2xl"
+        initial={{ opacity: 0, x: 80, scale: 0.95 }}
+        animate={{ opacity: 1, x: 0, scale: 1 }}
+        exit={{ opacity: 0, x: 80, scale: 0.95 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        className="fixed top-4 right-4 z-[200] w-[380px] max-w-[calc(100vw-2rem)] bg-card border-2 border-primary/30 rounded-xl shadow-2xl overflow-hidden"
         onMouseEnter={resetTimer}
         onClick={resetTimer}
       >
+        {/* Colored left accent bar */}
+        <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-primary rounded-l-xl" />
+
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-primary/5 rounded-t-xl">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-primary/10">
           <div className="flex items-center gap-2">
-            <MessageCircle className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">Nova mensagem</span>
+            <div className="relative">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 bg-destructive rounded-full animate-pulse" />
+            </div>
+            <span className="text-sm font-bold text-foreground">Nova mensagem</span>
           </div>
           <button
             onClick={onDismiss}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-muted"
           >
             <X className="h-4 w-4" />
           </button>
@@ -160,21 +164,21 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
         <div className="p-4 space-y-3">
           {/* Sender info */}
           <div className="flex items-center gap-3">
-            <Avatar className="h-10 w-10">
+            <Avatar className="h-11 w-11 ring-2 ring-primary/20">
               <AvatarImage src={senderAvatar} />
-              <AvatarFallback className="text-xs bg-primary/10 text-primary">
+              <AvatarFallback className="text-sm font-semibold bg-primary/10 text-primary">
                 {senderName.charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{senderName}</p>
+              <p className="text-sm font-semibold text-foreground truncate">{senderName}</p>
               <p className="text-xs text-muted-foreground truncate">{conversationName}</p>
             </div>
           </div>
 
           {/* Message content */}
-          <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-sm text-foreground/90 leading-relaxed">{truncatedContent}</p>
+          <div className="bg-muted/60 rounded-lg p-3 border border-border/50">
+            <p className="text-sm text-foreground leading-relaxed">{truncatedContent}</p>
           </div>
 
           {/* Quick reply */}
@@ -210,6 +214,14 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
             Abrir conversa completa
           </Button>
         </div>
+
+        {/* Auto-dismiss progress bar */}
+        <motion.div
+          className="h-1 bg-primary/40"
+          initial={{ width: '100%' }}
+          animate={{ width: '0%' }}
+          transition={{ duration: 15, ease: 'linear' }}
+        />
       </motion.div>
     </AnimatePresence>
   );
