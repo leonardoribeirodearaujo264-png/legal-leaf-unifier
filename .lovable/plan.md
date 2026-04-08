@@ -1,47 +1,78 @@
 
+## Revisão do problema da procuração
 
-## Melhorar notificações de mensagens internas
+Analisei a transcrição nova e o código atual. Ainda não está 100% corrigido. Há dois pontos que explicam exatamente o que seu colaborador relatou:
 
-### Situação atual
-O sistema já tem:
-- `MessagePopupDialog`: card no canto inferior direito com avatar, preview e resposta rápida (30s de auto-dismiss)
-- `NotificationToast`: toasts genéricos para `realtime_notifications`
-- Notificação nativa do navegador (Web Notification API)
-- Som de notificação referenciando `/notification.mp3` — mas o arquivo **não existe** no `public/`
-- Envio de e-mail para cada mensagem nova via `sendNewMessageEmail`
+### O que ainda está errado
 
-### Problemas identificados
-1. **E-mail desnecessário**: o pessoal vê o e-mail tarde; você quer remover
-2. **Som não funciona**: o arquivo `notification.mp3` não existe
-3. **O popup card já existe** mas pode não estar aparecendo de forma clara o suficiente — posição no canto inferior, sem destaque visual forte
+1. **Texto do IPSM ainda pode sair errado**
+   - O preset atual só reconhece com segurança `devolução ipsm`.
+   - No projeto existem nomes de produto legados como `IPSM`, `alíquota`, `Retroativo - Alíquota e PSM`.
+   - Se o fluxo vier com um desses nomes, o sistema pode cair no texto antigo/IA e não usar o modelo curto correto.
 
-### O que vou implementar
+2. **A edição da pré-visualização ainda não está valendo no PDF**
+   - Hoje o `gerarPDF()` lê o `previewText`, mas faz `setLocalQualification` e `setPoderesEspeciais` imediatamente antes de montar o PDF.
+   - Como atualização de estado em React não é síncrona, o PDF ainda pode ser gerado com os valores anteriores.
+   - Isso bate exatamente com o relato: a pessoa edita a prévia, mas o PDF final volta para a versão antiga.
 
-**1. Remover notificação por e-mail de mensagens internas**
-- Em `src/hooks/useMessaging.tsx`, remover o bloco que chama `sendNewMessageEmail` (linhas 283-299) e a importação do hook `useEmailNotification`
+## Correções que vou aplicar
 
-**2. Adicionar som de notificação real**
-- Gerar um arquivo de som curto de notificação (tom de sino, ~0.5s) via script e colocá-lo em `public/notification.mp3`
-- O hook `useMessageNotifications` já referencia esse arquivo; basta o arquivo existir
+### 1) Fortalecer o reconhecimento do produto IPSM
+Vou ampliar o helper de presets para reconhecer também variações como:
+- `ipsm`
+- `alíquota`
+- `aliquota`
+- `retroativo - alíquota e psm`
+- `retroativo - aliquota e psm`
 
-**3. Melhorar visibilidade do card de notificação**
-- Mover o `MessagePopupDialog` para posição superior direita (mais visível, estilo Teams)
-- Adicionar borda colorida (borda esquerda azul/primary) para destaque
-- Aumentar levemente o tamanho do card
-- Adicionar animação de entrada mais chamativa (slide da direita + leve bounce)
-- Reduzir auto-dismiss para ~15 segundos (suficiente para ver, sem atrapalhar)
-- Quando popup está desabilitado, o toast fallback já existe — melhorar sua duração e posição também
+E padronizar o texto curto do IPSM para o modelo desejado, removendo qualquer sobra de “contratante” do fluxo automático.
 
-**4. Garantir que a notificação nativa + som disparem juntas**
-- Verificar que o fluxo `showNotification` está acionando som + popup + native notification de forma consistente
-- Aumentar volume do som para 0.5 (estava 0.3)
+### 2) Fazer o PDF usar a prévia editada como fonte real
+Em vez de:
+- extrair do `previewText`
+- chamar `setState`
+- e gerar o PDF com estados possivelmente antigos
 
-### Arquivos a modificar
+vou ajustar para:
+- extrair qualificação e poderes especiais do `previewText`
+- guardar isso em variáveis locais
+- gerar o PDF diretamente com essas variáveis locais
 
-| Arquivo | Alteração |
-|---|---|
-| `src/hooks/useMessaging.tsx` | Remover envio de e-mail para mensagens |
-| `src/hooks/useMessageNotifications.tsx` | Ajustar volume do som |
-| `src/components/MessagePopupDialog.tsx` | Melhorar posição, estilo e animação do card |
-| `public/notification.mp3` | Criar arquivo de som de notificação |
+Assim, o PDF final sai exatamente com o que a pessoa editou na pré-visualização.
 
+### 3) Garantir coerência entre preview e PDF
+Vou unificar a montagem do bloco final da procuração para que:
+- a pré-visualização use a mesma lógica do PDF
+- os poderes especiais continuem em linha após `substabelecimento;`
+- se a pessoa apagar ou reescrever esse trecho na prévia, o PDF respeite a edição
+
+### 4) Ajustar o fluxo do comercial para não depender de nome de produto frágil
+No `SetorComercial`, a procuração hoje depende do `selectedProduct`, que pode não refletir bem o contexto quando o usuário abre a procuração fora do fluxo do contrato.
+Vou revisar esse repasse para priorizar:
+1. produto explícito do fluxo
+2. produto detectado do rascunho de contrato
+3. objeto do contrato
+
+Isso reduz a chance de o preset correto não ser encontrado.
+
+## Arquivos que precisam de ajuste
+
+- `src/lib/procuracaoPowerPresets.ts`
+- `src/components/ProcuracaoGenerator.tsx`
+- `src/pages/SetorComercial.tsx`
+
+## Resultado esperado após a correção
+
+- O modelo do **IPSM** passa a sair com o texto curto correto, sem “contratante” indevido.
+- A edição feita na **pré-visualização da procuração** passa a ser respeitada no PDF final.
+- O texto dos poderes especiais não volta mais para a versão antiga ao exportar.
+- O comportamento fica consistente tanto no fluxo do **Comercial** quanto quando houver rascunho prévio do contrato.
+
+## Detalhe técnico
+O bug principal não é de layout nem de PDF em si; é de sincronização de estado:
+- o componente extrai o texto editado da prévia,
+- chama `setState`,
+- mas gera o PDF no mesmo ciclo,
+- então o PDF usa os valores anteriores.
+
+A correção é gerar o PDF com variáveis derivadas do `previewText` no próprio método, sem depender de atualização de estado antes da renderização do documento.
