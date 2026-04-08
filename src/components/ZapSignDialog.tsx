@@ -70,7 +70,6 @@ interface ZapSignResult {
 
 const WITNESSES = [
   { key: 'daniel', label: 'Daniel' },
-  { key: 'jhonny', label: 'Johnny' },
   { key: 'lucas', label: 'Lucas' },
 ];
 
@@ -98,7 +97,7 @@ export const ZapSignDialog = ({
   const [editablePhone, setEditablePhone] = useState(clientPhone || "");
 
   // Testemunhas selecionadas (apenas para contratos)
-  const [selectedWitnesses, setSelectedWitnesses] = useState<string[]>(['daniel', 'jhonny']);
+  const [selectedWitnesses, setSelectedWitnesses] = useState<string[]>(['daniel', 'lucas']);
 
   const toggleWitness = (key: string) => {
     setSelectedWitnesses(prev => {
