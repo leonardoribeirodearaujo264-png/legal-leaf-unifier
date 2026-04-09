@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
-import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell } from 'lucide-react';
+import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell, BellOff, BellRing } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UpdatesNotification } from '@/components/UpdatesNotification';
 import { SystemUpdatesNotification } from '@/components/SystemUpdatesNotification';
@@ -295,6 +296,41 @@ export const Layout = ({ children }: LayoutProps) => {
               </div>
             </div>
           </header>
+
+          {/* Notification Permission Banner */}
+          {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default' && (
+            <div className="bg-accent/50 border-b border-accent px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BellRing className="w-4 h-4 text-primary" />
+                <span className="text-sm text-foreground">
+                  Ative as notificações para receber alertas de novas mensagens mesmo com a aba minimizada
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  Notification.requestPermission().then(() => {
+                    // Force re-render by toggling a dummy state
+                    window.dispatchEvent(new Event('notification-permission-changed'));
+                  });
+                }}
+              >
+                Ativar
+              </Button>
+            </div>
+          )}
+
+          {/* Notification Denied Warning */}
+          {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+            <div className="bg-destructive/10 border-b border-destructive/20 px-4 py-2 flex items-center gap-2">
+              <BellOff className="w-4 h-4 text-destructive" />
+              <span className="text-sm text-destructive">
+                Notificações bloqueadas. Para reativar, clique no ícone de cadeado na barra de endereço do navegador e permita notificações.
+              </span>
+            </div>
+          )}
 
           {/* Unread Messages Banner */}
           {unreadMessagesCount > 0 && location.pathname !== '/mensagens' && (
