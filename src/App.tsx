@@ -27,6 +27,7 @@ import GaleriaEventos from "./pages/GaleriaEventos";
 import NotFound from "./pages/NotFound";
 import ProcessosDashboard from "./pages/ProcessosDashboard";
 import AniversariosClientes from "./pages/AniversariosClientes";
+import ContatosAdvbox from "./pages/ContatosAdvbox";
 import PublicacoesFeed from "./pages/PublicacoesFeed";
 import TarefasAdvbox from "./pages/TarefasAdvbox";
 import ControlePrazos from "./pages/ControlePrazos";
@@ -270,10 +271,18 @@ const App = () => (
               }
             />
             <Route
+              path="/contatos-advbox"
+              element={
+                <ProtectedRoute>
+                  <ContatosAdvbox />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/aniversarios-clientes"
               element={
                 <ProtectedRoute>
-                  <AniversariosClientes />
+                  <Navigate to="/contatos-advbox?tab=aniversarios" replace />
                 </ProtectedRoute>
               }
             />
