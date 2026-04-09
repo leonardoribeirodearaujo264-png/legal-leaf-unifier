@@ -932,63 +932,177 @@ export default function ContatosAdvbox() {
 
       {/* Vendedores Config Dialog */}
       <Dialog open={showVendedoresConfig} onOpenChange={setShowVendedoresConfig}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Settings className="h-5 w-5" />
-              Vendedores do Rodízio
+              Configurações do Comercial
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Ative ou desative vendedores do rodízio automático de demandas. Vendedores inativos (férias, folga) não receberão novas demandas.
-            </p>
+          <ScrollArea className="max-h-[65vh] pr-3">
+            <div className="space-y-5">
+              {/* Vendedores */}
+              <div>
+                <h4 className="text-sm font-semibold mb-2">Vendedores do Rodízio</h4>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Ative ou desative vendedores do rodízio automático.
+                </p>
 
-            {loadingVendedores ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
-              </div>
-            ) : vendedores.length === 0 ? (
-              <p className="text-sm text-center text-muted-foreground py-4">Nenhum vendedor configurado</p>
-            ) : (
-              vendedores.map((v) => (
-                <div key={v.id} className="p-3 border rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${v.ativo ? 'bg-green-100 dark:bg-green-900' : 'bg-muted'}`}>
-                        <User className={`h-4 w-4 ${v.ativo ? 'text-green-600' : 'text-muted-foreground'}`} />
+                {loadingVendedores ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+                  </div>
+                ) : vendedores.length === 0 ? (
+                  <p className="text-sm text-center text-muted-foreground py-4">Nenhum vendedor configurado</p>
+                ) : (
+                  vendedores.map((v) => (
+                    <div key={v.id} className="p-3 border rounded-lg space-y-2 mb-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center ${v.ativo ? 'bg-green-100 dark:bg-green-900' : 'bg-muted'}`}>
+                            <User className={`h-4 w-4 ${v.ativo ? 'text-green-600' : 'text-muted-foreground'}`} />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">{v.vendedor_nome}</p>
+                            <p className="text-xs text-muted-foreground">{v.ativo ? 'Ativo no rodízio' : 'Inativo'}</p>
+                          </div>
+                        </div>
+                        <Switch
+                          checked={v.ativo}
+                          onCheckedChange={(checked) => toggleVendedor(v.id, checked)}
+                        />
                       </div>
-                      <div>
-                        <p className="font-medium text-sm">{v.vendedor_nome}</p>
-                        <p className="text-xs text-muted-foreground">{v.ativo ? 'Ativo no rodízio' : 'Inativo'}</p>
+                      <div className="pl-11">
+                        <Label className="text-xs text-muted-foreground">ID ChatGuru</Label>
+                        <Input
+                          value={v.chatguru_user_id || ''}
+                          onChange={(e) => {
+                            const newVal = e.target.value;
+                            setVendedores(prev => prev.map(vv => vv.id === v.id ? { ...vv, chatguru_user_id: newVal } : vv));
+                          }}
+                          onBlur={async (e) => {
+                            const newVal = e.target.value || null;
+                            await supabase.from('comercial_vendedores_config').update({ chatguru_user_id: newVal } as any).eq('id', v.id);
+                          }}
+                          placeholder="Ex: 66392c1575f9357baf26ad8a"
+                          className="h-7 text-xs mt-1"
+                        />
                       </div>
                     </div>
-                    <Switch
-                      checked={v.ativo}
-                      onCheckedChange={(checked) => toggleVendedor(v.id, checked)}
-                    />
-                  </div>
-                  <div className="pl-11">
-                    <Label className="text-xs text-muted-foreground">ID ChatGuru</Label>
-                    <Input
-                      value={v.chatguru_user_id || ''}
-                      onChange={(e) => {
-                        const newVal = e.target.value;
-                        setVendedores(prev => prev.map(vv => vv.id === v.id ? { ...vv, chatguru_user_id: newVal } : vv));
-                      }}
-                      onBlur={async (e) => {
-                        const newVal = e.target.value || null;
-                        await supabase.from('comercial_vendedores_config').update({ chatguru_user_id: newVal } as any).eq('id', v.id);
-                      }}
-                      placeholder="Ex: 66392c1575f9357baf26ad8a"
-                      className="h-7 text-xs mt-1"
-                    />
-                  </div>
+                  ))
+                )}
+              </div>
+
+              <Separator />
+
+              {/* Admin Config */}
+              {loadingConfig ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
                 </div>
-              ))
-            )}
-          </div>
+              ) : (
+                <>
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Participantes Obrigatórios</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Marcos (Head Comercial)</p>
+                          <p className="text-xs text-muted-foreground">Sempre marcado como responsável</p>
+                        </div>
+                        <Switch
+                          checked={adminConfig['marcos_obrigatorio'] !== 'false'}
+                          onCheckedChange={(checked) => updateConfig('marcos_obrigatorio', checked ? 'true' : 'false')}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Setor Comercial</p>
+                          <p className="text-xs text-muted-foreground">Marcar setor como responsável</p>
+                        </div>
+                        <Switch
+                          checked={adminConfig['setor_comercial_obrigatorio'] !== 'false'}
+                          onCheckedChange={(checked) => updateConfig('setor_comercial_obrigatorio', checked ? 'true' : 'false')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Integração ChatGuru</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">ChatGuru ativo</p>
+                          <p className="text-xs text-muted-foreground">Enviar notas e marcações automaticamente</p>
+                        </div>
+                        <Switch
+                          checked={adminConfig['chatguru_ativo'] !== 'false'}
+                          onCheckedChange={(checked) => updateConfig('chatguru_ativo', checked ? 'true' : 'false')}
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Texto da observação no ChatGuru</Label>
+                        <Input
+                          value={adminConfig['texto_observacao_chatguru'] || 'Nova análise de caso para o comercial'}
+                          onChange={(e) => setAdminConfig(prev => ({ ...prev, texto_observacao_chatguru: e.target.value }))}
+                          onBlur={(e) => updateConfig('texto_observacao_chatguru', e.target.value)}
+                          className="h-8 text-sm mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">ID ChatGuru do Setor Comercial</Label>
+                        <Input
+                          value={adminConfig['setor_comercial_chatguru_id'] || ''}
+                          onChange={(e) => setAdminConfig(prev => ({ ...prev, setor_comercial_chatguru_id: e.target.value }))}
+                          onBlur={(e) => updateConfig('setor_comercial_chatguru_id', e.target.value)}
+                          placeholder="Preencher quando localizado"
+                          className="h-8 text-sm mt-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <h4 className="text-sm font-semibold mb-3">Tarefa Comercial</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Método de distribuição</Label>
+                        <Select
+                          value={adminConfig['metodo_distribuicao'] || 'rodizio'}
+                          onValueChange={(v) => updateConfig('metodo_distribuicao', v)}
+                        >
+                          <SelectTrigger className="h-8 text-sm mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="rodizio">Rodízio (round-robin)</SelectItem>
+                            <SelectItem value="sorteio">Sorteio aleatório</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Prazo padrão da tarefa (horas)</Label>
+                        <Input
+                          type="number"
+                          value={adminConfig['prazo_padrao_horas'] || '48'}
+                          onChange={(e) => setAdminConfig(prev => ({ ...prev, prazo_padrao_horas: e.target.value }))}
+                          onBlur={(e) => updateConfig('prazo_padrao_horas', e.target.value || '48')}
+                          className="h-8 text-sm mt-1 w-24"
+                          min={1}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </Layout>
