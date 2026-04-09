@@ -136,6 +136,15 @@ export default function ContatosAdvbox() {
 
   const PAGE_SIZE = 50;
 
+  // Fetch user name
+  useEffect(() => {
+    if (user?.id) {
+      supabase.from('profiles').select('full_name').eq('id', user.id).single().then(({ data }) => {
+        if (data?.full_name) setUserName(data.full_name);
+      });
+    }
+  }, [user?.id]);
+
   // Fetch available origins from ADVBox settings
   useEffect(() => {
     const fetchOrigens = async () => {
