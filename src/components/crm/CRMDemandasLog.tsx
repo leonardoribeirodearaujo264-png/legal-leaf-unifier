@@ -124,7 +124,7 @@ export const CRMDemandasLog = () => {
         vendedor_novo_id: newVendedorId,
         vendedor_novo_nome: newVendedor.vendedor_nome,
         alterado_por: user.id,
-        alterado_por_nome: profile?.full_name || user.email || 'Usuário',
+        alterado_por_nome: userName || user.email || 'Usuário',
         motivo: reassignMotivo || null,
       } as any);
 
