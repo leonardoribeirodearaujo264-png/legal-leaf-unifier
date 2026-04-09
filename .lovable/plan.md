@@ -1,40 +1,28 @@
 
 
-## Adicionar dialog de detalhes e edição nos adiantamentos
+## Corrigir edição de mensagens internas
 
 ### Problema
 
-Ao clicar num adiantamento na tabela, não há como visualizar todos os dados preenchidos (conta de pagamento, forma de desconto, mês de início, observações) nem editá-los. A tabela mostra apenas um resumo.
+A função `editMessage` tenta atualizar a coluna `is_edited` na tabela `messages`, mas essa coluna **não existe** no banco de dados. Isso causa erro ao tentar salvar a edição.
+
+Colunas atuais da tabela `messages`: `id`, `conversation_id`, `sender_id`, `content`, `created_at`, `updated_at`, `reply_to_id` — sem `is_edited`.
 
 ### Solução
 
-Adicionar um dialog de detalhes/edição que abre ao clicar na linha do adiantamento, exibindo todos os campos e permitindo edição.
+**1. Migration SQL — Adicionar coluna `is_edited`**
 
-### Alterações em `src/components/rh/RHAdiantamentos.tsx`
+```sql
+ALTER TABLE public.messages ADD COLUMN is_edited BOOLEAN DEFAULT false;
+```
 
-**1. Novo state para dialog de detalhes**
-- `detailDialogOpen` + `editMode` boolean
-- Ao abrir, preencher os campos do formulário com os dados do adiantamento selecionado
+**2. Corrigir `src/hooks/useMessaging.tsx`**
 
-**2. Dialog de detalhes completo**
-Exibe todos os campos em modo leitura:
-- Colaborador, Tipo, Valor, Data, Conta de pagamento (nome), Forma de desconto, Número de parcelas, Valor por parcela, Mês de início do desconto, Observações, Status, Saldo restante
+Nenhuma alteração necessária no código — a lógica já está correta, só faltava a coluna no banco.
 
-Botão "Editar" que ativa modo de edição nos campos editáveis (tipo, valor NÃO — pois já gerou lançamento financeiro, mas observações, forma de desconto, mês de início sim).
+### Arquivos alterados
 
-Campos editáveis: observações, mês de início do desconto, número de parcelas (recalcula valor parcela). Tipo e valor não devem ser editáveis pois já geraram lançamento financeiro.
-
-**3. Tornar as linhas da tabela clicáveis**
-Adicionar `cursor-pointer hover:bg-muted/50` no `TableRow` com `onClick` que abre o dialog de detalhes.
-
-**4. Botão "Salvar" na edição**
-Faz `update` na tabela `rh_adiantamentos` com os campos alterados e recarrega os dados.
-
-### Arquivo alterado
-
-| Arquivo | Ação |
+| Arquivo | Acao |
 |---------|------|
-| `src/components/rh/RHAdiantamentos.tsx` | Adicionar dialog de detalhes com visualização completa + modo edição |
-
-Nenhuma alteração no banco de dados.
+| Migration SQL | Adicionar coluna `is_edited` à tabela `messages` |
 
