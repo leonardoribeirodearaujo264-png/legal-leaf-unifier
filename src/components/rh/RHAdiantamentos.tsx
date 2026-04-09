@@ -583,7 +583,7 @@ export function RHAdiantamentos() {
               </TableHeader>
               <TableBody>
                 {adiantamentos.map((adiantamento) => (
-                  <TableRow key={adiantamento.id}>
+                  <TableRow key={adiantamento.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleOpenDetail(adiantamento)}>
                     <TableCell className="font-medium">
                       {adiantamento.profiles?.full_name || 'N/A'}
                     </TableCell>
@@ -609,8 +609,16 @@ export function RHAdiantamentos() {
                         {STATUS_BADGES[adiantamento.status]?.label || adiantamento.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleOpenDetail(adiantamento)}
+                          title="Ver detalhes"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
                         <Button 
                           variant="ghost" 
                           size="icon"
@@ -626,7 +634,7 @@ export function RHAdiantamentos() {
                             onClick={() => handleCancelAdiantamento(adiantamento)}
                             title="Cancelar adiantamento"
                           >
-                            <X className="h-4 w-4 text-red-500" />
+                            <X className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
                       </div>
