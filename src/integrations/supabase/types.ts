@@ -279,6 +279,7 @@ export type Database = {
           numero: string | null
           observacoes: string | null
           orgao_emissor: string | null
+          origem: string | null
           phone: string | null
           profissao: string | null
           raw_data: Json | null
@@ -313,6 +314,7 @@ export type Database = {
           numero?: string | null
           observacoes?: string | null
           orgao_emissor?: string | null
+          origem?: string | null
           phone?: string | null
           profissao?: string | null
           raw_data?: Json | null
@@ -347,6 +349,7 @@ export type Database = {
           numero?: string | null
           observacoes?: string | null
           orgao_emissor?: string | null
+          origem?: string | null
           phone?: string | null
           profissao?: string | null
           raw_data?: Json | null
