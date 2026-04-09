@@ -294,23 +294,37 @@ const Mensagens = () => {
     }
   }, [showNewConversation, user]);
 
+  // Reset scroll tracking when switching conversations
   useEffect(() => {
+    prevMessageCountRef.current = 0;
+  }, [activeConversation?.id]);
+
+  // Auto-scroll to bottom: after loading finishes or new messages arrive
+  useEffect(() => {
+    // Don't scroll while still loading
+    if (loadingMessages) return;
     if (messages.length === 0) {
       prevMessageCountRef.current = 0;
       return;
     }
-    const viewport = messagesScrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
-    if (viewport) {
-      const isInitialLoad = prevMessageCountRef.current === 0;
-      requestAnimationFrame(() => {
+
+    const scrollToBottom = () => {
+      const viewport = messagesScrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        const isInitialLoad = prevMessageCountRef.current === 0;
         viewport.scrollTo({
           top: viewport.scrollHeight,
           behavior: isInitialLoad ? 'instant' : 'smooth',
         });
-      });
-    }
-    prevMessageCountRef.current = messages.length;
-  }, [messages]);
+      }
+      prevMessageCountRef.current = messages.length;
+    };
+
+    // Use double rAF to ensure DOM has rendered the messages
+    requestAnimationFrame(() => {
+      requestAnimationFrame(scrollToBottom);
+    });
+  }, [messages, loadingMessages]);
 
   // File handling functions
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
