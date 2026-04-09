@@ -226,8 +226,11 @@ export const useMessageNotifications = () => {
   const showNotificationRef = useRef<(message: NewMessage) => Promise<void>>();
 
   showNotificationRef.current = async (message: NewMessage) => {
-    // Don't show notification if already on mensagens page
-    if (locationRef.current === '/mensagens') {
+    const isPageVisible = document.visibilityState === 'visible' && document.hasFocus();
+    const isOnMensagens = locationRef.current === '/mensagens';
+
+    // If on mensagens AND page is visible/focused, just update count (user is reading)
+    if (isOnMensagens && isPageVisible) {
       fetchUnreadCount();
       return;
     }
