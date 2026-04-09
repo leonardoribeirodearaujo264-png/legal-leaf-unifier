@@ -1548,15 +1548,34 @@ const Mensagens = () => {
                       <p>{showFavorites ? 'Nenhuma mensagem favorita' : messageSearchTerm ? 'Nenhuma mensagem encontrada' : 'Nenhuma mensagem ainda. Diga olá!'}</p>
                     </div>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-1">
                       {filteredMessages.map((msg, i) => {
                         const isMe = msg.sender_id === user?.id;
                         const showAvatar = i === 0 || messages[i - 1].sender_id !== msg.sender_id;
                         const isEditing = editingMessageId === msg.id;
 
+                        // Date separator logic
+                        const msgDate = new Date(msg.created_at);
+                        const prevDate = i > 0 ? new Date(filteredMessages[i - 1].created_at) : null;
+                        const showDateSeparator = !prevDate || 
+                          msgDate.toDateString() !== prevDate.toDateString();
+
+                        const getDateLabel = (date: Date) => {
+                          if (isToday(date)) return 'Hoje';
+                          if (isYesterday(date)) return 'Ontem';
+                          return format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+                        };
+
                         return (
+                          <div key={msg.id}>
+                            {showDateSeparator && (
+                              <div className="flex items-center justify-center my-4">
+                                <div className="bg-muted/80 text-muted-foreground text-xs font-medium px-3 py-1 rounded-full shadow-sm">
+                                  {getDateLabel(msgDate)}
+                                </div>
+                              </div>
+                            )}
                           <div
-                            key={msg.id}
                             className={cn(
                               "flex gap-2 group",
                               isMe ? "flex-row-reverse" : "flex-row"
