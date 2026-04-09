@@ -1860,6 +1860,30 @@ Deno.serve(async (req) => {
         });
       }
 
+      case 'update-customer': {
+        const body = await req.json();
+        const { customer_id, ...updateData } = body;
+        
+        if (!customer_id) {
+          return new Response(JSON.stringify({ error: 'customer_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Updating customer ${customer_id} in ADVBox:`, JSON.stringify(updateData));
+        
+        const result = await makeAdvboxRequest({
+          endpoint: `/customers/${customer_id}`,
+          method: 'PUT',
+          body: updateData,
+        });
+
+        return new Response(JSON.stringify({ success: true, data: result }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       default:
         return new Response(JSON.stringify({ error: 'Endpoint not found' }), {
           status: 404,

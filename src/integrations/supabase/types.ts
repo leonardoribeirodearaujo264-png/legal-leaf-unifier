@@ -257,42 +257,105 @@ export type Database = {
       advbox_customers: {
         Row: {
           advbox_id: number
+          bairro: string | null
           birthday: string | null
+          celular: string | null
+          cep: string | null
+          cidade: string | null
           cnpj: string | null
+          complemento: string | null
           cpf: string | null
           created_at: string
           email: string | null
+          endereco: string | null
+          estado: string | null
+          estado_civil: string | null
           id: string
+          nacionalidade: string | null
           name: string
+          naturalidade: string | null
+          nome_mae: string | null
+          nome_pai: string | null
+          numero: string | null
+          observacoes: string | null
+          orgao_emissor: string | null
           phone: string | null
+          profissao: string | null
+          raw_data: Json | null
+          rg: string | null
+          sexo: string | null
           synced_at: string
           tax_id: string | null
+          telefone_comercial: string | null
+          telefone_fixo: string | null
         }
         Insert: {
           advbox_id: number
+          bairro?: string | null
           birthday?: string | null
+          celular?: string | null
+          cep?: string | null
+          cidade?: string | null
           cnpj?: string | null
+          complemento?: string | null
           cpf?: string | null
           created_at?: string
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
+          estado_civil?: string | null
           id?: string
+          nacionalidade?: string | null
           name: string
+          naturalidade?: string | null
+          nome_mae?: string | null
+          nome_pai?: string | null
+          numero?: string | null
+          observacoes?: string | null
+          orgao_emissor?: string | null
           phone?: string | null
+          profissao?: string | null
+          raw_data?: Json | null
+          rg?: string | null
+          sexo?: string | null
           synced_at?: string
           tax_id?: string | null
+          telefone_comercial?: string | null
+          telefone_fixo?: string | null
         }
         Update: {
           advbox_id?: number
+          bairro?: string | null
           birthday?: string | null
+          celular?: string | null
+          cep?: string | null
+          cidade?: string | null
           cnpj?: string | null
+          complemento?: string | null
           cpf?: string | null
           created_at?: string
           email?: string | null
+          endereco?: string | null
+          estado?: string | null
+          estado_civil?: string | null
           id?: string
+          nacionalidade?: string | null
           name?: string
+          naturalidade?: string | null
+          nome_mae?: string | null
+          nome_pai?: string | null
+          numero?: string | null
+          observacoes?: string | null
+          orgao_emissor?: string | null
           phone?: string | null
+          profissao?: string | null
+          raw_data?: Json | null
+          rg?: string | null
+          sexo?: string | null
           synced_at?: string
           tax_id?: string | null
+          telefone_comercial?: string | null
+          telefone_fixo?: string | null
         }
         Relationships: []
       }
