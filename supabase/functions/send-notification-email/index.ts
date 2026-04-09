@@ -402,6 +402,15 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { to, toUserId, subject, templateType, data }: EmailRequest = await req.json();
 
+    // Block new_message emails entirely — notifications are in-app only
+    if (templateType === 'new_message') {
+      console.log(`[send-notification-email] Blocking new_message email — disabled by policy`);
+      return new Response(
+        JSON.stringify({ skipped: true, reason: "Message emails disabled" }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
     console.log(`[send-notification-email] Sending ${templateType} email to ${to}`);
 
     // Se temos um userId, verificar se o usuário está ativo e tem preferências
