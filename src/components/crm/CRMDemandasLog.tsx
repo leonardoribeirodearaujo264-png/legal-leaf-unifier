@@ -69,7 +69,12 @@ export const CRMDemandasLog = () => {
   useEffect(() => {
     fetchDemandas();
     fetchVendedores();
-  }, []);
+    if (user) {
+      supabase.from('profiles').select('full_name').eq('id', user.id).single().then(({ data }) => {
+        if (data) setUserName(data.full_name || user.email || '');
+      });
+    }
+  }, [user]);
 
   const fetchDemandas = async () => {
     setLoading(true);
