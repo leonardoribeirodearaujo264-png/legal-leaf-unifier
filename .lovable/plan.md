@@ -1,28 +1,68 @@
 
 
-## Corrigir notificações de mensagens internas que não chegam
+## Notificação nativa do sistema (próxima ao relógio) mesmo com aba minimizada
 
-### Diagnóstico
+### Situação atual
 
-Encontrei o problema principal: **a assinatura Realtime é instável**. O `useEffect` que cria o canal de escuta (linha 221) tem `showNotification` nas dependências. Como `showNotification` depende de `location.pathname` e `popupEnabled`, **toda vez que o usuário muda de página**, o canal é destruído e recriado. Durante essa janela de reconexão, mensagens podem ser perdidas.
+O código já usa a API `new Notification()` do navegador (linha 116-134 do `useMessageNotifications.tsx`), que deveria mostrar notificações do sistema operacional perto do relógio. Porém há dois problemas:
 
-Além disso, a lista de `conversationIds` é capturada uma única vez no momento da assinatura — se o usuário entrar em uma nova conversa, não recebe notificação dela.
+1. **Permissão não garantida** — O pedido de permissão (linha 110-112) acontece silenciosamente ao carregar a página. Se o usuário ignorar ou fechar o prompt, as notificações nativas nunca funcionam. Não há nenhum feedback visual na interface indicando que está bloqueado.
+
+2. **Sem Service Worker** — A API `new Notification()` usada diretamente na página funciona quando a aba está aberta (mesmo minimizada), mas pode falhar se o navegador suspender a aba por inatividade. Um **Service Worker** com `self.registration.showNotification()` é mais confiável para cenários em background.
 
 ### Solução
 
-**Arquivo: `src/hooks/useMessageNotifications.tsx`**
+#### 1. Criar Service Worker para notificações (`public/sw-notifications.js`)
 
-1. **Estabilizar a assinatura Realtime** — Usar `useRef` para `showNotification`, `popupEnabled` e `location.pathname`, removendo-os das dependências do `useEffect`. Assim o canal é criado uma única vez e sobrevive a mudanças de rota.
+Arquivo simples que:
+- Escuta eventos `push` e `notificationclick`
+- Ao clicar na notificação, foca na aba da intranet e navega para `/mensagens`
 
-2. **Atualizar lista de conversas dinamicamente** — Guardar `conversationIds` em um `useRef` e atualizar sempre que `fetchUnreadCount` roda (que já busca as participações).
+#### 2. Registrar o Service Worker (`src/hooks/useMessageNotifications.tsx`)
 
-3. **Garantir pedido de permissão nativa** — Mover o `Notification.requestPermission()` para ser chamado também quando o primeiro evento de mensagem chega (caso o usuário não tenha respondido ao prompt inicial).
+- No `useEffect` inicial, registrar `navigator.serviceWorker.register('/sw-notifications.js')`
+- Guardar o `registration` em um `useRef`
 
-4. **Adicionar log de diagnóstico temporário** — Console.log discreto no subscribe para confirmar que o canal está ativo.
+#### 3. Usar `registration.showNotification()` em vez de `new Notification()`
+
+Na função `sendNativeNotification`, trocar:
+```ts
+// Antes
+const notification = new Notification(title, { body, icon, tag });
+
+// Depois
+if (swRegistrationRef.current) {
+  swRegistrationRef.current.showNotification(title, { body, icon, tag, data: { conversationId } });
+} else {
+  // Fallback para Notification direta
+  new Notification(title, { body, icon, tag });
+}
+```
+
+A diferença é que `registration.showNotification()` funciona mesmo com a aba suspensa pelo navegador.
+
+#### 4. Adicionar banner de permissão na interface (`src/components/Layout.tsx`)
+
+Se `Notification.permission === 'default'` (nunca respondeu), mostrar um banner discreto abaixo do header:
+> "🔔 Ative as notificações para receber alertas de novas mensagens mesmo com a aba minimizada" [Ativar]
+
+Ao clicar em "Ativar", chamar `Notification.requestPermission()`. Se `denied`, mostrar instrução para desbloquear nas configurações do navegador.
+
+#### 5. Indicador no header se notificações estão bloqueadas
+
+Se `Notification.permission === 'denied'`, mostrar um ícone de sino com um "x" vermelho no header, com tooltip explicando como reativar.
 
 ### Resultado esperado
 
-- O banner nativo do Windows (como Teams) aparecerá próximo ao relógio sempre que uma mensagem chegar, mesmo se o usuário estiver navegando entre páginas
-- O popup dentro da aplicação (MessagePopupDialog) também continuará funcionando
-- A assinatura será estável e não será destruída/recriada a cada navegação
+- Mesmo com a aba minimizada ou outra janela na frente, o Windows/Mac mostrará a notificação nativa próxima ao relógio
+- O usuário pode clicar na notificação e a intranet abrirá diretamente na conversa
+- Se a permissão não foi concedida, um banner claro guia o usuário a ativá-la
+
+### Arquivos alterados
+
+| Arquivo | Ação |
+|---------|------|
+| `public/sw-notifications.js` | Criar — Service Worker |
+| `src/hooks/useMessageNotifications.tsx` | Registrar SW + trocar `new Notification` por `registration.showNotification` |
+| `src/components/Layout.tsx` | Adicionar banner de permissão quando `Notification.permission === 'default'` |
 
