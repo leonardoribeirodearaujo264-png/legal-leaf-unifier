@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, RefreshCw, Users, Target, Activity, TrendingUp, Calendar, Settings, LayoutDashboard, BarChart3, Bell, Star, Clock, CheckCircle2, Zap, ClipboardList, Trophy, FileSignature, Wallet } from 'lucide-react';
+import { Loader2, RefreshCw, Users, Target, Activity, TrendingUp, Calendar, Settings, LayoutDashboard, BarChart3, Bell, Star, Clock, CheckCircle2, Zap, ClipboardList, Trophy, FileSignature, Wallet, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CRMContactsList } from './CRMContactsList';
@@ -19,6 +19,7 @@ import { CRMFollowUp } from './CRMFollowUp';
 import { CRMTasks } from './CRMTasks';
 import { MarketingAutomation } from './MarketingAutomation';
 import { CRMDailyLog } from './CRMDailyLog';
+import { CRMPendingTasks } from './CRMPendingTasks';
 
 import { CRMRanking } from './CRMRanking';
 import { CRMZapSignContracts } from './CRMZapSignContracts';
@@ -301,6 +302,10 @@ export const CRMDashboard = () => {
             <CheckCircle2 className="h-3.5 w-3.5" />
             Tarefas
           </TabsTrigger>
+          <TabsTrigger value="pending" className="flex items-center gap-1 text-destructive">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Pendências
+          </TabsTrigger>
           <TabsTrigger value="analytics" className="flex items-center gap-1">
             <BarChart3 className="h-3.5 w-3.5" />
             Análises
@@ -472,6 +477,10 @@ export const CRMDashboard = () => {
         
         <TabsContent value="tasks" className="mt-6">
           <CRMTasks />
+        </TabsContent>
+
+        <TabsContent value="pending" className="mt-6">
+          <CRMPendingTasks />
         </TabsContent>
         
         <TabsContent value="analytics" className="mt-6">
