@@ -111,6 +111,13 @@ export const useMessageNotifications = () => {
   // VAPID public key for push subscription
   const VAPID_PUBLIC_KEY = 'BIjQRFZC_PKAeEbkSCHlfGM8oFUDkOQWPzlMlZmZO35QGe5GM0aV0wUr5YsUMH3wtZep5F4ehwytsn-gKzfAy7s';
 
+  const urlBase64ToUint8Array = (base64String: string): Uint8Array => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  };
+
   // Register Service Worker + request notification permission + subscribe to push
   useEffect(() => {
     if (!user) return;
