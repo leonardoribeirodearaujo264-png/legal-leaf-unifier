@@ -5811,6 +5811,7 @@ export type Database = {
           conversation_id: string
           created_at: string | null
           id: string
+          is_edited: boolean | null
           reply_to_id: string | null
           sender_id: string
           updated_at: string | null
@@ -5820,6 +5821,7 @@ export type Database = {
           conversation_id: string
           created_at?: string | null
           id?: string
+          is_edited?: boolean | null
           reply_to_id?: string | null
           sender_id: string
           updated_at?: string | null
@@ -5829,6 +5831,7 @@ export type Database = {
           conversation_id?: string
           created_at?: string | null
           id?: string
+          is_edited?: boolean | null
           reply_to_id?: string | null
           sender_id?: string
           updated_at?: string | null
