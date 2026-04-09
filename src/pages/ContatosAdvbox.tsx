@@ -437,6 +437,22 @@ export default function ContatosAdvbox() {
     setLoadingVendedores(false);
   };
 
+  const fetchAdminConfig = async () => {
+    setLoadingConfig(true);
+    const { data } = await supabase
+      .from('comercial_config')
+      .select('key, value');
+    const map: Record<string, string> = {};
+    if (data) data.forEach((r: any) => { map[r.key] = r.value; });
+    setAdminConfig(map);
+    setLoadingConfig(false);
+  };
+
+  const updateConfig = async (key: string, value: string) => {
+    setAdminConfig(prev => ({ ...prev, [key]: value }));
+    await supabase.from('comercial_config').update({ value } as any).eq('key', key);
+  };
+
   const toggleVendedor = async (id: string, ativo: boolean) => {
     const { error } = await supabase
       .from('comercial_vendedores_config')
