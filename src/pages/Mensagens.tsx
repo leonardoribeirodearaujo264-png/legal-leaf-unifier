@@ -1728,6 +1728,7 @@ const Mensagens = () => {
                               </div>
                             </div>
                           </div>
+                          </div>
                         );
                       })}
                       <div ref={messagesEndRef} />
