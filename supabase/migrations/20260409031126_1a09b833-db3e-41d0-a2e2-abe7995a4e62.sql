@@ -1,0 +1,1 @@
+DELETE FROM advbox_sync_status WHERE sync_type = 'customers';
