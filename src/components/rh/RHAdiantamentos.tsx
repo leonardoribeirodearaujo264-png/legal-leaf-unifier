@@ -292,6 +292,44 @@ export function RHAdiantamentos() {
     }
   };
 
+  const handleOpenDetail = (adiantamento: Adiantamento) => {
+    setSelectedAdiantamento(adiantamento);
+    setEditMode(false);
+    setEditObservacoes(adiantamento.observacoes || '');
+    setEditFormaDesconto(adiantamento.forma_desconto);
+    setEditNumeroParcelas(String(adiantamento.numero_parcelas));
+    setEditMesInicioDesconto(adiantamento.mes_inicio_desconto || '');
+    setDetailDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedAdiantamento) return;
+
+    const numParcelas = parseInt(editNumeroParcelas) || 1;
+    const valorParcela = selectedAdiantamento.valor / numParcelas;
+
+    try {
+      const { error } = await supabase
+        .from('rh_adiantamentos')
+        .update({
+          observacoes: editObservacoes || null,
+          forma_desconto: editFormaDesconto,
+          numero_parcelas: numParcelas,
+          valor_parcela: valorParcela,
+          mes_inicio_desconto: editMesInicioDesconto || null,
+        })
+        .eq('id', selectedAdiantamento.id);
+
+      if (error) throw error;
+      toast.success('Adiantamento atualizado com sucesso');
+      setEditMode(false);
+      setDetailDialogOpen(false);
+      fetchData();
+    } catch (error: any) {
+      toast.error('Erro ao salvar: ' + error.message);
+    }
+  };
+
   const formatCurrency = (value: number) => {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
