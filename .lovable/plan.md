@@ -1,68 +1,67 @@
 
+Diagnóstico
 
-## Notificação nativa do sistema (próxima ao relógio) mesmo com aba minimizada
+Há 2 causas no código atual:
 
-### Situação atual
+1. Em `src/hooks/useMessageNotifications.tsx`, a lógica cancela toda notificação quando a rota atual é `/mensagens`. Então, se a pessoa deixou essa tela aberta mas a aba/janela está minimizada ou atrás de outra janela, o sistema não dispara o alerta do Windows.
 
-O código já usa a API `new Notification()` do navegador (linha 116-134 do `useMessageNotifications.tsx`), que deveria mostrar notificações do sistema operacional perto do relógio. Porém há dois problemas:
+2. O `public/sw-notifications.js` atual só trata `notificationclick`. Ele não recebe `push`. Na prática, o app ainda depende da própria aba receber o evento Realtime e chamar `showNotification()`. Isso não é notificação em background no padrão “Teams”. Se a aba for suspensa pelo navegador, nada chega perto do relógio.
 
-1. **Permissão não garantida** — O pedido de permissão (linha 110-112) acontece silenciosamente ao carregar a página. Se o usuário ignorar ou fechar o prompt, as notificações nativas nunca funcionam. Não há nenhum feedback visual na interface indicando que está bloqueado.
+Ou seja: existe um bug imediato de lógica, e também uma limitação estrutural da implementação atual.
 
-2. **Sem Service Worker** — A API `new Notification()` usada diretamente na página funciona quando a aba está aberta (mesmo minimizada), mas pode falhar se o navegador suspender a aba por inatividade. Um **Service Worker** com `self.registration.showNotification()` é mais confiável para cenários em background.
+Plano
 
-### Solução
+1. Corrigir a supressão indevida no hook de mensagens
+   - Em `src/hooks/useMessageNotifications.tsx`, trocar a regra “se está em `/mensagens`, não notifica” por uma checagem real de visibilidade/foco.
+   - Só suprimir popup interno quando a intranet estiver visível e em foco.
+   - Se `document.hidden`, `document.visibilityState !== 'visible'` ou `!document.hasFocus()`, disparar a notificação nativa.
 
-#### 1. Criar Service Worker para notificações (`public/sw-notifications.js`)
+2. Implementar push real de navegador
+   - Expandir `public/sw-notifications.js` para escutar `push` além de `notificationclick`.
+   - Assim o próprio service worker mostra a notificação do sistema, mesmo com a aba em segundo plano.
 
-Arquivo simples que:
-- Escuta eventos `push` e `notificationclick`
-- Ao clicar na notificação, foca na aba da intranet e navega para `/mensagens`
+3. Adicionar persistência das subscriptions no backend
+   - Criar uma tabela `browser_push_subscriptions` com `user_id` (referenciando `public.profiles`), `endpoint`, `p256dh`, `auth`, `user_agent`, `is_active` e timestamps.
+   - Aplicar RLS para cada usuário gerenciar apenas as próprias subscriptions.
+   - Configurar chaves VAPID no backend e expor a chave pública ao cliente.
 
-#### 2. Registrar o Service Worker (`src/hooks/useMessageNotifications.tsx`)
+4. Registrar a subscription no cliente
+   - Em `useMessageNotifications`, após permissão concedida e `serviceWorker.ready`, usar `pushManager.subscribe(...)`.
+   - Salvar/atualizar a subscription no backend.
+   - Manter o fluxo atual como fallback para navegadores sem `PushManager`.
 
-- No `useEffect` inicial, registrar `navigator.serviceWorker.register('/sw-notifications.js')`
-- Guardar o `registration` em um `useRef`
+5. Enviar push quando uma mensagem for criada
+   - Criar uma função backend `notify-internal-message` que recebe `messageId`, valida o remetente, busca os participantes e envia Web Push aos demais.
+   - Chamar essa função nos 2 pontos de envio atuais:
+     - `src/hooks/useMessaging.tsx`
+     - `src/components/MessagePopupDialog.tsx`
+   - Isso cobre envio normal e resposta rápida.
 
-#### 3. Usar `registration.showNotification()` em vez de `new Notification()`
+6. Evitar alertas duplicados
+   - Intranet visível/em foco: manter popup interno/top-right.
+   - Intranet minimizada ou em segundo plano: priorizar notificação do sistema perto do relógio.
+   - Invalidar subscriptions expiradas quando o push falhar.
 
-Na função `sendNativeNotification`, trocar:
-```ts
-// Antes
-const notification = new Notification(title, { body, icon, tag });
-
-// Depois
-if (swRegistrationRef.current) {
-  swRegistrationRef.current.showNotification(title, { body, icon, tag, data: { conversationId } });
-} else {
-  // Fallback para Notification direta
-  new Notification(title, { body, icon, tag });
-}
+Fluxo final
+```text
+mensagem enviada
+→ backend dispara Web Push
+→ service worker recebe push
+→ Windows/macOS mostra o banner perto do relógio
+→ clique abre/foca /mensagens na conversa correta
 ```
 
-A diferença é que `registration.showNotification()` funciona mesmo com a aba suspensa pelo navegador.
+Arquivos envolvidos
+- `src/hooks/useMessageNotifications.tsx`
+- `public/sw-notifications.js`
+- `src/hooks/useMessaging.tsx`
+- `src/components/MessagePopupDialog.tsx`
+- nova migration para `browser_push_subscriptions`
+- nova função backend para envio de Web Push
 
-#### 4. Adicionar banner de permissão na interface (`src/components/Layout.tsx`)
-
-Se `Notification.permission === 'default'` (nunca respondeu), mostrar um banner discreto abaixo do header:
-> "🔔 Ative as notificações para receber alertas de novas mensagens mesmo com a aba minimizada" [Ativar]
-
-Ao clicar em "Ativar", chamar `Notification.requestPermission()`. Se `denied`, mostrar instrução para desbloquear nas configurações do navegador.
-
-#### 5. Indicador no header se notificações estão bloqueadas
-
-Se `Notification.permission === 'denied'`, mostrar um ícone de sino com um "x" vermelho no header, com tooltip explicando como reativar.
-
-### Resultado esperado
-
-- Mesmo com a aba minimizada ou outra janela na frente, o Windows/Mac mostrará a notificação nativa próxima ao relógio
-- O usuário pode clicar na notificação e a intranet abrirá diretamente na conversa
-- Se a permissão não foi concedida, um banner claro guia o usuário a ativá-la
-
-### Arquivos alterados
-
-| Arquivo | Ação |
-|---------|------|
-| `public/sw-notifications.js` | Criar — Service Worker |
-| `src/hooks/useMessageNotifications.tsx` | Registrar SW + trocar `new Notification` por `registration.showNotification` |
-| `src/components/Layout.tsx` | Adicionar banner de permissão quando `Notification.permission === 'default'` |
-
+Validação
+- testar com a intranet aberta e visível;
+- testar em `/mensagens` com a aba minimizada;
+- testar com outra janela na frente;
+- testar clique no banner abrindo a conversa certa;
+- confirmar que continua sem e-mail de nova mensagem.
