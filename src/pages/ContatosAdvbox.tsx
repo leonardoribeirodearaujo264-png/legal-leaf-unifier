@@ -132,6 +132,10 @@ export default function ContatosAdvbox() {
   const [vendedores, setVendedores] = useState<VendedorConfig[]>([]);
   const [loadingVendedores, setLoadingVendedores] = useState(false);
 
+  // Admin config states
+  const [adminConfig, setAdminConfig] = useState<Record<string, string>>({});
+  const [loadingConfig, setLoadingConfig] = useState(false);
+
   // Recent demandas for badge
   const [recentDemandas, setRecentDemandas] = useState<Set<string>>(new Set());
 
