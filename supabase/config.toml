@@ -189,5 +189,9 @@ verify_jwt = false
 [functions.fin-dashboard-cache-refresh]
 verify_jwt = false
 
+
+[functions.notify-internal-message]
+verify_jwt = false
+
 [functions.instagram-insights]
 verify_jwt = true

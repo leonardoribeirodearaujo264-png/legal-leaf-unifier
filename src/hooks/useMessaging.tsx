@@ -266,7 +266,7 @@ export const useMessaging = () => {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', conversationId);
 
-      // Create notification and send email for other participants
+      // Create notification for other participants
       const conversation = conversations.find(c => c.id === conversationId);
       const otherParticipants = conversation?.participants?.filter(p => p.user_id !== user.id) || [];
       const senderName = user.user_metadata?.full_name || 'Alguém';
@@ -281,8 +281,17 @@ export const useMessaging = () => {
             type: 'message',
             action_url: '/mensagens'
           });
-
       }
+
+      // Trigger Web Push notifications
+      supabase.functions.invoke('notify-internal-message', {
+        body: {
+          messageId: data.id,
+          conversationId,
+          senderId: user.id,
+          content: content.trim(),
+        },
+      }).catch((err) => console.warn('Push notification failed:', err));
 
       return data;
     } catch (error) {
