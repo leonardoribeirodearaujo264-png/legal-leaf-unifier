@@ -225,6 +225,7 @@ Deno.serve(async (req) => {
             nome_mae: customer.nome_mae || customer.mother_name || customer.mothers_name || null,
             nome_pai: customer.nome_pai || customer.father_name || customer.fathers_name || null,
             observacoes: customer.observacoes || customer.observations || customer.notes || customer.note || null,
+            origem: customer.origin || customer.origem || customer.source || null,
             raw_data: customer,
             synced_at: new Date().toISOString(),
           }));
