@@ -1,38 +1,40 @@
 
 
-## Corrigir scroll de mensagens e badge de não lidas
+## Adicionar dialog de detalhes e edição nos adiantamentos
 
-### Problema 1 — Mensagens não rolam até o final
+### Problema
 
-O componente usa `messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })` para rolar até a última mensagem. Porém, o Radix `ScrollArea` cria um `Viewport` interno como container de scroll, e o `scrollIntoView` não funciona corretamente com ele — o scroll fica no topo.
+Ao clicar num adiantamento na tabela, não há como visualizar todos os dados preenchidos (conta de pagamento, forma de desconto, mês de início, observações) nem editá-los. A tabela mostra apenas um resumo.
 
-**Solução**: Trocar `scrollIntoView` por acesso direto ao viewport do ScrollArea. Usar um `ref` no `ScrollArea` do chat e, após as mensagens carregarem, fazer `viewport.scrollTop = viewport.scrollHeight` no elemento `[data-radix-scroll-area-viewport]`.
+### Solução
 
-**Arquivo**: `src/pages/Mensagens.tsx`
-- Adicionar `useRef` para o container do ScrollArea de mensagens
-- No `useEffect` que depende de `[messages]`, buscar o viewport real via `ref.current?.querySelector('[data-radix-scroll-area-viewport]')` e setar `scrollTop = scrollHeight`
-- Usar `behavior: 'instant'` no carregamento inicial (não smooth, para não mostrar a rolagem toda) e `smooth` quando mensagem nova chega em tempo real
+Adicionar um dialog de detalhes/edição que abre ao clicar na linha do adiantamento, exibindo todos os campos e permitindo edição.
 
-### Problema 2 — Badge de mensagens não zera após ler
+### Alterações em `src/components/rh/RHAdiantamentos.tsx`
 
-Dois sub-problemas:
+**1. Novo state para dialog de detalhes**
+- `detailDialogOpen` + `editMode` boolean
+- Ao abrir, preencher os campos do formulário com os dados do adiantamento selecionado
 
-**2a.** Ao clicar numa conversa, o `last_read_at` é atualizado dentro de `fetchMessages`, mas a lista local de conversas (`conversations`) mantém o `unread_count` antigo até `fetchConversations` rodar (com setTimeout de 1500ms). Se o fetch falhar ou demorar, o badge fica preso.
+**2. Dialog de detalhes completo**
+Exibe todos os campos em modo leitura:
+- Colaborador, Tipo, Valor, Data, Conta de pagamento (nome), Forma de desconto, Número de parcelas, Valor por parcela, Mês de início do desconto, Observações, Status, Saldo restante
 
-**Solução**: Após `setActiveConversation`, zerar imediatamente o `unread_count` local daquela conversa no estado, sem esperar o refetch do banco. Isso dá feedback visual instantâneo.
+Botão "Editar" que ativa modo de edição nos campos editáveis (tipo, valor NÃO — pois já gerou lançamento financeiro, mas observações, forma de desconto, mês de início sim).
 
-**Arquivo**: `src/pages/Mensagens.tsx` (no onClick da conversa) e `src/hooks/useMessaging.tsx` (no `fetchMessages`, após marcar como lido)
+Campos editáveis: observações, mês de início do desconto, número de parcelas (recalcula valor parcela). Tipo e valor não devem ser editáveis pois já geraram lançamento financeiro.
 
-**2b.** O `useMessageNotifications` calcula `unreadCount` iterando todas as participações. Se o `last_read_at` acabou de ser atualizado mas o `fetchUnreadCount` lê o valor antigo (cache/timing), o badge permanece. O `messages-read` event já dispara o refetch, mas pode haver timing issue.
+**3. Tornar as linhas da tabela clicáveis**
+Adicionar `cursor-pointer hover:bg-muted/50` no `TableRow` com `onClick` que abre o dialog de detalhes.
 
-**Solução**: No `useMessaging.tsx`, após o `update last_read_at` e `window.dispatchEvent('messages-read')`, também atualizar o `unread_count` local da conversa para 0 no state de `conversations`.
+**4. Botão "Salvar" na edição**
+Faz `update` na tabela `rh_adiantamentos` com os campos alterados e recarrega os dados.
 
-### Alterações
+### Arquivo alterado
 
-| Arquivo | Mudança |
-|---------|---------|
-| `src/pages/Mensagens.tsx` | Substituir `scrollIntoView` por scroll direto no viewport do ScrollArea; zerar `unread_count` local ao clicar na conversa |
-| `src/hooks/useMessaging.tsx` | Após marcar `last_read_at`, zerar `unread_count` da conversa no state local |
+| Arquivo | Ação |
+|---------|------|
+| `src/components/rh/RHAdiantamentos.tsx` | Adicionar dialog de detalhes com visualização completa + modo edição |
 
 Nenhuma alteração no banco de dados.
 
