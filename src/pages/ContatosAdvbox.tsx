@@ -598,7 +598,7 @@ export default function ContatosAdvbox() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => { fetchVendedores(); setShowVendedoresConfig(true); }}
+                onClick={() => { fetchVendedores(); fetchAdminConfig(); setShowVendedoresConfig(true); }}
                 title="Configurar vendedores do rodízio"
               >
                 <Settings className="h-4 w-4" />
