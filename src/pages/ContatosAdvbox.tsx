@@ -98,8 +98,9 @@ type FieldKey = typeof EDITABLE_FIELDS[number]['key'];
 
 export default function ContatosAdvbox() {
   useAccessTracking();
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const [userName, setUserName] = useState('');
   const initialTab = searchParams.get('tab') === 'aniversarios' ? 'aniversarios' : 'contatos';
 
   const [activeTab, setActiveTab] = useState(initialTab);
