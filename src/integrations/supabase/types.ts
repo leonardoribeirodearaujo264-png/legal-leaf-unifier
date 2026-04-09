@@ -1684,6 +1684,53 @@ export type Database = {
         }
         Relationships: []
       }
+      comercial_demanda_historico: {
+        Row: {
+          alterado_por: string
+          alterado_por_nome: string
+          created_at: string | null
+          demanda_id: string
+          id: string
+          motivo: string | null
+          vendedor_anterior_id: string | null
+          vendedor_anterior_nome: string | null
+          vendedor_novo_id: string
+          vendedor_novo_nome: string
+        }
+        Insert: {
+          alterado_por: string
+          alterado_por_nome: string
+          created_at?: string | null
+          demanda_id: string
+          id?: string
+          motivo?: string | null
+          vendedor_anterior_id?: string | null
+          vendedor_anterior_nome?: string | null
+          vendedor_novo_id: string
+          vendedor_novo_nome: string
+        }
+        Update: {
+          alterado_por?: string
+          alterado_por_nome?: string
+          created_at?: string | null
+          demanda_id?: string
+          id?: string
+          motivo?: string | null
+          vendedor_anterior_id?: string | null
+          vendedor_anterior_nome?: string | null
+          vendedor_novo_id?: string
+          vendedor_novo_nome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comercial_demanda_historico_demanda_id_fkey"
+            columns: ["demanda_id"]
+            isOneToOne: false
+            referencedRelation: "comercial_demandas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       comercial_demandas: {
         Row: {
           chatguru_note_id: string | null
