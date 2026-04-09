@@ -135,7 +135,7 @@ export function getMenuGroups(
         { icon: AlertCircle, path: '/movimentacoes-advbox', label: 'Movimentações Advbox', searchDescription: 'Movimentações processuais' },
         { icon: Languages, path: '/traducao-andamentos', label: 'Tradução de Andamentos', searchDescription: 'Traduzir andamentos para linguagem simples' },
         { icon: Bell, path: '/publicacoes', label: 'Publicações ADVBox', searchDescription: 'Feed de publicações do Advbox' },
-        { icon: Cake, path: '/aniversarios-clientes', label: 'Aniversários Clientes', searchDescription: 'Clientes aniversariantes' },
+        { icon: Users, path: '/contatos-advbox', label: 'Contatos ADVBox', searchDescription: 'Contatos clientes aniversários ADVBox' },
         { icon: SearchIcon, path: '/pesquisa-jurisprudencia', label: 'Pesquisa Jurisprudência', searchDescription: 'Busca em jurisprudência' },
         { icon: FileText, path: '/publicacoes-dje', label: 'Publicações DJE', searchDescription: 'Diário de Justiça Eletrônico' },
         { icon: Gavel, path: '/portais-tribunais', label: 'Portais de Tribunais', searchDescription: 'Acesso rápido a tribunais' },

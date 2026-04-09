@@ -52,6 +52,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/historico-mensagens-aniversario': 'Histórico Mensagens Aniversário',
   '/mensagens-encaminhadas': 'Mensagens Encaminhadas',
   '/dashboard-sugestoes': 'Dashboard de Sugestões',
+  '/contatos-advbox': 'Contatos ADVBox',
 };
 
 export function useAccessTracking() {
