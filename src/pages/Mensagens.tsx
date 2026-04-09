@@ -184,6 +184,8 @@ const Mensagens = () => {
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollAreaRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -293,7 +295,21 @@ const Mensagens = () => {
   }, [showNewConversation, user]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length === 0) {
+      prevMessageCountRef.current = 0;
+      return;
+    }
+    const viewport = messagesScrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (viewport) {
+      const isInitialLoad = prevMessageCountRef.current === 0;
+      requestAnimationFrame(() => {
+        viewport.scrollTo({
+          top: viewport.scrollHeight,
+          behavior: isInitialLoad ? 'instant' : 'smooth',
+        });
+      });
+    }
+    prevMessageCountRef.current = messages.length;
   }, [messages]);
 
   // File handling functions
@@ -1538,7 +1554,7 @@ const Mensagens = () => {
                 )}
 
                 {/* Messages */}
-                <ScrollArea className="flex-1 p-4 min-h-0">
+                <ScrollArea ref={messagesScrollAreaRef} className="flex-1 p-4 min-h-0">
                   {loadingMessages ? (
                     <div className="flex items-center justify-center h-full">
                       <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
