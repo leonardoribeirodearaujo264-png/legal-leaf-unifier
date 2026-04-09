@@ -26,7 +26,6 @@ import MuralAvisos from "./pages/MuralAvisos";
 import GaleriaEventos from "./pages/GaleriaEventos";
 import NotFound from "./pages/NotFound";
 import ProcessosDashboard from "./pages/ProcessosDashboard";
-import AniversariosClientes from "./pages/AniversariosClientes";
 import ContatosAdvbox from "./pages/ContatosAdvbox";
 import PublicacoesFeed from "./pages/PublicacoesFeed";
 import TarefasAdvbox from "./pages/TarefasAdvbox";
