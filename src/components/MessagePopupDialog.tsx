@@ -101,6 +101,16 @@ export function MessagePopupDialog({ message, onDismiss, enabled }: MessagePopup
 
       if (error) throw error;
 
+      // Trigger Web Push for the reply
+      supabase.functions.invoke('notify-internal-message', {
+        body: {
+          messageId: crypto.randomUUID(),
+          conversationId: message.conversation_id,
+          senderId: user.id,
+          content: replyText.trim(),
+        },
+      }).catch((err) => console.warn('Push notification failed:', err));
+
       await supabase
         .from('conversation_participants')
         .update({ last_read_at: new Date().toISOString() })
