@@ -107,9 +107,10 @@ async function updateDealStage(rdToken: string, sb: any, data: any) {
   if (!stage?.rd_station_id) throw new Error('Etapa não encontrada');
   const r = await fetch(`${RD_API}/deals/${deal.rd_station_id}?token=${rdToken}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deal_stage_id: stage.rd_station_id }) });
   if (!r.ok) { await r.text(); throw new Error(`Erro ao atualizar etapa: ${r.status}`); }
-  const upd: any = { stage_id };
+  const upd: any = { stage_id, stage_changed_at: new Date().toISOString() };
   if (stage.is_won) { upd.won = true; upd.closed_at = new Date().toISOString(); }
   else if (stage.is_lost) { upd.won = false; upd.closed_at = new Date().toISOString(); }
+  else { upd.won = null; upd.closed_at = null; }
   await sb.from('crm_deals').update(upd).eq('id', deal_id);
   await sb.from('crm_deal_history').insert({ deal_id, from_stage_id: deal.stage_id, to_stage_id: stage_id, changed_by: user_id });
   await sb.from('crm_sync_log').insert({ sync_type: 'bidirectional', entity_type: 'deal_stage', entity_id: deal_id, status: 'success' });
