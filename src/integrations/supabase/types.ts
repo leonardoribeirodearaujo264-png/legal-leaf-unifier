@@ -1663,6 +1663,91 @@ export type Database = {
         }
         Relationships: []
       }
+      comercial_demandas: {
+        Row: {
+          chatguru_note_id: string | null
+          cliente_advbox_id: string
+          cliente_nome: string
+          cliente_telefone: string | null
+          created_at: string | null
+          criado_por: string | null
+          criado_por_nome: string | null
+          crm_activity_id: string | null
+          id: string
+          status: string | null
+          vendedor_id: string | null
+          vendedor_nome: string | null
+        }
+        Insert: {
+          chatguru_note_id?: string | null
+          cliente_advbox_id: string
+          cliente_nome: string
+          cliente_telefone?: string | null
+          created_at?: string | null
+          criado_por?: string | null
+          criado_por_nome?: string | null
+          crm_activity_id?: string | null
+          id?: string
+          status?: string | null
+          vendedor_id?: string | null
+          vendedor_nome?: string | null
+        }
+        Update: {
+          chatguru_note_id?: string | null
+          cliente_advbox_id?: string
+          cliente_nome?: string
+          cliente_telefone?: string | null
+          created_at?: string | null
+          criado_por?: string | null
+          criado_por_nome?: string | null
+          crm_activity_id?: string | null
+          id?: string
+          status?: string | null
+          vendedor_id?: string | null
+          vendedor_nome?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comercial_demandas_vendedor_id_fkey"
+            columns: ["vendedor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      comercial_vendedores_config: {
+        Row: {
+          ativo: boolean | null
+          created_at: string | null
+          id: string
+          vendedor_id: string
+          vendedor_nome: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string | null
+          id?: string
+          vendedor_id: string
+          vendedor_nome: string
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string | null
+          id?: string
+          vendedor_id?: string
+          vendedor_nome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comercial_vendedores_config_vendedor_id_fkey"
+            columns: ["vendedor_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contra_partida_templates: {
         Row: {
           created_at: string
