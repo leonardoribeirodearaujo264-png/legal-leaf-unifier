@@ -1663,6 +1663,27 @@ export type Database = {
         }
         Relationships: []
       }
+      comercial_config: {
+        Row: {
+          description: string | null
+          key: string
+          updated_at: string | null
+          value: string
+        }
+        Insert: {
+          description?: string | null
+          key: string
+          updated_at?: string | null
+          value: string
+        }
+        Update: {
+          description?: string | null
+          key?: string
+          updated_at?: string | null
+          value?: string
+        }
+        Relationships: []
+      }
       comercial_demandas: {
         Row: {
           chatguru_note_id: string | null
@@ -1719,6 +1740,7 @@ export type Database = {
       comercial_vendedores_config: {
         Row: {
           ativo: boolean | null
+          chatguru_user_id: string | null
           created_at: string | null
           id: string
           vendedor_id: string
@@ -1726,6 +1748,7 @@ export type Database = {
         }
         Insert: {
           ativo?: boolean | null
+          chatguru_user_id?: string | null
           created_at?: string | null
           id?: string
           vendedor_id: string
@@ -1733,6 +1756,7 @@ export type Database = {
         }
         Update: {
           ativo?: boolean | null
+          chatguru_user_id?: string | null
           created_at?: string | null
           id?: string
           vendedor_id?: string
