@@ -262,23 +262,7 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
     `,
-
-    // Mensagens
-    new_message: `
-      ${baseStyles}
-      <div class="container">
-        <div class="header"><h1>✉️ Nova Mensagem</h1></div>
-        <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
-          <p>Você recebeu uma nova mensagem de <strong>${data.senderName}</strong>:</p>
-          <div class="info-box">
-            ${data.preview}
-          </div>
-          <a href="${data.actionUrl}" class="button">Ver Mensagem</a>
-        </div>
-        <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
-      </div>
-    `,
+    // Mensagens removidas — notificações são apenas in-app
 
     // CRM
     crm_deal_update: `
