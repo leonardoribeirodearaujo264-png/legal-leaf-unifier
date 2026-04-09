@@ -46,7 +46,8 @@ interface HistoricoItem {
 }
 
 export const CRMDemandasLog = () => {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
+  const [userName, setUserName] = useState('');
   const [demandas, setDemandas] = useState<Demanda[]>([]);
   const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [loading, setLoading] = useState(true);
