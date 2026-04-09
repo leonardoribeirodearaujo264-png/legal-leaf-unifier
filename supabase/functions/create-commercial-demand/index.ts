@@ -17,7 +17,6 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    // Validate auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Não autorizado" }), {
@@ -79,14 +78,29 @@ serve(async (req) => {
     const horaFormatada = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     const criadorNome = user_name || user.email || "Usuário";
 
-    // 2. ChatGuru integration
+    // 2. Fetch ChatGuru config (Marcos + setor comercial IDs)
+    const { data: configRows } = await supabase
+      .from("comercial_config")
+      .select("key, value")
+      .in("key", ["marcos_chatguru_id", "setor_comercial_chatguru_id"]);
+
+    const configMap: Record<string, string> = {};
+    if (configRows) {
+      for (const row of configRows) {
+        configMap[row.key] = row.value;
+      }
+    }
+    const marcosChatguruId = configMap["marcos_chatguru_id"] || "";
+    const setorComercialChatguruId = configMap["setor_comercial_chatguru_id"] || "";
+    const vendedorChatguruId = selectedVendedor.chatguru_user_id || "";
+
+    // 3. ChatGuru integration
     let chatguruNoteId: string | null = null;
     const chatguruKey = Deno.env.get("CHATGURU_API_KEY");
     const chatguruAccountId = Deno.env.get("CHATGURU_ACCOUNT_ID");
     const chatguruPhoneId = Deno.env.get("CHATGURU_PHONE_ID");
 
     if (chatguruKey && chatguruAccountId && chatguruPhoneId && cliente_telefone) {
-      // Clean phone number
       const cleanPhone = cliente_telefone.replace(/\D/g, "");
       const phoneWithCountry = cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`;
 
@@ -103,29 +117,46 @@ serve(async (req) => {
           note_text: noteText,
         });
 
-        const noteResp = await fetch(`https://s17.chatguru.app/api/v1?${noteParams.toString()}`, {
-          method: "POST",
-        });
+        const noteResp = await fetch(`https://s17.chatguru.app/api/v1?${noteParams.toString()}`, { method: "POST" });
         const noteData = await noteResp.json();
         chatguruNoteId = noteData?.id || noteData?.note_id || null;
         console.log("ChatGuru note response:", JSON.stringify(noteData));
 
-        // Edit chat: set status to open and assign users
-        // We'll try to assign the seller + Marcos + setor comercial
+        // Edit chat: set status to open
         const editParams = new URLSearchParams({
           key: chatguruKey,
           account_id: chatguruAccountId,
           phone_id: chatguruPhoneId,
           action: "chat_edit",
           chat_number: phoneWithCountry,
-          status: "O", // Open
+          status: "O",
         });
 
-        const editResp = await fetch(`https://s17.chatguru.app/api/v1?${editParams.toString()}`, {
-          method: "POST",
-        });
+        const editResp = await fetch(`https://s17.chatguru.app/api/v1?${editParams.toString()}`, { method: "POST" });
         const editData = await editResp.json();
-        console.log("ChatGuru edit response:", JSON.stringify(editData));
+        console.log("ChatGuru chat_edit (status) response:", JSON.stringify(editData));
+
+        // Assign responsible users: vendedor sorteado, Marcos, setor comercial
+        const userIdsToAssign = [vendedorChatguruId, marcosChatguruId, setorComercialChatguruId].filter(Boolean);
+
+        for (const chatguruUserId of userIdsToAssign) {
+          try {
+            const assignParams = new URLSearchParams({
+              key: chatguruKey,
+              account_id: chatguruAccountId,
+              phone_id: chatguruPhoneId,
+              action: "chat_edit",
+              chat_number: phoneWithCountry,
+              user_id: chatguruUserId,
+            });
+
+            const assignResp = await fetch(`https://s17.chatguru.app/api/v1?${assignParams.toString()}`, { method: "POST" });
+            const assignData = await assignResp.json();
+            console.log(`ChatGuru assign user ${chatguruUserId}:`, JSON.stringify(assignData));
+          } catch (assignErr) {
+            console.error(`ChatGuru assign error for ${chatguruUserId}:`, assignErr);
+          }
+        }
       } catch (chatguruError) {
         console.error("ChatGuru error (non-blocking):", chatguruError);
       }
@@ -133,7 +164,7 @@ serve(async (req) => {
       console.log("ChatGuru not configured or client has no phone, skipping");
     }
 
-    // 3. CRM activity
+    // 4. CRM activity
     let crmActivityId: string | null = null;
     try {
       const { data: crmActivity, error: crmError } = await supabase
@@ -158,7 +189,7 @@ serve(async (req) => {
       console.error("CRM error (non-blocking):", crmErr);
     }
 
-    // 4. Save demanda locally
+    // 5. Save demanda locally
     const { data: demanda, error: demandaError } = await supabase
       .from("comercial_demandas")
       .insert({
@@ -188,6 +219,7 @@ serve(async (req) => {
         vendedor_nome: selectedVendedor.vendedor_nome,
         chatguru_registered: !!chatguruNoteId,
         crm_task_created: !!crmActivityId,
+        chatguru_users_assigned: [vendedorChatguruId, marcosChatguruId, setorComercialChatguruId].filter(Boolean).length,
       }),
       {
         status: 200,
