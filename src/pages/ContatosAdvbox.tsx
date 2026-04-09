@@ -394,7 +394,7 @@ export default function ContatosAdvbox() {
           cliente_advbox_id: String(selectedDemandaClient.advbox_id),
           cliente_nome: selectedDemandaClient.name,
           cliente_telefone: selectedDemandaClient.phone || selectedDemandaClient.celular || '',
-          user_name: profile?.full_name || 'Usuário',
+          user_name: userName || 'Usuário',
         },
       });
 
