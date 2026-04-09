@@ -105,31 +105,66 @@ export const useMessageNotifications = () => {
     return data?.full_name || 'Alguém';
   };
 
-  // Request native notification permission
+  // Service Worker registration ref
+  const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
+
+  // Register Service Worker + request notification permission
   useEffect(() => {
+    // Register SW for background notifications
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw-notifications.js')
+        .then((registration) => {
+          swRegistrationRef.current = registration;
+          console.log('[MessageNotifications] SW registered');
+        })
+        .catch((err) => {
+          console.warn('[MessageNotifications] SW registration failed:', err);
+        });
+
+      // Listen for notification clicks routed via SW postMessage
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'NOTIFICATION_CLICK' && event.data.conversationId) {
+          navigateRef.current('/mensagens', {
+            state: { openConversation: event.data.conversationId },
+          });
+        }
+      });
+    }
+
+    // Request permission silently on load
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
   }, []);
 
-  // Send native browser notification (stable — uses refs)
+  // Send native browser notification via Service Worker (works even when tab is minimized)
   const sendNativeNotification = useCallback((title: string, body: string, conversationId: string) => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      try {
-        const notification = new Notification(title, {
-          body,
-          icon: '/logo-eggnunes.png',
-          tag: `msg-${conversationId}`,
-        } as NotificationOptions);
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    const options = {
+      body,
+      icon: '/logo-eggnunes.png',
+      tag: `msg-${conversationId}`,
+      data: { conversationId },
+      requireInteraction: false,
+    };
+
+    try {
+      if (swRegistrationRef.current) {
+        // Use SW — works even with minimized/suspended tabs
+        swRegistrationRef.current.showNotification(title, options);
+      } else {
+        // Fallback to direct Notification API
+        const notification = new Notification(title, options);
         notification.onclick = () => {
           window.focus();
           navigateRef.current('/mensagens', { state: { openConversation: conversationId } });
           notification.close();
         };
         setTimeout(() => notification.close(), 10000);
-      } catch {
-        // Fallback silently
       }
+    } catch {
+      // Silent fallback
     }
   }, []);
 
