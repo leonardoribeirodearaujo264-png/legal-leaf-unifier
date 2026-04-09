@@ -1,0 +1,1 @@
+DELETE FROM comercial_vendedores_config WHERE vendedor_nome ILIKE '%Jhonny%';
