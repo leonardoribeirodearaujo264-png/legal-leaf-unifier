@@ -145,11 +145,37 @@ export default function ContatosAdvbox() {
 
   const totalPages = totalCount ? Math.ceil(totalCount / PAGE_SIZE) : 0;
 
+  const RAW_DATA_KEY_MAP: Record<string, string[]> = {
+    cpf: ['identification', 'cpf', 'individual_registration'],
+    rg: ['document', 'rg', 'identity_card'],
+    profissao: ['occupation', 'profession', 'profissao'],
+    estado_civil: ['civil_status', 'marital_status', 'estado_civil'],
+    nacionalidade: ['country', 'nationality', 'nacionalidade'],
+    endereco: ['street', 'address', 'endereco'],
+    bairro: ['region', 'neighborhood', 'bairro'],
+    cidade: ['city', 'cidade'],
+    estado: ['state', 'estado'],
+    cep: ['postalcode', 'zip_code', 'cep'],
+    sexo: ['gender', 'sex', 'sexo'],
+    celular: ['cellphone', 'mobile_phone', 'celular'],
+    telefone_fixo: ['phone', 'landline', 'telefone_fixo'],
+    observacoes: ['notes', 'observations', 'observacoes'],
+  };
+
   const getVal = (contact: AdvboxContact, key: string): string => {
     const directVal = (contact as any)[key];
     if (directVal) return directVal;
-    // Fallback to raw_data
-    if (contact.raw_data && contact.raw_data[key]) return contact.raw_data[key];
+    if (contact.raw_data) {
+      // Try direct key
+      if (contact.raw_data[key]) return contact.raw_data[key];
+      // Try mapped keys
+      const mappedKeys = RAW_DATA_KEY_MAP[key];
+      if (mappedKeys) {
+        for (const mk of mappedKeys) {
+          if (contact.raw_data[mk]) return contact.raw_data[mk];
+        }
+      }
+    }
     return '';
   };
 
@@ -235,8 +261,6 @@ export default function ContatosAdvbox() {
 
   const renderSection = (title: string, sectionKey: string, icon: React.ReactNode) => {
     const fields = EDITABLE_FIELDS.filter(f => f.section === sectionKey);
-    const hasData = fields.some(f => editing ? editData[f.key] : getVal(selectedContact!, f.key));
-    if (!editing && !hasData) return null;
 
     return (
       <div className="space-y-2">
@@ -247,7 +271,6 @@ export default function ContatosAdvbox() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {fields.map(f => {
             const val = editing ? editData[f.key] : getVal(selectedContact!, f.key);
-            if (!editing && !val) return null;
             return (
               <div key={f.key} className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{f.label}</Label>
@@ -258,7 +281,7 @@ export default function ContatosAdvbox() {
                     className="h-8 text-sm"
                   />
                 ) : (
-                  <p className="text-sm font-medium">{val}</p>
+                  <p className="text-sm font-medium">{val || <span className="text-muted-foreground/50 italic">—</span>}</p>
                 )}
               </div>
             );
