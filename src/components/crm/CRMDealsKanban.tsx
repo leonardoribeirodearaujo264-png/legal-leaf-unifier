@@ -170,25 +170,24 @@ const DraggableDealCard = ({
   const style = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.5 : 1,
+    touchAction: 'none' as const,
   };
 
   return (
     <Card 
       ref={setNodeRef} 
       style={style}
-      className={`hover:shadow-lg transition-all duration-200 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 hover:border-primary/50 rounded-lg ${isDragging ? 'shadow-xl ring-2 ring-primary' : ''}`}
+      {...attributes}
+      {...listeners}
+      className={`cursor-grab active:cursor-grabbing hover:shadow-lg transition-all duration-200 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-950 hover:border-primary/50 rounded-lg ${isDragging ? 'shadow-xl ring-2 ring-primary' : ''}`}
     >
       <CardContent className="p-3">
         <div className="flex items-start justify-between gap-2">
-          <div 
-            {...attributes} 
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 -ml-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
-          >
+          <div className="p-1 -ml-1">
             <GripVertical className="h-4 w-4 text-slate-400" />
           </div>
-          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onView(deal)}>
-            <p className="font-semibold text-sm leading-tight break-words hover:text-primary">{deal.name}</p>
+          <div className="flex-1 min-w-0" onPointerDown={(e) => e.stopPropagation()} onClick={() => onView(deal)}>
+            <p className="font-semibold text-sm leading-tight break-words hover:text-primary cursor-pointer">{deal.name}</p>
             {deal.contact && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1.5">
                 <User className="h-3 w-3 shrink-0" />
@@ -197,7 +196,7 @@ const DraggableDealCard = ({
             )}
           </div>
           
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-1 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(deal)}>
               <Eye className="h-3.5 w-3.5" />
             </Button>
@@ -792,9 +791,27 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
 
         toast.success(`Oportunidade movida para ${data.stage_name}`);
       } else {
+        const targetStage = stages.find(s => s.id === newStageId);
+        const updateData: Record<string, unknown> = { 
+          stage_id: newStageId,
+          stage_changed_at: new Date().toISOString(),
+        };
+        
+        if (targetStage?.is_won) {
+          updateData.won = true;
+          updateData.closed_at = new Date().toISOString();
+        } else if (targetStage?.is_lost) {
+          updateData.won = false;
+          updateData.closed_at = new Date().toISOString();
+        } else {
+          // Moving back to an open stage — clear won/closed
+          updateData.won = null;
+          updateData.closed_at = null;
+        }
+
         const { error } = await supabase
           .from('crm_deals')
-          .update({ stage_id: newStageId })
+          .update(updateData)
           .eq('id', dealId);
 
         if (error) throw error;
@@ -806,7 +823,6 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
           changed_by: user?.id
         });
 
-        const targetStage = stages.find(s => s.id === newStageId);
         toast.success(`Oportunidade movida para ${targetStage?.name || 'nova etapa'}`);
       }
 
