@@ -804,6 +804,28 @@ export default function AniversariosClientes({ embedded = false }: { embedded?: 
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Layout>
+    </>
   );
+
+  if (loading && !embedded) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-muted-foreground">Carregando aniversários...</div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (loading && embedded) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-muted-foreground">Carregando aniversários...</div>
+      </div>
+    );
+  }
+
+  if (embedded) return content;
+
+  return <Layout>{content}</Layout>;
 }
