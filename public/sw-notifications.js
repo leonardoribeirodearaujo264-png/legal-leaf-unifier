@@ -1,5 +1,24 @@
 // Service Worker for native OS notifications (near system clock)
-// This ensures notifications work even when the tab is minimized or inactive
+
+// Handle push events from the server — works even when tab is minimized/suspended
+self.addEventListener('push', (event) => {
+  let data = { title: 'Nova mensagem', body: '', conversationId: null };
+  try {
+    data = event.data?.json() || data;
+  } catch {
+    data.body = event.data?.text() || '';
+  }
+
+  const options = {
+    body: data.body,
+    icon: '/logo-eggnunes.png',
+    tag: `msg-${data.conversationId || 'general'}`,
+    data: { conversationId: data.conversationId },
+    requireInteraction: false,
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
@@ -11,7 +30,6 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Try to focus an existing tab
       for (const client of clientList) {
         if (client.url.includes(self.location.origin)) {
           client.focus();
@@ -22,13 +40,11 @@ self.addEventListener('notificationclick', (event) => {
           return;
         }
       }
-      // No existing tab — open a new one
       return clients.openWindow(targetUrl);
     })
   );
 });
 
-// Keep the SW alive for showNotification calls from the page
 self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
