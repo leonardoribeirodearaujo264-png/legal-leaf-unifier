@@ -235,8 +235,6 @@ export default function ContatosAdvbox() {
 
   const renderSection = (title: string, sectionKey: string, icon: React.ReactNode) => {
     const fields = EDITABLE_FIELDS.filter(f => f.section === sectionKey);
-    const hasData = fields.some(f => editing ? editData[f.key] : getVal(selectedContact!, f.key));
-    if (!editing && !hasData) return null;
 
     return (
       <div className="space-y-2">
@@ -247,7 +245,6 @@ export default function ContatosAdvbox() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {fields.map(f => {
             const val = editing ? editData[f.key] : getVal(selectedContact!, f.key);
-            if (!editing && !val) return null;
             return (
               <div key={f.key} className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{f.label}</Label>
@@ -258,7 +255,7 @@ export default function ContatosAdvbox() {
                     className="h-8 text-sm"
                   />
                 ) : (
-                  <p className="text-sm font-medium">{val}</p>
+                  <p className="text-sm font-medium">{val || <span className="text-muted-foreground/50 italic">—</span>}</p>
                 )}
               </div>
             );
