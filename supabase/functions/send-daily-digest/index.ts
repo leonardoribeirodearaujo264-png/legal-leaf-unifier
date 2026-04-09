@@ -93,7 +93,6 @@ function buildBaseStyles(): string {
 }
 
 interface UserDigestData {
-  messages: any[];
   announcements: any[];
   updates: any[];
   tasks: any[];
@@ -202,22 +201,7 @@ function buildDigestHtml(userName: string, data: UserDigestData, baseUrl: string
     `;
   }
 
-  // Messages
-  if (data.messages.length > 0) {
-    sections += `
-      <div class="section">
-        <div class="section-title">✉️ Mensagens Recebidas (${data.messages.length})</div>
-        ${data.messages.slice(0, 5).map(m => `
-          <div class="item">
-            <div class="item-title">${escapeHtml(m.sender_name || 'Alguém')}</div>
-            <div class="item-meta">${escapeHtml((m.content || '').substring(0, 100))}${(m.content || '').length > 100 ? '...' : ''}</div>
-          </div>
-        `).join("")}
-        ${data.messages.length > 5 ? `<p class="item-meta">...e mais ${data.messages.length - 5} mensagens</p>` : ""}
-        <a href="${baseUrl}/mensagens" class="button" style="margin-top:10px;">Ver Mensagens</a>
-      </div>
-    `;
-  }
+  // Messages section removed — notifications are handled in-app only
 
   // Announcements
   if (data.announcements.length > 0) {
@@ -363,28 +347,7 @@ const handler = async (req: Request): Promise<Response> => {
       leadsBySources[src] = (leadsBySources[src] || 0) + 1;
     });
 
-    // 4. Fetch recent messages with sender info
-    const { data: recentMessages } = await supabase
-      .from("messages")
-      .select("id, conversation_id, sender_id, content, created_at")
-      .gte("created_at", yesterday.toISOString())
-      .order("created_at", { ascending: false });
-
-    const senderIds = [...new Set(recentMessages?.map(m => m.sender_id) || [])];
-    const [senderProfilesRes, allParticipantsRes] = await Promise.all([
-      senderIds.length > 0
-        ? supabase.from("profiles").select("id, full_name").in("id", senderIds)
-        : Promise.resolve({ data: [] }),
-      supabase.from("conversation_participants").select("conversation_id, user_id"),
-    ]);
-
-    const senderMap = new Map(senderProfilesRes.data?.map(p => [p.id, p.full_name]) || []);
-    const participantsByConv = new Map<string, string[]>();
-    allParticipantsRes.data?.forEach(p => {
-      const list = participantsByConv.get(p.conversation_id) || [];
-      list.push(p.user_id);
-      participantsByConv.set(p.conversation_id, list);
-    });
+    // Messages removed from daily digest — handled via in-app notifications only
 
     // 5. Fetch recent DJE publications (last 7 days for operational)
     const { data: recentPublications } = await supabase
@@ -468,11 +431,7 @@ const handler = async (req: Request): Promise<Response> => {
         const dueSoonTasks = tasks.filter(t => t.due_date && t.due_date >= nowStr && t.due_date <= threeDaysStr);
         const pendingTasks = tasks.filter(t => !overdueTasks.includes(t) && !dueSoonTasks.includes(t));
 
-        // --- MESSAGES ---
-        const userMessages = recentMessages?.filter(m => {
-          const convParticipants = participantsByConv.get(m.conversation_id) || [];
-          return convParticipants.includes(profile.id) && m.sender_id !== profile.id;
-        }).map(m => ({ ...m, sender_name: senderMap.get(m.sender_id) })) || [];
+        // Messages removed from daily digest
 
         // --- PUBLICATIONS (operational only — matched by process numbers the user is responsible for) ---
         let userPublications: any[] = [];
