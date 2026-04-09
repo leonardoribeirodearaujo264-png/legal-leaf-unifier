@@ -20,6 +20,7 @@ import { CRMTasks } from './CRMTasks';
 import { MarketingAutomation } from './MarketingAutomation';
 import { CRMDailyLog } from './CRMDailyLog';
 import { CRMPendingTasks } from './CRMPendingTasks';
+import { CRMDemandasLog } from './CRMDemandasLog';
 
 import { CRMRanking } from './CRMRanking';
 import { CRMZapSignContracts } from './CRMZapSignContracts';
@@ -44,7 +45,6 @@ type PeriodFilter = 'all' | '7d' | '30d' | '90d' | '365d';
 const RESPONSAVEIS_IDS: { id: string; name: string }[] = [
   { id: '1eebbf27-a9f8-4877-a10d-aec9279e1fea', name: 'Daniel' },
   { id: 'f83cbef4-8ff7-4168-8e28-6a15f0d2c1f9', name: 'Lucas' },
-  { id: '1703d91d-4781-4285-ad5c-ad71b108f1d0', name: 'Jhonny' },
 ];
 
 export const CRMDashboard = () => {

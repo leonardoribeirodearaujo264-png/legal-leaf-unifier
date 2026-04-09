@@ -11,3 +11,4 @@ export { CRMRanking } from './CRMRanking';
 export { CRMZapSignContracts } from './CRMZapSignContracts';
 export { CRMCommissions } from './CRMCommissions';
 export { CRMPendingTasks } from './CRMPendingTasks';
+export { CRMDemandasLog } from './CRMDemandasLog';
