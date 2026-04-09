@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Wallet, AlertCircle, Check, X, History } from 'lucide-react';
+import { Plus, Wallet, AlertCircle, Check, X, History, Pencil, Eye } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format, addMonths } from 'date-fns';
@@ -69,8 +69,16 @@ export function RHAdiantamentos() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
   const [selectedAdiantamento, setSelectedAdiantamento] = useState<Adiantamento | null>(null);
   const [descontos, setDescontos] = useState<any[]>([]);
+
+  // Edit form state
+  const [editObservacoes, setEditObservacoes] = useState('');
+  const [editFormaDesconto, setEditFormaDesconto] = useState('');
+  const [editNumeroParcelas, setEditNumeroParcelas] = useState('');
+  const [editMesInicioDesconto, setEditMesInicioDesconto] = useState('');
 
   // Formulário
   const [selectedColaborador, setSelectedColaborador] = useState('');
