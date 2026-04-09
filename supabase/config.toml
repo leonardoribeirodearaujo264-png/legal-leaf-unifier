@@ -195,3 +195,6 @@ verify_jwt = false
 
 [functions.instagram-insights]
 verify_jwt = true
+
+[functions.create-commercial-demand]
+verify_jwt = false
