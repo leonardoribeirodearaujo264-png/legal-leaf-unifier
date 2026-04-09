@@ -14,6 +14,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function parseDateToISO(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+  // Already ISO format (YYYY-MM-DD or YYYY-MM-DDTHH:mm:ss)
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return dateStr;
+  // DD/MM/YYYY format
+  const match = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+  return null;
+}
+
 async function makeAdvboxRequest(endpoint: string, retryCount = 0): Promise<any> {
   const url = `${ADVBOX_API_BASE}${endpoint}`;
   const maxRetries = 5;
