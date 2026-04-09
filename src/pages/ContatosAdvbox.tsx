@@ -62,6 +62,7 @@ interface VendedorConfig {
   vendedor_id: string;
   vendedor_nome: string;
   ativo: boolean;
+  chatguru_user_id: string | null;
 }
 
 const EDITABLE_FIELDS = [
@@ -932,20 +933,38 @@ export default function ContatosAdvbox() {
               <p className="text-sm text-center text-muted-foreground py-4">Nenhum vendedor configurado</p>
             ) : (
               vendedores.map((v) => (
-                <div key={v.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${v.ativo ? 'bg-green-100 dark:bg-green-900' : 'bg-muted'}`}>
-                      <User className={`h-4 w-4 ${v.ativo ? 'text-green-600' : 'text-muted-foreground'}`} />
+                <div key={v.id} className="p-3 border rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${v.ativo ? 'bg-green-100 dark:bg-green-900' : 'bg-muted'}`}>
+                        <User className={`h-4 w-4 ${v.ativo ? 'text-green-600' : 'text-muted-foreground'}`} />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{v.vendedor_nome}</p>
+                        <p className="text-xs text-muted-foreground">{v.ativo ? 'Ativo no rodízio' : 'Inativo'}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-sm">{v.vendedor_nome}</p>
-                      <p className="text-xs text-muted-foreground">{v.ativo ? 'Ativo no rodízio' : 'Inativo'}</p>
-                    </div>
+                    <Switch
+                      checked={v.ativo}
+                      onCheckedChange={(checked) => toggleVendedor(v.id, checked)}
+                    />
                   </div>
-                  <Switch
-                    checked={v.ativo}
-                    onCheckedChange={(checked) => toggleVendedor(v.id, checked)}
-                  />
+                  <div className="pl-11">
+                    <Label className="text-xs text-muted-foreground">ID ChatGuru</Label>
+                    <Input
+                      value={v.chatguru_user_id || ''}
+                      onChange={(e) => {
+                        const newVal = e.target.value;
+                        setVendedores(prev => prev.map(vv => vv.id === v.id ? { ...vv, chatguru_user_id: newVal } : vv));
+                      }}
+                      onBlur={async (e) => {
+                        const newVal = e.target.value || null;
+                        await supabase.from('comercial_vendedores_config').update({ chatguru_user_id: newVal } as any).eq('id', v.id);
+                      }}
+                      placeholder="Ex: 66392c1575f9357baf26ad8a"
+                      className="h-7 text-xs mt-1"
+                    />
+                  </div>
                 </div>
               ))
             )}
