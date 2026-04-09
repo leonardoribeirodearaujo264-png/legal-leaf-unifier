@@ -108,14 +108,61 @@ export const useMessageNotifications = () => {
   // Service Worker registration ref
   const swRegistrationRef = useRef<ServiceWorkerRegistration | null>(null);
 
-  // Register Service Worker + request notification permission
+  // VAPID public key for push subscription
+  const VAPID_PUBLIC_KEY = 'BIjQRFZC_PKAeEbkSCHlfGM8oFUDkOQWPzlMlZmZO35QGe5GM0aV0wUr5YsUMH3wtZep5F4ehwytsn-gKzfAy7s';
+
+  // Register Service Worker + request notification permission + subscribe to push
   useEffect(() => {
+    if (!user) return;
+
     // Register SW for background notifications
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw-notifications.js')
-        .then((registration) => {
+        .then(async (registration) => {
           swRegistrationRef.current = registration;
           console.log('[MessageNotifications] SW registered');
+
+          // Request permission if needed
+          if ('Notification' in window && Notification.permission === 'default') {
+            await Notification.requestPermission();
+          }
+
+          // Subscribe to push if permission granted
+          if ('Notification' in window && Notification.permission === 'granted' && 'PushManager' in window) {
+            try {
+              const existing = await registration.pushManager.getSubscription();
+              let subscription = existing;
+
+              if (!subscription) {
+                const applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+                subscription = await registration.pushManager.subscribe({
+                  userVisibleOnly: true,
+                  applicationServerKey,
+                });
+              }
+
+              // Save subscription to backend
+              const subJSON = subscription.toJSON();
+              const endpoint = subJSON.endpoint!;
+              const p256dh = subJSON.keys!.p256dh!;
+              const auth = subJSON.keys!.auth!;
+
+              await supabase.from('browser_push_subscriptions').upsert(
+                {
+                  user_id: user.id,
+                  endpoint,
+                  p256dh,
+                  auth,
+                  is_active: true,
+                  user_agent: navigator.userAgent,
+                },
+                { onConflict: 'endpoint' }
+              );
+              console.log('[MessageNotifications] Push subscription saved');
+            } catch (err) {
+              console.warn('[MessageNotifications] Push subscription failed:', err);
+            }
+          }
         })
         .catch((err) => {
           console.warn('[MessageNotifications] SW registration failed:', err);
@@ -130,12 +177,7 @@ export const useMessageNotifications = () => {
         }
       });
     }
-
-    // Request permission silently on load
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
+  }, [user]);
 
   // Send native browser notification via Service Worker (works even when tab is minimized)
   const sendNativeNotification = useCallback((title: string, body: string, conversationId: string) => {
