@@ -1,30 +1,42 @@
 
 
-## Remover Jhonny e investigar ID do Setor Comercial no ChatGuru
+## Criar aba "Pendências" no CRM
 
-### Descoberta sobre o ChatGuru
+### Resumo
 
-A API do ChatGuru v1 (`chat_edit`) trabalha exclusivamente com `user_id` para atribuir responsáveis. Não existe um parâmetro `department_id` ou equivalente. O "Setor Comercial" no ChatGuru é provavelmente um **usuário do tipo departamento/setor** — funciona como um usuário normal com seu próprio `user_id`. Para encontrá-lo, basta acessar a tela de usuários/setores no painel do ChatGuru (mesma tela onde foram encontrados os IDs do Daniel, Lucas e Marcos) e localizar o "Setor Comercial" ali. Uma vez encontrado o ID, basta inserir na tabela `comercial_config` com a chave `setor_comercial_chatguru_id`.
-
-**Enquanto o ID não for preenchido, o sistema já funciona corretamente** — apenas ignora a atribuição do setor, marcando o vendedor sorteado + Marcos.
+Nova aba no CRM chamada "Pendências" com ícone de alerta, focada em pressão visual para o time comercial resolver tarefas antes de sair. Lista todas as tarefas não concluídas, destacando atrasadas em vermelho, com filtro por responsável.
 
 ### Alterações
 
-**1. Migration — Remover Jhonny da tabela de vendedores**
+**1. Novo componente `src/components/crm/CRMPendingTasks.tsx`**
 
-```sql
-DELETE FROM comercial_vendedores_config WHERE vendedor_nome ILIKE '%Jhonny%';
-```
+- Busca tarefas de `crm_activities` onde `completed = false` ou `status != 'completed'`
+- Exibe em lista com colunas: Tarefa, Tipo, Responsável, Data limite, Prioridade, Status
+- Cards de resumo no topo: Total pendentes, Atrasadas (vermelho pulsante), Vencendo hoje (amarelo), Sem data
+- Filtro por responsável (dropdown com vendedores: Daniel, Lucas + outros)
+- Filtro por prioridade (alta, média, baixa)
+- Ordenação padrão: atrasadas primeiro, depois por data limite
+- Linhas atrasadas com fundo vermelho claro e badge "ATRASADA"
+- Linhas vencendo hoje com fundo amarelo claro e badge "HOJE"
+- Botão para marcar como concluída direto da lista
 
-Isso remove Jhonny do rodízio imediatamente. Restam Daniel e Lucas.
+**2. Atualizar `src/components/crm/CRMDashboard.tsx`**
 
-**2. Nenhuma alteração no código**
+- Importar `CRMPendingTasks`
+- Adicionar nova aba "Pendências" com ícone `AlertTriangle` (já importado) e badge com contador de pendentes
+- Posicionar a aba logo após "Tarefas" para dar visibilidade
 
-A edge function e a UI já estão funcionais. O campo `setor_comercial_chatguru_id` na tabela `comercial_config` já existe e está vazio — basta preencher quando o ID for localizado.
+**3. Atualizar `src/components/crm/index.ts`**
+
+- Exportar `CRMPendingTasks`
 
 ### Arquivos alterados
 
 | Arquivo | Ação |
 |---------|------|
-| Migration SQL | Remover Jhonny da `comercial_vendedores_config` |
+| `src/components/crm/CRMPendingTasks.tsx` | Novo componente |
+| `src/components/crm/CRMDashboard.tsx` | Adicionar aba "Pendências" |
+| `src/components/crm/index.ts` | Exportar novo componente |
+
+Nenhuma alteração no banco de dados — usa a tabela `crm_activities` existente.
 
