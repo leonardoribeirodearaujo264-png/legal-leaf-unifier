@@ -647,6 +647,152 @@ export function RHAdiantamentos() {
         </CardContent>
       </Card>
 
+
+      {/* Dialog de Detalhes / Edição */}
+      <Dialog open={detailDialogOpen} onOpenChange={(open) => { setDetailDialogOpen(open); if (!open) setEditMode(false); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Detalhes do Adiantamento</span>
+              {selectedAdiantamento?.status === 'ativo' && !editMode && (
+                <Button variant="outline" size="sm" onClick={() => setEditMode(true)}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Editar
+                </Button>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedAdiantamento && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Colaborador</Label>
+                  <p className="font-medium">{selectedAdiantamento.profiles?.full_name || 'N/A'}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Status</Label>
+                  <div>
+                    <Badge variant={STATUS_BADGES[selectedAdiantamento.status]?.variant || 'default'}>
+                      {STATUS_BADGES[selectedAdiantamento.status]?.label || selectedAdiantamento.status}
+                    </Badge>
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Tipo</Label>
+                  <p className="font-medium">
+                    {selectedAdiantamento.tipo_adiantamento === 'outro'
+                      ? selectedAdiantamento.tipo_adiantamento_outro
+                      : TIPO_ADIANTAMENTO_LABELS[selectedAdiantamento.tipo_adiantamento]}
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Valor</Label>
+                  <p className="font-medium">{formatCurrency(selectedAdiantamento.valor)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Data do Adiantamento</Label>
+                  <p className="font-medium">{formatLocalDate(selectedAdiantamento.data_adiantamento)}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Conta de Pagamento</Label>
+                  <p className="font-medium">{selectedAdiantamento.fin_contas?.nome || 'N/A'}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Saldo Restante</Label>
+                  <p className={`font-medium ${selectedAdiantamento.saldo_restante > 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                    {formatCurrency(selectedAdiantamento.saldo_restante)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border-t pt-4 space-y-4">
+                <h4 className="font-medium text-sm">Desconto</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground text-xs">Forma de Desconto</Label>
+                    {editMode ? (
+                      <Select value={editFormaDesconto} onValueChange={setEditFormaDesconto}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="parcela_unica">Parcela Única</SelectItem>
+                          <SelectItem value="parcelado">Parcelado</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-medium">{selectedAdiantamento.forma_desconto === 'parcelado' ? 'Parcelado' : 'Parcela Única'}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground text-xs">Número de Parcelas</Label>
+                    {editMode && editFormaDesconto === 'parcelado' ? (
+                      <Input
+                        type="number"
+                        min="2"
+                        value={editNumeroParcelas}
+                        onChange={(e) => setEditNumeroParcelas(e.target.value)}
+                      />
+                    ) : (
+                      <p className="font-medium">
+                        {selectedAdiantamento.forma_desconto === 'parcelado'
+                          ? `${selectedAdiantamento.numero_parcelas}x de ${formatCurrency(selectedAdiantamento.valor_parcela || 0)}`
+                          : 'À vista'}
+                      </p>
+                    )}
+                  </div>
+                  {editMode && editFormaDesconto === 'parcelado' && (
+                    <div className="col-span-2">
+                      <Alert>
+                        <AlertDescription>
+                          Valor por parcela: <strong>{formatCurrency(selectedAdiantamento.valor / (parseInt(editNumeroParcelas) || 1))}</strong> x {editNumeroParcelas} vezes
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground text-xs">Mês de Início do Desconto</Label>
+                    {editMode ? (
+                      <Input
+                        type="month"
+                        value={editMesInicioDesconto}
+                        onChange={(e) => setEditMesInicioDesconto(e.target.value)}
+                      />
+                    ) : (
+                      <p className="font-medium">
+                        {selectedAdiantamento.mes_inicio_desconto
+                          ? formatMesReferencia(selectedAdiantamento.mes_inicio_desconto + '-01')
+                          : 'N/A'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4 space-y-2">
+                <Label className="text-muted-foreground text-xs">Observações</Label>
+                {editMode ? (
+                  <Textarea
+                    value={editObservacoes}
+                    onChange={(e) => setEditObservacoes(e.target.value)}
+                    placeholder="Observações adicionais..."
+                  />
+                ) : (
+                  <p className="text-sm">{selectedAdiantamento.observacoes || 'Nenhuma observação'}</p>
+                )}
+              </div>
+
+              {editMode && (
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <Button variant="outline" onClick={() => setEditMode(false)}>Cancelar</Button>
+                  <Button onClick={handleSaveEdit}>Salvar Alterações</Button>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog de Histórico de Descontos */}
       <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
         <DialogContent className="max-w-lg">
