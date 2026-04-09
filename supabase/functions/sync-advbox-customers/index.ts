@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
             cnpj: customer.cnpj || customer.company_registration || null,
             email: customer.email || customer.mail || null,
             phone: customer.cellphone || customer.mobile_phone || customer.phone || null,
-            birthday: customer.birthdate || customer.birthday || customer.birth_date || customer.date_of_birth || null,
+            birthday: parseDateToISO(customer.birthdate || customer.birthday || customer.birth_date || customer.date_of_birth || null),
             rg: customer.rg || customer.identity_card || null,
             orgao_emissor: customer.orgao_emissor || customer.issuing_body || customer.issuing_agency || null,
             nacionalidade: customer.nacionalidade || customer.nationality || null,
