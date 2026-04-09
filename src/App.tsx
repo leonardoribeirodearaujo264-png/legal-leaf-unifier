@@ -378,7 +378,7 @@ const App = () => (
               path="/historico-mensagens-aniversario"
               element={
                 <ProtectedRoute>
-                  <Navigate to="/aniversarios-clientes?tab=historico" replace />
+                  <Navigate to="/contatos-advbox?tab=aniversarios" replace />
                 </ProtectedRoute>
               }
             />
