@@ -526,33 +526,22 @@ export default function AniversariosClientes({ embedded = false }: { embedded?: 
     setConfirmSendDialogOpen(true);
   };
 
-  if (loading) {
-    return (
-      <Layout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-muted-foreground">Carregando aniversários...</div>
-        </div>
-      </Layout>
-    );
-  }
-
-  return (
-    <Layout>
-      <div className="space-y-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold flex items-center gap-3">
-              <Cake className="h-8 w-8 text-primary" />
-              Aniversários de Clientes
-            </h1>
-            <p className="text-muted-foreground mt-2">
-              Acompanhe os aniversários dos seus clientes
-            </p>
-            <div className="mt-2">
-              <AdvboxDataStatus lastUpdate={lastUpdate} fromCache={metadata?.fromCache} />
-            </div>
+  const content = (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <Cake className="h-8 w-8 text-primary" />
+            Aniversários de Clientes
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Acompanhe os aniversários dos seus clientes
+          </p>
+          <div className="mt-2">
+            <AdvboxDataStatus lastUpdate={lastUpdate} fromCache={metadata?.fromCache} />
           </div>
         </div>
+      </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
 
