@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAccessTracking } from '@/hooks/useAccessTracking';
 import { format } from 'date-fns';
@@ -50,6 +51,7 @@ interface AdvboxContact {
   nome_mae: string | null;
   nome_pai: string | null;
   observacoes: string | null;
+  origem: string | null;
   raw_data: Record<string, any> | null;
 }
 
@@ -79,6 +81,7 @@ const EDITABLE_FIELDS = [
   { key: 'cidade', label: 'Cidade', section: 'endereco' },
   { key: 'estado', label: 'Estado', section: 'endereco' },
   { key: 'cep', label: 'CEP', section: 'endereco' },
+  { key: 'origem', label: 'Origem', section: 'outros' },
   { key: 'observacoes', label: 'Observações', section: 'outros' },
 ] as const;
 
@@ -99,7 +102,26 @@ export default function ContatosAdvbox() {
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createData, setCreateData] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
+  const [origens, setOrigens] = useState<string[]>([]);
   const PAGE_SIZE = 50;
+
+  // Fetch available origins from ADVBox settings
+  useEffect(() => {
+    const fetchOrigens = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('advbox-integration/settings');
+        if (!error && data?.customers_origins) {
+          setOrigens(data.customers_origins.map((o: any) => typeof o === 'string' ? o : o.name || o.label || String(o)));
+        }
+      } catch {
+        // Non-critical, origens will just be empty
+      }
+    };
+    fetchOrigens();
+  }, []);
 
   const fetchContacts = useCallback(async (search: string, pageNum: number) => {
     setLoading(true);
@@ -160,15 +182,14 @@ export default function ContatosAdvbox() {
     celular: ['cellphone', 'mobile_phone', 'celular'],
     telefone_fixo: ['phone', 'landline', 'telefone_fixo'],
     observacoes: ['notes', 'observations', 'observacoes'],
+    origem: ['origin', 'source', 'origem'],
   };
 
   const getVal = (contact: AdvboxContact, key: string): string => {
     const directVal = (contact as any)[key];
     if (directVal) return directVal;
     if (contact.raw_data) {
-      // Try direct key
       if (contact.raw_data[key]) return contact.raw_data[key];
-      // Try mapped keys
       const mappedKeys = RAW_DATA_KEY_MAP[key];
       if (mappedKeys) {
         for (const mk of mappedKeys) {
@@ -198,7 +219,6 @@ export default function ContatosAdvbox() {
     if (!selectedContact) return;
     setSaving(true);
     try {
-      // 1. Update local DB
       const updatePayload: Record<string, any> = {};
       EDITABLE_FIELDS.forEach(f => {
         updatePayload[f.key] = editData[f.key] || null;
@@ -211,10 +231,8 @@ export default function ContatosAdvbox() {
 
       if (dbError) throw dbError;
 
-      // 2. Sync to ADVBox via edge function
       try {
         const advboxPayload: Record<string, any> = { customer_id: selectedContact.advbox_id };
-        // Map fields to possible ADVBox API field names
         if (editData.name) advboxPayload.name = editData.name;
         if (editData.email) advboxPayload.email = editData.email;
         if (editData.phone) advboxPayload.phone = editData.phone;
@@ -232,6 +250,7 @@ export default function ContatosAdvbox() {
         if (editData.cep) advboxPayload.zip_code = editData.cep;
         if (editData.estado_civil) advboxPayload.marital_status = editData.estado_civil;
         if (editData.observacoes) advboxPayload.observations = editData.observacoes;
+        if (editData.origem) advboxPayload.origin = editData.origem;
 
         const { error: fnError } = await supabase.functions.invoke('advbox-integration/update-customer', {
           body: advboxPayload,
@@ -246,7 +265,6 @@ export default function ContatosAdvbox() {
         toast.warning('Dados salvos localmente. Sincronização com ADVBox pode ter falhado.');
       }
 
-      // Update local state
       const updated = { ...selectedContact, ...updatePayload } as AdvboxContact;
       setSelectedContact(updated);
       setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
@@ -256,6 +274,36 @@ export default function ContatosAdvbox() {
       toast.error('Erro ao salvar alterações');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateCustomer = async () => {
+    if (!createData.name?.trim()) {
+      toast.error('Nome é obrigatório');
+      return;
+    }
+    setCreating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('advbox-integration/create-customer', {
+        body: createData,
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast.success('Cliente cadastrado com sucesso no ADVBox!');
+        setShowCreateDialog(false);
+        setCreateData({});
+        // Refresh list
+        fetchContacts(searchTerm, page);
+      } else {
+        throw new Error(data?.error || 'Erro desconhecido');
+      }
+    } catch (error) {
+      console.error('Erro ao cadastrar cliente:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao cadastrar cliente');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -275,17 +323,62 @@ export default function ContatosAdvbox() {
               <div key={f.key} className="space-y-1">
                 <Label className="text-xs text-muted-foreground">{f.label}</Label>
                 {editing ? (
-                  <Input
-                    value={editData[f.key] || ''}
-                    onChange={e => setEditData(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    className="h-8 text-sm"
-                  />
+                  f.key === 'origem' && origens.length > 0 ? (
+                    <Select value={editData[f.key] || ''} onValueChange={v => setEditData(prev => ({ ...prev, [f.key]: v }))}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent>
+                        {origens.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={editData[f.key] || ''}
+                      onChange={e => setEditData(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  )
                 ) : (
                   <p className="text-sm font-medium">{val || <span className="text-muted-foreground/50 italic">—</span>}</p>
                 )}
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCreateSection = (title: string, sectionKey: string, icon: React.ReactNode) => {
+    const fields = EDITABLE_FIELDS.filter(f => f.section === sectionKey);
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          {icon}
+          {title}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {fields.map(f => (
+            <div key={f.key} className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                {f.label} {f.key === 'name' && <span className="text-destructive">*</span>}
+              </Label>
+              {f.key === 'origem' && origens.length > 0 ? (
+                <Select value={createData[f.key] || ''} onValueChange={v => setCreateData(prev => ({ ...prev, [f.key]: v }))}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    {origens.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={createData[f.key] || ''}
+                  onChange={e => setCreateData(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  className="h-8 text-sm"
+                  placeholder={f.label}
+                />
+              )}
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -317,14 +410,20 @@ export default function ContatosAdvbox() {
           </TabsList>
 
           <TabsContent value="contatos" className="space-y-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Buscar por nome, telefone, CPF, CNPJ, e-mail ou profissão..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome, telefone, CPF, CNPJ, e-mail ou profissão..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Button onClick={() => { setCreateData({}); setShowCreateDialog(true); }} className="gap-2 shrink-0">
+                <Plus className="h-4 w-4" />
+                Novo Cliente
+              </Button>
             </div>
 
             <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -439,7 +538,6 @@ export default function ContatosAdvbox() {
           {selectedContact && (
             <ScrollArea className="max-h-[60vh] pr-3">
               <div className="space-y-4">
-                {/* Header */}
                 {!editing && (
                   <div className="text-center pb-3 border-b">
                     <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
@@ -460,7 +558,7 @@ export default function ContatosAdvbox() {
                 <Separator />
                 {renderSection('Endereço', 'endereco', <MapPin className="h-3.5 w-3.5" />)}
                 <Separator />
-                {renderSection('Outros', 'outros', <Briefcase className="h-3.5 w-3.5" />)}
+                {renderSection('Outros', 'outros', <Tag className="h-3.5 w-3.5" />)}
 
                 {!editing && (
                   <>
@@ -487,6 +585,45 @@ export default function ContatosAdvbox() {
               </Button>
             </DialogFooter>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Customer Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-primary" />
+              Cadastrar Novo Cliente
+            </DialogTitle>
+          </DialogHeader>
+
+          <ScrollArea className="max-h-[60vh] pr-3">
+            <div className="space-y-4">
+              {renderCreateSection('Dados Pessoais', 'pessoal', <User className="h-3.5 w-3.5" />)}
+              <Separator />
+              {renderCreateSection('Documentos', 'documentos', <CreditCard className="h-3.5 w-3.5" />)}
+              <Separator />
+              {renderCreateSection('Contato', 'contato', <Phone className="h-3.5 w-3.5" />)}
+              <Separator />
+              {renderCreateSection('Família', 'familia', <Users className="h-3.5 w-3.5" />)}
+              <Separator />
+              {renderCreateSection('Endereço', 'endereco', <MapPin className="h-3.5 w-3.5" />)}
+              <Separator />
+              {renderCreateSection('Outros', 'outros', <Tag className="h-3.5 w-3.5" />)}
+            </div>
+          </ScrollArea>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={creating}>
+              <X className="h-4 w-4 mr-1" />
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateCustomer} disabled={creating}>
+              {creating ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+              Cadastrar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Layout>
