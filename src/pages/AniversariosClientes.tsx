@@ -39,7 +39,7 @@ interface CustomerExclusion {
 
 type FilterType = 'dia' | 'semana' | 'mes';
 
-export default function AniversariosClientes() {
+export default function AniversariosClientes({ embedded = false }: { embedded?: boolean }) {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'historico' ? 'historico' : 'aniversarios';
   const [activeTab, setActiveTab] = useState(initialTab);
