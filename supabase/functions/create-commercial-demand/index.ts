@@ -44,6 +44,24 @@ serve(async (req) => {
       });
     }
 
+    // Load all dynamic configs
+    const { data: configRows } = await supabase
+      .from("comercial_config")
+      .select("key, value");
+
+    const cfg: Record<string, string> = {};
+    if (configRows) {
+      for (const row of configRows) cfg[row.key] = row.value;
+    }
+
+    const marcosObrigatorio = cfg["marcos_obrigatorio"] !== "false";
+    const setorObrigatorio = cfg["setor_comercial_obrigatorio"] !== "false";
+    const chatguruAtivo = cfg["chatguru_ativo"] !== "false";
+    const prazoPadraoHoras = parseInt(cfg["prazo_padrao_horas"] || "48", 10);
+    const textoObservacao = cfg["texto_observacao_chatguru"] || "Nova análise de caso para o comercial";
+    const marcosChatguruId = cfg["marcos_chatguru_id"] || "";
+    const setorComercialChatguruId = cfg["setor_comercial_chatguru_id"] || "";
+
     // 1. Round-robin: get active sellers
     const { data: vendedores } = await supabase
       .from("comercial_vendedores_config")
@@ -77,34 +95,19 @@ serve(async (req) => {
     const dataFormatada = now.toLocaleDateString("pt-BR");
     const horaFormatada = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     const criadorNome = user_name || user.email || "Usuário";
-
-    // 2. Fetch ChatGuru config (Marcos + setor comercial IDs)
-    const { data: configRows } = await supabase
-      .from("comercial_config")
-      .select("key, value")
-      .in("key", ["marcos_chatguru_id", "setor_comercial_chatguru_id"]);
-
-    const configMap: Record<string, string> = {};
-    if (configRows) {
-      for (const row of configRows) {
-        configMap[row.key] = row.value;
-      }
-    }
-    const marcosChatguruId = configMap["marcos_chatguru_id"] || "";
-    const setorComercialChatguruId = configMap["setor_comercial_chatguru_id"] || "";
     const vendedorChatguruId = selectedVendedor.chatguru_user_id || "";
 
-    // 3. ChatGuru integration
+    // 2. ChatGuru integration (only if active)
     let chatguruNoteId: string | null = null;
     const chatguruKey = Deno.env.get("CHATGURU_API_KEY");
     const chatguruAccountId = Deno.env.get("CHATGURU_ACCOUNT_ID");
     const chatguruPhoneId = Deno.env.get("CHATGURU_PHONE_ID");
 
-    if (chatguruKey && chatguruAccountId && chatguruPhoneId && cliente_telefone) {
+    if (chatguruAtivo && chatguruKey && chatguruAccountId && chatguruPhoneId && cliente_telefone) {
       const cleanPhone = cliente_telefone.replace(/\D/g, "");
       const phoneWithCountry = cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`;
 
-      const noteText = `Nova análise de caso para o comercial — Cliente: ${cliente_nome} — Criado por: ${criadorNome} em ${dataFormatada} às ${horaFormatada}`;
+      const noteText = `${textoObservacao} — Cliente: ${cliente_nome} — Criado por: ${criadorNome} em ${dataFormatada} às ${horaFormatada}`;
 
       try {
         // Add note
@@ -136,8 +139,11 @@ serve(async (req) => {
         const editData = await editResp.json();
         console.log("ChatGuru chat_edit (status) response:", JSON.stringify(editData));
 
-        // Assign responsible users: vendedor sorteado, Marcos, setor comercial
-        const userIdsToAssign = [vendedorChatguruId, marcosChatguruId, setorComercialChatguruId].filter(Boolean);
+        // Assign responsible users based on config
+        const userIdsToAssign: string[] = [];
+        if (vendedorChatguruId) userIdsToAssign.push(vendedorChatguruId);
+        if (marcosObrigatorio && marcosChatguruId) userIdsToAssign.push(marcosChatguruId);
+        if (setorObrigatorio && setorComercialChatguruId) userIdsToAssign.push(setorComercialChatguruId);
 
         for (const chatguruUserId of userIdsToAssign) {
           try {
@@ -161,10 +167,10 @@ serve(async (req) => {
         console.error("ChatGuru error (non-blocking):", chatguruError);
       }
     } else {
-      console.log("ChatGuru not configured or client has no phone, skipping");
+      console.log("ChatGuru skipped:", chatguruAtivo ? "not configured or no phone" : "disabled by config");
     }
 
-    // 4. CRM activity
+    // 3. CRM activity
     let crmActivityId: string | null = null;
     try {
       const { data: crmActivity, error: crmError } = await supabase
@@ -175,7 +181,7 @@ serve(async (req) => {
           description: `Nova demanda criada por ${criadorNome} em ${dataFormatada} às ${horaFormatada}. Cliente: ${cliente_nome}. Telefone: ${cliente_telefone || "N/A"}.`,
           owner_id: selectedVendedor.vendedor_id,
           status: "pending",
-          due_date: new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+          due_date: new Date(now.getTime() + prazoPadraoHoras * 60 * 60 * 1000).toISOString(),
         })
         .select("id")
         .single();
@@ -189,7 +195,7 @@ serve(async (req) => {
       console.error("CRM error (non-blocking):", crmErr);
     }
 
-    // 5. Save demanda locally
+    // 4. Save demanda locally
     const { data: demanda, error: demandaError } = await supabase
       .from("comercial_demandas")
       .insert({
@@ -212,6 +218,12 @@ serve(async (req) => {
       throw demandaError;
     }
 
+    const chatguruUsersAssigned = [
+      vendedorChatguruId,
+      marcosObrigatorio ? marcosChatguruId : "",
+      setorObrigatorio ? setorComercialChatguruId : "",
+    ].filter(Boolean).length;
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -219,7 +231,7 @@ serve(async (req) => {
         vendedor_nome: selectedVendedor.vendedor_nome,
         chatguru_registered: !!chatguruNoteId,
         crm_task_created: !!crmActivityId,
-        chatguru_users_assigned: [vendedorChatguruId, marcosChatguruId, setorComercialChatguruId].filter(Boolean).length,
+        chatguru_users_assigned: chatguruUsersAssigned,
       }),
       {
         status: 200,
