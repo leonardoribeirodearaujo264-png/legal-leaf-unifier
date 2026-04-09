@@ -231,6 +231,11 @@ export const useMessaging = () => {
         .eq('conversation_id', conversationId)
         .eq('user_id', user.id);
 
+      // Immediately zero out local unread count for this conversation
+      setConversations(prev =>
+        prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c)
+      );
+
       // Notify other hooks that messages were read
       window.dispatchEvent(new Event('messages-read'));
 
