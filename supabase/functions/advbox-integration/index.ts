@@ -1884,6 +1884,133 @@ Deno.serve(async (req) => {
         });
       }
 
+      case 'create-customer': {
+        const body = await req.json();
+        
+        if (!body.name) {
+          return new Response(JSON.stringify({ error: 'Nome é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Creating new customer in ADVBox:`, body.name);
+
+        // Map form fields to ADVBox API fields
+        const advboxPayload: Record<string, any> = {
+          name: body.name,
+        };
+        if (body.email) advboxPayload.email = body.email;
+        if (body.phone) advboxPayload.cellphone = body.phone;
+        if (body.cpf) advboxPayload.individual_registration = body.cpf;
+        if (body.cnpj) advboxPayload.company_registration = body.cnpj;
+        if (body.rg) advboxPayload.identity_card = body.rg;
+        if (body.orgao_emissor) advboxPayload.issuing_body = body.orgao_emissor;
+        if (body.birthday) advboxPayload.birthdate = body.birthday;
+        if (body.profissao) advboxPayload.occupation = body.profissao;
+        if (body.estado_civil) advboxPayload.marital_status = body.estado_civil;
+        if (body.nacionalidade) advboxPayload.nationality = body.nacionalidade;
+        if (body.naturalidade) advboxPayload.birthplace = body.naturalidade;
+        if (body.sexo) advboxPayload.gender = body.sexo;
+        if (body.endereco) advboxPayload.street = body.endereco;
+        if (body.numero) advboxPayload.number = body.numero;
+        if (body.complemento) advboxPayload.complement = body.complemento;
+        if (body.bairro) advboxPayload.neighborhood = body.bairro;
+        if (body.cidade) advboxPayload.city = body.cidade;
+        if (body.estado) advboxPayload.state = body.estado;
+        if (body.cep) advboxPayload.zip_code = body.cep;
+        if (body.telefone_fixo) advboxPayload.phone = body.telefone_fixo;
+        if (body.celular) advboxPayload.cellphone = body.celular;
+        if (body.telefone_comercial) advboxPayload.business_phone = body.telefone_comercial;
+        if (body.nome_mae) advboxPayload.mother_name = body.nome_mae;
+        if (body.nome_pai) advboxPayload.father_name = body.nome_pai;
+        if (body.observacoes) advboxPayload.observations = body.observacoes;
+        if (body.origem) advboxPayload.origin = body.origem;
+
+        try {
+          const result = await makeAdvboxRequest({
+            endpoint: '/customers',
+            method: 'POST',
+            body: advboxPayload,
+          });
+
+          const createdCustomer = result.data || result;
+          const advboxId = createdCustomer.id;
+
+          if (advboxId) {
+            // Save locally using service role
+            const localRecord = {
+              advbox_id: advboxId,
+              name: body.name,
+              email: body.email || null,
+              phone: body.phone || body.celular || null,
+              cpf: body.cpf || null,
+              cnpj: body.cnpj || null,
+              rg: body.rg || null,
+              orgao_emissor: body.orgao_emissor || null,
+              birthday: body.birthday || null,
+              profissao: body.profissao || null,
+              estado_civil: body.estado_civil || null,
+              nacionalidade: body.nacionalidade || null,
+              naturalidade: body.naturalidade || null,
+              sexo: body.sexo || null,
+              endereco: body.endereco || null,
+              numero: body.numero || null,
+              complemento: body.complemento || null,
+              bairro: body.bairro || null,
+              cidade: body.cidade || null,
+              estado: body.estado || null,
+              cep: body.cep || null,
+              telefone_fixo: body.telefone_fixo || null,
+              celular: body.celular || null,
+              telefone_comercial: body.telefone_comercial || null,
+              nome_mae: body.nome_mae || null,
+              nome_pai: body.nome_pai || null,
+              observacoes: body.observacoes || null,
+              origem: body.origem || null,
+              raw_data: createdCustomer,
+              synced_at: new Date().toISOString(),
+            };
+
+            const insertResp = await fetch(
+              `${SUPABASE_URL}/rest/v1/advbox_customers`,
+              {
+                method: 'POST',
+                headers: {
+                  'apikey': SUPABASE_SERVICE_ROLE_KEY!,
+                  'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+                  'Content-Type': 'application/json',
+                  'Prefer': 'return=representation',
+                },
+                body: JSON.stringify(localRecord),
+              }
+            );
+
+            const localData = insertResp.ok ? await insertResp.json() : null;
+
+            return new Response(JSON.stringify({ 
+              success: true, 
+              advbox_id: advboxId,
+              local_record: localData?.[0] || null,
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+
+          return new Response(JSON.stringify({ success: true, data: createdCustomer }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          console.error('Error creating customer in ADVBox:', error);
+          return new Response(JSON.stringify({ 
+            error: error instanceof Error ? error.message : 'Erro ao criar cliente no ADVBox',
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
       default:
         return new Response(JSON.stringify({ error: 'Endpoint not found' }), {
           status: 404,
