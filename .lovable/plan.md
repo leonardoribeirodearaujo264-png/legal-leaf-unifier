@@ -1,67 +1,58 @@
 
-Diagnóstico
 
-Há 2 causas no código atual:
+## Criar aba "Contatos" no ADVBox com sub-aba de Aniversários
 
-1. Em `src/hooks/useMessageNotifications.tsx`, a lógica cancela toda notificação quando a rota atual é `/mensagens`. Então, se a pessoa deixou essa tela aberta mas a aba/janela está minimizada ou atrás de outra janela, o sistema não dispara o alerta do Windows.
+### Resumo
 
-2. O `public/sw-notifications.js` atual só trata `notificationclick`. Ele não recebe `push`. Na prática, o app ainda depende da própria aba receber o evento Realtime e chamar `showNotification()`. Isso não é notificação em background no padrão “Teams”. Se a aba for suspensa pelo navegador, nada chega perto do relógio.
+Criar uma nova página `/contatos-advbox` que centraliza todos os 10.426 contatos do ADVBox, com busca por nome/telefone/CPF/CNPJ/e-mail, card detalhado ao clicar, e incorpora a funcionalidade de aniversários existente como sub-aba.
 
-Ou seja: existe um bug imediato de lógica, e também uma limitação estrutural da implementação atual.
+### Alterações
 
-Plano
+**1. Nova página `src/pages/ContatosAdvbox.tsx`**
 
-1. Corrigir a supressão indevida no hook de mensagens
-   - Em `src/hooks/useMessageNotifications.tsx`, trocar a regra “se está em `/mensagens`, não notifica” por uma checagem real de visibilidade/foco.
-   - Só suprimir popup interno quando a intranet estiver visível e em foco.
-   - Se `document.hidden`, `document.visibilityState !== 'visible'` ou `!document.hasFocus()`, disparar a notificação nativa.
+Página com duas abas (Tabs):
+- **Contatos** — Lista paginada dos contatos da tabela `advbox_customers` com:
+  - Campo de busca unificado (nome, telefone, CPF, CNPJ, e-mail)
+  - Lista em cards compactos mostrando nome, telefone, e-mail
+  - Paginação client-side com busca server-side (query no Supabase com `ilike` e `or`)
+  - Ao clicar em um contato, abre Dialog/Sheet lateral com card completo: nome, CPF/CNPJ, e-mail, telefone, data de nascimento
+  - Limite de 50 resultados por busca para performance (10k+ registros)
+- **Aniversários** — Renderiza o componente `AniversariosClientes` existente (extraído como componente reutilizável)
 
-2. Implementar push real de navegador
-   - Expandir `public/sw-notifications.js` para escutar `push` além de `notificationclick`.
-   - Assim o próprio service worker mostra a notificação do sistema, mesmo com a aba em segundo plano.
+**2. Refatorar `src/pages/AniversariosClientes.tsx`**
 
-3. Adicionar persistência das subscriptions no backend
-   - Criar uma tabela `browser_push_subscriptions` com `user_id` (referenciando `public.profiles`), `endpoint`, `p256dh`, `auth`, `user_agent`, `is_active` e timestamps.
-   - Aplicar RLS para cada usuário gerenciar apenas as próprias subscriptions.
-   - Configurar chaves VAPID no backend e expor a chave pública ao cliente.
+Extrair o conteúdo principal (sem o `<Layout>`) para um componente `AniversariosClientesContent` exportado separadamente, para ser reutilizado dentro da nova página de Contatos como sub-aba.
 
-4. Registrar a subscription no cliente
-   - Em `useMessageNotifications`, após permissão concedida e `serviceWorker.ready`, usar `pushManager.subscribe(...)`.
-   - Salvar/atualizar a subscription no backend.
-   - Manter o fluxo atual como fallback para navegadores sem `PushManager`.
+**3. Atualizar `src/lib/menuData.ts`**
 
-5. Enviar push quando uma mensagem for criada
-   - Criar uma função backend `notify-internal-message` que recebe `messageId`, valida o remetente, busca os participantes e envia Web Push aos demais.
-   - Chamar essa função nos 2 pontos de envio atuais:
-     - `src/hooks/useMessaging.tsx`
-     - `src/components/MessagePopupDialog.tsx`
-   - Isso cobre envio normal e resposta rápida.
+- Substituir o item "Aniversários Clientes" (`/aniversarios-clientes`) por "Contatos ADVBox" (`/contatos-advbox`) com ícone `Users` no grupo "Produção Jurídica"
 
-6. Evitar alertas duplicados
-   - Intranet visível/em foco: manter popup interno/top-right.
-   - Intranet minimizada ou em segundo plano: priorizar notificação do sistema perto do relógio.
-   - Invalidar subscriptions expiradas quando o push falhar.
+**4. Atualizar `src/App.tsx`**
 
-Fluxo final
-```text
-mensagem enviada
-→ backend dispara Web Push
-→ service worker recebe push
-→ Windows/macOS mostra o banner perto do relógio
-→ clique abre/foca /mensagens na conversa correta
+- Adicionar rota `/contatos-advbox` apontando para `ContatosAdvbox`
+- Manter `/aniversarios-clientes` como redirect para `/contatos-advbox?tab=aniversarios`
+- Manter `/historico-mensagens-aniversario` redirecionando para `/contatos-advbox?tab=aniversarios&subtab=historico`
+
+**5. Atualizar `src/hooks/useAccessTracking.tsx`**
+
+- Adicionar entrada para `/contatos-advbox`
+
+### Estrutura da busca
+
+A busca consultará `advbox_customers` com:
+```sql
+SELECT * FROM advbox_customers
+WHERE name ILIKE '%termo%'
+   OR phone ILIKE '%termo%'
+   OR cpf ILIKE '%termo%'
+   OR cnpj ILIKE '%termo%'
+   OR tax_id ILIKE '%termo%'
+   OR email ILIKE '%termo%'
+ORDER BY name
+LIMIT 50
 ```
 
-Arquivos envolvidos
-- `src/hooks/useMessageNotifications.tsx`
-- `public/sw-notifications.js`
-- `src/hooks/useMessaging.tsx`
-- `src/components/MessagePopupDialog.tsx`
-- nova migration para `browser_push_subscriptions`
-- nova função backend para envio de Web Push
+### Card do contato (Dialog)
 
-Validação
-- testar com a intranet aberta e visível;
-- testar em `/mensagens` com a aba minimizada;
-- testar com outra janela na frente;
-- testar clique no banner abrindo a conversa certa;
-- confirmar que continua sem e-mail de nova mensagem.
+Exibirá: nome completo, CPF, CNPJ, tax_id, e-mail, telefone, data de nascimento, data da última sincronização.
+
