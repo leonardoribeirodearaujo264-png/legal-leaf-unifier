@@ -464,7 +464,6 @@ const handler = async (req: Request): Promise<Response> => {
           overdueTasks.length > 0 ||
           dueSoonTasks.length > 0 ||
           pendingTasks.length > 0 ||
-          userMessages.length > 0 ||
           recentAnnouncements.length > 0 ||
           recentUpdates.length > 0 ||
           userPublications.length > 0 ||
@@ -489,7 +488,7 @@ const handler = async (req: Request): Promise<Response> => {
               overdueCount: overdueTasks.length,
               dueSoonCount: dueSoonTasks.length,
               pendingCount: pendingTasks.length,
-              messageCount: userMessages.length,
+              messageCount: 0,
               announcementCount: recentAnnouncements.length,
               updateCount: recentUpdates.length,
               publicationCount: userPublications.length,
@@ -502,7 +501,7 @@ const handler = async (req: Request): Promise<Response> => {
             overdueCount: overdueTasks.length,
             dueSoonCount: dueSoonTasks.length,
             pendingCount: pendingTasks.length,
-            messageCount: userMessages.length,
+            messageCount: 0,
             publicationCount: userPublications.length,
             leadsWeek: leadsData?.week ?? 0,
           });
@@ -510,7 +509,6 @@ const handler = async (req: Request): Promise<Response> => {
         }
 
         const digestData: UserDigestData = {
-          messages: userMessages,
           announcements: recentAnnouncements,
           updates: recentUpdates,
           tasks: pendingTasks,
@@ -544,7 +542,7 @@ const handler = async (req: Request): Promise<Response> => {
             overdueCount: overdueTasks.length,
             dueSoonCount: dueSoonTasks.length,
             pendingCount: pendingTasks.length,
-            messageCount: userMessages.length,
+            messageCount: 0,
             announcementCount: recentAnnouncements.length,
             updateCount: recentUpdates.length,
             publicationCount: userPublications.length,
@@ -557,7 +555,7 @@ const handler = async (req: Request): Promise<Response> => {
           overdueCount: overdueTasks.length,
           dueSoonCount: dueSoonTasks.length,
           pendingCount: pendingTasks.length,
-          messageCount: userMessages.length,
+          messageCount: 0,
           publicationCount: userPublications.length,
           leadsWeek: leadsData?.week ?? 0,
           fromEmail: FROM_EMAIL,
