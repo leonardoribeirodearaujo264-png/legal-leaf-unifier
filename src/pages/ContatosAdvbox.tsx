@@ -12,9 +12,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag, Megaphone, Settings, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAccessTracking } from '@/hooks/useAccessTracking';
+import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -55,6 +57,13 @@ interface AdvboxContact {
   raw_data: Record<string, any> | null;
 }
 
+interface VendedorConfig {
+  id: string;
+  vendedor_id: string;
+  vendedor_nome: string;
+  ativo: boolean;
+}
+
 const EDITABLE_FIELDS = [
   { key: 'name', label: 'Nome Completo', section: 'pessoal' },
   { key: 'cpf', label: 'CPF', section: 'documentos' },
@@ -89,6 +98,7 @@ type FieldKey = typeof EDITABLE_FIELDS[number]['key'];
 
 export default function ContatosAdvbox() {
   useAccessTracking();
+  const { profile } = useAuth();
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'aniversarios' ? 'aniversarios' : 'contatos';
 
@@ -106,6 +116,23 @@ export default function ContatosAdvbox() {
   const [createData, setCreateData] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
   const [origens, setOrigens] = useState<string[]>([]);
+
+  // Nova Demanda states
+  const [showDemandaDialog, setShowDemandaDialog] = useState(false);
+  const [demandaSearch, setDemandaSearch] = useState('');
+  const [demandaResults, setDemandaResults] = useState<AdvboxContact[]>([]);
+  const [demandaSearching, setDemandaSearching] = useState(false);
+  const [selectedDemandaClient, setSelectedDemandaClient] = useState<AdvboxContact | null>(null);
+  const [sendingDemanda, setSendingDemanda] = useState(false);
+
+  // Vendedores config states
+  const [showVendedoresConfig, setShowVendedoresConfig] = useState(false);
+  const [vendedores, setVendedores] = useState<VendedorConfig[]>([]);
+  const [loadingVendedores, setLoadingVendedores] = useState(false);
+
+  // Recent demandas for badge
+  const [recentDemandas, setRecentDemandas] = useState<Set<string>>(new Set());
+
   const PAGE_SIZE = 50;
 
   // Fetch available origins from ADVBox settings
@@ -117,10 +144,26 @@ export default function ContatosAdvbox() {
           setOrigens(data.customers_origins.map((o: any) => typeof o === 'string' ? o : o.name || o.label || String(o)));
         }
       } catch {
-        // Non-critical, origens will just be empty
+        // Non-critical
       }
     };
     fetchOrigens();
+  }, []);
+
+  // Fetch recent demandas (last 7 days)
+  useEffect(() => {
+    const fetchRecentDemandas = async () => {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const { data } = await supabase
+        .from('comercial_demandas')
+        .select('cliente_advbox_id')
+        .gte('created_at', sevenDaysAgo.toISOString());
+      if (data) {
+        setRecentDemandas(new Set(data.map((d: any) => d.cliente_advbox_id)));
+      }
+    };
+    fetchRecentDemandas();
   }, []);
 
   const fetchContacts = useCallback(async (search: string, pageNum: number) => {
@@ -294,7 +337,6 @@ export default function ContatosAdvbox() {
         toast.success('Cliente cadastrado com sucesso no ADVBox!');
         setShowCreateDialog(false);
         setCreateData({});
-        // Refresh list
         fetchContacts(searchTerm, page);
       } else {
         throw new Error(data?.error || 'Erro desconhecido');
@@ -304,6 +346,92 @@ export default function ContatosAdvbox() {
       toast.error(error instanceof Error ? error.message : 'Erro ao cadastrar cliente');
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Nova Demanda: search clients
+  useEffect(() => {
+    if (!demandaSearch.trim() || demandaSearch.length < 2) {
+      setDemandaResults([]);
+      return;
+    }
+    const debounce = setTimeout(async () => {
+      setDemandaSearching(true);
+      try {
+        const term = `%${demandaSearch.trim()}%`;
+        const { data } = await supabase
+          .from('advbox_customers')
+          .select('*')
+          .or(`name.ilike.${term},phone.ilike.${term},cpf.ilike.${term}`)
+          .order('name')
+          .limit(10);
+        setDemandaResults((data as AdvboxContact[]) || []);
+      } catch {
+        setDemandaResults([]);
+      } finally {
+        setDemandaSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(debounce);
+  }, [demandaSearch]);
+
+  const handleSendDemanda = async () => {
+    if (!selectedDemandaClient) return;
+    setSendingDemanda(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('create-commercial-demand', {
+        body: {
+          cliente_advbox_id: String(selectedDemandaClient.advbox_id),
+          cliente_nome: selectedDemandaClient.name,
+          cliente_telefone: selectedDemandaClient.phone || selectedDemandaClient.celular || '',
+          user_name: profile?.full_name || 'Usuário',
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast.success(
+          `Demanda criada com sucesso! Atribuída para ${data.vendedor_nome}.`,
+          { duration: 5000 }
+        );
+        setRecentDemandas(prev => new Set([...prev, String(selectedDemandaClient.advbox_id)]));
+        setShowDemandaDialog(false);
+        setSelectedDemandaClient(null);
+        setDemandaSearch('');
+        setDemandaResults([]);
+      } else {
+        throw new Error(data?.error || 'Erro desconhecido');
+      }
+    } catch (error) {
+      console.error('Erro ao criar demanda:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao criar demanda');
+    } finally {
+      setSendingDemanda(false);
+    }
+  };
+
+  // Vendedores config
+  const fetchVendedores = async () => {
+    setLoadingVendedores(true);
+    const { data } = await supabase
+      .from('comercial_vendedores_config')
+      .select('*')
+      .order('vendedor_nome');
+    setVendedores((data as VendedorConfig[]) || []);
+    setLoadingVendedores(false);
+  };
+
+  const toggleVendedor = async (id: string, ativo: boolean) => {
+    const { error } = await supabase
+      .from('comercial_vendedores_config')
+      .update({ ativo } as any)
+      .eq('id', id);
+    if (error) {
+      toast.error('Erro ao atualizar vendedor');
+    } else {
+      setVendedores(prev => prev.map(v => v.id === id ? { ...v, ativo } : v));
+      toast.success(ativo ? 'Vendedor ativado no rodízio' : 'Vendedor removido do rodízio');
     }
   };
 
@@ -410,8 +538,8 @@ export default function ContatosAdvbox() {
           </TabsList>
 
           <TabsContent value="contatos" className="space-y-4">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar por nome, telefone, CPF, CNPJ, e-mail ou profissão..."
@@ -420,9 +548,29 @@ export default function ContatosAdvbox() {
                   className="pl-10"
                 />
               </div>
-              <Button onClick={() => { setCreateData({}); setShowCreateDialog(true); }} className="gap-2 shrink-0">
+              <Button
+                onClick={() => {
+                  setSelectedDemandaClient(null);
+                  setDemandaSearch('');
+                  setDemandaResults([]);
+                  setShowDemandaDialog(true);
+                }}
+                className="gap-2 shrink-0 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Megaphone className="h-4 w-4" />
+                Nova Demanda
+              </Button>
+              <Button onClick={() => { setCreateData({}); setShowCreateDialog(true); }} className="gap-2 shrink-0" variant="outline">
                 <Plus className="h-4 w-4" />
                 Novo Cliente
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => { fetchVendedores(); setShowVendedoresConfig(true); }}
+                title="Configurar vendedores do rodízio"
+              >
+                <Settings className="h-4 w-4" />
               </Button>
             </div>
 
@@ -462,7 +610,14 @@ export default function ContatosAdvbox() {
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">{contact.name}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-sm truncate">{contact.name}</p>
+                              {recentDemandas.has(String(contact.advbox_id)) && (
+                                <Badge className="bg-blue-600 text-white text-[10px] px-1.5 py-0 shrink-0">
+                                  Demanda
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
                               {contact.phone && (
                                 <span className="flex items-center gap-1">
@@ -624,6 +779,167 @@ export default function ContatosAdvbox() {
               Cadastrar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Nova Demanda Dialog */}
+      <Dialog open={showDemandaDialog} onOpenChange={setShowDemandaDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-600">
+              <Megaphone className="h-5 w-5" />
+              Nova Demanda
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label className="text-sm font-medium">Selecionar Cliente</Label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome, telefone ou CPF..."
+                  value={demandaSearch}
+                  onChange={(e) => {
+                    setDemandaSearch(e.target.value);
+                    setSelectedDemandaClient(null);
+                  }}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {demandaSearching && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Buscando...
+              </div>
+            )}
+
+            {!selectedDemandaClient && demandaResults.length > 0 && (
+              <ScrollArea className="max-h-[200px]">
+                <div className="space-y-1">
+                  {demandaResults.map((c) => (
+                    <div
+                      key={c.id}
+                      className="p-2 rounded-md cursor-pointer hover:bg-accent text-sm border"
+                      onClick={() => {
+                        setSelectedDemandaClient(c);
+                        setDemandaSearch(c.name);
+                        setDemandaResults([]);
+                      }}
+                    >
+                      <p className="font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.phone || c.celular || '—'} • {c.cpf || c.cnpj || '—'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+
+            {selectedDemandaClient && (
+              <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0">
+                      <User className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{selectedDemandaClient.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {selectedDemandaClient.phone || selectedDemandaClient.celular || 'Sem telefone'}
+                        {selectedDemandaClient.cpf && ` • CPF: ${selectedDemandaClient.cpf}`}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={() => {
+                        setSelectedDemandaClient(null);
+                        setDemandaSearch('');
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="bg-muted/50 rounded-md p-3 text-xs text-muted-foreground space-y-1">
+              <p className="font-medium text-foreground text-sm">O que acontece ao enviar:</p>
+              <p>• Um vendedor será atribuído automaticamente por rodízio</p>
+              <p>• Uma observação será registrada no ChatGuru</p>
+              <p>• O chat será marcado como "aberto" no ChatGuru</p>
+              <p>• Uma tarefa será criada no CRM</p>
+              <p>• Marcos e o setor comercial serão marcados como responsáveis</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowDemandaDialog(false)} disabled={sendingDemanda}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSendDemanda}
+              disabled={!selectedDemandaClient || sendingDemanda}
+              className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            >
+              {sendingDemanda ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              Enviar Demanda
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vendedores Config Dialog */}
+      <Dialog open={showVendedoresConfig} onOpenChange={setShowVendedoresConfig}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Vendedores do Rodízio
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Ative ou desative vendedores do rodízio automático de demandas. Vendedores inativos (férias, folga) não receberão novas demandas.
+            </p>
+
+            {loadingVendedores ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map(i => <Skeleton key={i} className="h-14 w-full" />)}
+              </div>
+            ) : vendedores.length === 0 ? (
+              <p className="text-sm text-center text-muted-foreground py-4">Nenhum vendedor configurado</p>
+            ) : (
+              vendedores.map((v) => (
+                <div key={v.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${v.ativo ? 'bg-green-100 dark:bg-green-900' : 'bg-muted'}`}>
+                      <User className={`h-4 w-4 ${v.ativo ? 'text-green-600' : 'text-muted-foreground'}`} />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{v.vendedor_nome}</p>
+                      <p className="text-xs text-muted-foreground">{v.ativo ? 'Ativo no rodízio' : 'Inativo'}</p>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={v.ativo}
+                    onCheckedChange={(checked) => toggleVendedor(v.id, checked)}
+                  />
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </Layout>
