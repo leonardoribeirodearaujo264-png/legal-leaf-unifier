@@ -234,84 +234,42 @@ export const CRMContactsList = ({ syncEnabled }: CRMContactsListProps) => {
       
       setContactDeals(allDeals);
 
-      // Fetch activities from RD Station in real-time for complete history
+      // Fetch activities from local database
       let allActivities: Activity[] = [];
+      const existingActivityIds = new Set<string>();
       
-      // Get RD Station IDs from deals for fetching activities
-      const dealRdStationIds = allDeals
-        .map(d => (d as any).rd_station_id)
-        .filter(Boolean);
-      
-      // Call edge function to fetch activities directly from RD Station
-      try {
-        const { data: rdActivities, error } = await supabase.functions.invoke('crm-sync', {
-          body: {
-            action: 'fetch_contact_activities',
-            data: {
-              contact_id: contactId,
-              rd_station_id: contactRdStationId,
-              deal_rd_station_ids: dealRdStationIds
+      const addActivities = (activities: Activity[] | null) => {
+        if (activities) {
+          activities.forEach(a => {
+            if (!existingActivityIds.has(a.id)) {
+              existingActivityIds.add(a.id);
+              allActivities.push(a);
             }
-          }
-        });
-        
-        if (!error && rdActivities?.activities) {
-          allActivities = rdActivities.activities.map((a: any) => ({
-            id: a.id || a.rd_station_id,
-            type: a.type,
-            title: a.title,
-            description: a.description,
-            due_date: a.due_date,
-            completed: a.completed,
-            completed_at: a.completed_at,
-            created_at: a.created_at,
-            owner_id: null,
-            owner_name: a.owner_name,
-            deal_name: a.deal_name
-          }));
-          console.log(`Fetched ${allActivities.length} activities from RD Station`);
+          });
         }
-      } catch (fetchError) {
-        console.error('Error fetching activities from RD Station:', fetchError);
-      }
+      };
       
-      // If no activities from RD Station, fall back to local database
-      if (allActivities.length === 0) {
-        const existingActivityIds = new Set<string>();
-        
-        const addActivities = (activities: Activity[] | null) => {
-          if (activities) {
-            activities.forEach(a => {
-              if (!existingActivityIds.has(a.id)) {
-                existingActivityIds.add(a.id);
-                allActivities.push(a);
-              }
-            });
-          }
-        };
-        
-        // 1. By contact_id
-        const { data: activitiesByContact } = await supabase
+      // 1. By contact_id
+      const { data: activitiesByContact } = await supabase
+        .from('crm_activities')
+        .select('*')
+        .eq('contact_id', contactId)
+        .order('created_at', { ascending: false });
+      addActivities(activitiesByContact as Activity[]);
+      
+      // 2. By deal_ids from all deals associated with this contact
+      if (allDeals.length > 0) {
+        const dealIds = allDeals.map(d => d.id);
+        const { data: activitiesByDeal } = await supabase
           .from('crm_activities')
           .select('*')
-          .eq('contact_id', contactId)
+          .in('deal_id', dealIds)
           .order('created_at', { ascending: false });
-        addActivities(activitiesByContact as Activity[]);
-        
-        // 2. By deal_ids from all deals associated with this contact
-        if (allDeals.length > 0) {
-          const dealIds = allDeals.map(d => d.id);
-          const { data: activitiesByDeal } = await supabase
-            .from('crm_activities')
-            .select('*')
-            .in('deal_id', dealIds)
-            .order('created_at', { ascending: false });
-          addActivities(activitiesByDeal as Activity[]);
-        }
-        
-        // Sort by created_at descending
-        allActivities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        addActivities(activitiesByDeal as Activity[]);
       }
+      
+      // Sort by created_at descending
+      allActivities.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       
       setContactActivities(allActivities);
     } catch (error) {
@@ -406,43 +364,7 @@ export const CRMContactsList = ({ syncEnabled }: CRMContactsListProps) => {
 
       if (dbError) throw dbError;
 
-      // If sync is enabled and contact has RD Station ID, sync to RD Station
-      if (syncEnabled && selectedContact.rd_station_id) {
-        const { error: syncError } = await supabase.functions.invoke('crm-sync', {
-          body: {
-            action: 'update_contact',
-            data: {
-              contact_id: selectedContact.id,
-              rd_station_id: selectedContact.rd_station_id,
-              updates: {
-                name: editForm.name,
-                email: editForm.email,
-                phone: editForm.phone,
-                company: editForm.company,
-                job_title: editForm.job_title,
-                city: editForm.city,
-                state: editForm.state,
-                country: editForm.country,
-                website: editForm.website,
-                linkedin: editForm.linkedin,
-                twitter: editForm.twitter,
-                facebook: editForm.facebook,
-                birthday: editForm.birthday,
-                notes: editForm.notes
-              }
-            }
-          }
-        });
-
-        if (syncError) {
-          console.error('Error syncing to RD Station:', syncError);
-          toast.warning('Contato salvo localmente, mas houve erro ao sincronizar com RD Station');
-        } else {
-          toast.success('Contato atualizado e sincronizado com RD Station');
-        }
-      } else {
-        toast.success('Contato atualizado com sucesso');
-      }
+      toast.success('Contato atualizado com sucesso');
 
       // Update local state
       const updatedContact = { ...selectedContact, ...editForm, updated_at: new Date().toISOString() };
@@ -466,32 +388,20 @@ export const CRMContactsList = ({ syncEnabled }: CRMContactsListProps) => {
     }
     setCreatingLead(true);
     try {
-      if (syncEnabled) {
-        const { data: result, error } = await supabase.functions.invoke('crm-sync', {
-          body: { action: 'create_contact', data: newLeadForm }
-        });
-        if (error) throw error;
-        if (result?.synced_to_rd) {
-          toast.success('Lead criado e sincronizado com RD Station');
-        } else {
-          toast.success('Lead criado localmente (erro ao sincronizar com RD Station)');
-        }
-      } else {
-        const { error } = await supabase.from('crm_contacts').insert({
-          name: newLeadForm.name.trim(),
-          email: newLeadForm.email?.trim() || null,
-          phone: newLeadForm.phone?.trim() || null,
-          company: newLeadForm.company?.trim() || null,
-          job_title: newLeadForm.job_title?.trim() || null,
-          city: newLeadForm.city?.trim() || null,
-          state: newLeadForm.state?.trim() || null,
-          website: newLeadForm.website?.trim() || null,
-          linkedin: newLeadForm.linkedin?.trim() || null,
-          notes: newLeadForm.notes?.trim() || null,
-        });
-        if (error) throw error;
-        toast.success('Lead criado com sucesso');
-      }
+      const { error } = await supabase.from('crm_contacts').insert({
+        name: newLeadForm.name.trim(),
+        email: newLeadForm.email?.trim() || null,
+        phone: newLeadForm.phone?.trim() || null,
+        company: newLeadForm.company?.trim() || null,
+        job_title: newLeadForm.job_title?.trim() || null,
+        city: newLeadForm.city?.trim() || null,
+        state: newLeadForm.state?.trim() || null,
+        website: newLeadForm.website?.trim() || null,
+        linkedin: newLeadForm.linkedin?.trim() || null,
+        notes: newLeadForm.notes?.trim() || null,
+      });
+      if (error) throw error;
+      toast.success('Lead criado com sucesso');
       setNewLeadForm({ name: '', email: '', phone: '', company: '', job_title: '', city: '', state: '', website: '', linkedin: '', notes: '' });
       setNewLeadDialogOpen(false);
       fetchContacts();
@@ -587,7 +497,7 @@ export const CRMContactsList = ({ syncEnabled }: CRMContactsListProps) => {
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     {contacts.length === 0 
-                      ? 'Nenhum contato. Sincronize com o RD Station.'
+                      ? 'Nenhum contato cadastrado.'
                       : 'Nenhum contato encontrado.'}
                   </TableCell>
                 </TableRow>
