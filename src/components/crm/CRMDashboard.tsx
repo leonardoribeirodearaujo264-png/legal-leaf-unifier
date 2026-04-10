@@ -61,14 +61,11 @@ export const CRMDashboard = () => {
     periodLabel: ''
   });
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncEnabled, setSyncEnabled] = useState(true);
-  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
 
   useEffect(() => {
     fetchStats();
-    fetchSettings();
   }, [periodFilter]);
 
   const fetchSettings = async () => {
