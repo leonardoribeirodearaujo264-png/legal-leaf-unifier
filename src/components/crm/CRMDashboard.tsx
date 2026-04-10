@@ -460,7 +460,7 @@ export const CRMDashboard = () => {
         
         {isAdmin && (
           <TabsContent value="settings" className="mt-6">
-            <CRMSettings onSettingsChange={fetchSettings} />
+            <CRMSettings onSettingsChange={() => {}} />
           </TabsContent>
         )}
       </Tabs>
