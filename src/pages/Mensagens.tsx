@@ -2116,6 +2116,24 @@ const Mensagens = () => {
                               handleSend();
                             }
                           }}
+                          onPaste={(e) => {
+                            const items = e.clipboardData?.items;
+                            if (!items) return;
+                            for (let i = 0; i < items.length; i++) {
+                              if (items[i].type.startsWith('image/')) {
+                                e.preventDefault();
+                                const file = items[i].getAsFile();
+                                if (file) {
+                                  const attachment: AttachedFile = {
+                                    file,
+                                    preview: URL.createObjectURL(file),
+                                  };
+                                  setAttachedFiles(prev => [...prev, attachment]);
+                                }
+                                return;
+                              }
+                            }
+                          }}
                           onFocus={() => {
                             if (templates.length > 0 && !newMessage.trim()) {
                               setShowTemplates(true);
