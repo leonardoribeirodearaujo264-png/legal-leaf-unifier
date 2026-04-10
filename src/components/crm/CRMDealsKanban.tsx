@@ -126,9 +126,8 @@ interface Activity {
   };
 }
 
-interface CRMDealsKanbanProps {
-  syncEnabled: boolean;
-}
+
+
 
 type SortOption = 'name_asc' | 'name_desc' | 'created_asc' | 'created_desc' | 'value_asc' | 'value_desc' | 'updated_desc';
 type FilterQualification = 'all' | 'qualified' | 'not_qualified';
@@ -347,7 +346,7 @@ const DroppableColumn = ({
   );
 };
 
-export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
+export const CRMDealsKanban = () => {
   const { user } = useAuth();
   const [stages, setStages] = useState<DealStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
