@@ -62,23 +62,13 @@ export const CRMDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
-  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
 
   useEffect(() => {
     fetchStats();
   }, [periodFilter]);
 
-  const fetchSettings = async () => {
-    const { data } = await supabase
-      .from('crm_settings')
-      .select('*')
-      .single();
-    
-    if (data) {
-      setSyncEnabled(data.rd_station_sync_enabled);
-      setLastSync(data.last_full_sync_at);
-    }
-  };
+
+
 
   const getDateFilter = () => {
     if (periodFilter === 'all') return null;
@@ -199,28 +189,8 @@ export const CRMDashboard = () => {
     }
   };
 
-  const handleFullSync = async () => {
-    setSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('crm-sync', {
-        body: { action: 'full_sync' }
-      });
 
-      if (error) throw error;
 
-      toast.success(
-        `Sincronização concluída: ${data.pipelines?.pipelines || 0} pipelines, ${data.contacts?.contacts || 0} contatos, ${data.deals?.deals || 0} oportunidades`
-      );
-
-      fetchStats();
-      fetchSettings();
-    } catch (error: any) {
-      console.error('Sync error:', error);
-      toast.error(`Erro na sincronização: ${error.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
