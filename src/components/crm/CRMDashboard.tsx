@@ -250,42 +250,6 @@ export const CRMDashboard = () => {
             Gestão de leads e oportunidades
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {syncEnabled ? (
-              <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Sync Bidirecional
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
-                Modo Independente
-              </Badge>
-            )}
-            {lastSync && (
-              <span>
-                Última sync: {new Date(lastSync).toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </span>
-            )}
-          </div>
-          <Button
-            onClick={handleFullSync}
-            disabled={syncing}
-            variant="outline"
-          >
-            {syncing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Sincronizar RD Station
-          </Button>
-        </div>
       </div>
 
       {/* Tabs - Dashboard separado do Pipeline */}
@@ -468,15 +432,15 @@ export const CRMDashboard = () => {
         </TabsContent>
         
         <TabsContent value="kanban" className="mt-6">
-          <CRMDealsKanban syncEnabled={syncEnabled} />
+          <CRMDealsKanban />
         </TabsContent>
         
         <TabsContent value="contacts" className="mt-6">
-          <CRMContactsList syncEnabled={syncEnabled} />
+          <CRMContactsList />
         </TabsContent>
         
         <TabsContent value="activities" className="mt-6">
-          <CRMActivities syncEnabled={syncEnabled} />
+          <CRMActivities />
         </TabsContent>
         
         <TabsContent value="tasks" className="mt-6">
