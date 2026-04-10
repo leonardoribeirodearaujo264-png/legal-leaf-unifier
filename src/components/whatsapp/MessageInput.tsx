@@ -329,6 +329,20 @@ export function MessageInput({ onSendMessage, conversationPhone, onToggleComment
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (let i = 0; i < items.length; i++) {
+              if (items[i].type.startsWith('image/')) {
+                e.preventDefault();
+                const file = items[i].getAsFile();
+                if (file) {
+                  handleFileUpload(file, 'image');
+                }
+                return;
+              }
+            }
+          }}
           className="min-h-[40px] max-h-32 resize-none text-sm"
           rows={1}
         />
