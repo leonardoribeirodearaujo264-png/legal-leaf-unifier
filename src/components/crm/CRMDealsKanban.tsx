@@ -126,9 +126,8 @@ interface Activity {
   };
 }
 
-interface CRMDealsKanbanProps {
-  syncEnabled: boolean;
-}
+
+
 
 type SortOption = 'name_asc' | 'name_desc' | 'created_asc' | 'created_desc' | 'value_asc' | 'value_desc' | 'updated_desc';
 type FilterQualification = 'all' | 'qualified' | 'not_qualified';
@@ -347,7 +346,7 @@ const DroppableColumn = ({
   );
 };
 
-export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
+export const CRMDealsKanban = () => {
   const { user } = useAuth();
   const [stages, setStages] = useState<DealStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -722,36 +721,7 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
         }
       }
 
-      // Sync to RD Station if enabled
-      if (syncEnabled && selectedDeal.rd_station_id) {
-        await supabase.functions.invoke('crm-sync', {
-          body: {
-            action: 'update_deal',
-            data: {
-              deal_id: selectedDeal.id,
-              updates: {
-                name: editForm.name,
-                value: editForm.value,
-                notes: editForm.notes,
-                expected_close_date: editForm.expected_close_date
-              }
-            }
-          }
-        });
-
-        if (selectedDeal.contact?.rd_station_id && editForm.contact) {
-          await supabase.functions.invoke('crm-sync', {
-            body: {
-              action: 'update_contact',
-              data: {
-                contact_id: selectedDeal.contact_id,
-                rd_station_id: selectedDeal.contact.rd_station_id,
-                updates: editForm.contact
-              }
-            }
-          });
-        }
-      }
+      // All operations are now local - no RD Station sync
 
       toast.success('Dados salvos com sucesso');
       fetchDeals();
@@ -774,57 +744,38 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, stage_id: newStageId } : d));
 
     try {
-      if (syncEnabled) {
-        const { data, error } = await supabase.functions.invoke('crm-sync', {
-          body: {
-            action: 'update_deal_stage',
-            data: {
-              deal_id: dealId,
-              stage_id: newStageId,
-              user_id: user?.id
-            }
-          }
-        });
-
-        if (error) throw error;
-        if (!data?.success) throw new Error(data?.error || 'Erro ao sincronizar');
-
-        toast.success(`Oportunidade movida para ${data.stage_name}`);
+      const targetStage = stages.find(s => s.id === newStageId);
+      const updateData: Record<string, unknown> = { 
+        stage_id: newStageId,
+        stage_changed_at: new Date().toISOString(),
+      };
+      
+      if (targetStage?.is_won) {
+        updateData.won = true;
+        updateData.closed_at = new Date().toISOString();
+      } else if (targetStage?.is_lost) {
+        updateData.won = false;
+        updateData.closed_at = new Date().toISOString();
       } else {
-        const targetStage = stages.find(s => s.id === newStageId);
-        const updateData: Record<string, unknown> = { 
-          stage_id: newStageId,
-          stage_changed_at: new Date().toISOString(),
-        };
-        
-        if (targetStage?.is_won) {
-          updateData.won = true;
-          updateData.closed_at = new Date().toISOString();
-        } else if (targetStage?.is_lost) {
-          updateData.won = false;
-          updateData.closed_at = new Date().toISOString();
-        } else {
-          // Moving back to an open stage — clear won/closed
-          updateData.won = null;
-          updateData.closed_at = null;
-        }
-
-        const { error } = await supabase
-          .from('crm_deals')
-          .update(updateData)
-          .eq('id', dealId);
-
-        if (error) throw error;
-
-        await supabase.from('crm_deal_history').insert({
-          deal_id: dealId,
-          from_stage_id: currentStageId,
-          to_stage_id: newStageId,
-          changed_by: user?.id
-        });
-
-        toast.success(`Oportunidade movida para ${targetStage?.name || 'nova etapa'}`);
+        updateData.won = null;
+        updateData.closed_at = null;
       }
+
+      const { error } = await supabase
+        .from('crm_deals')
+        .update(updateData)
+        .eq('id', dealId);
+
+      if (error) throw error;
+
+      await supabase.from('crm_deal_history').insert({
+        deal_id: dealId,
+        from_stage_id: currentStageId,
+        to_stage_id: newStageId,
+        changed_by: user?.id
+      });
+
+      toast.success(`Oportunidade movida para ${targetStage?.name || 'nova etapa'}`);
 
       fetchDeals();
     } catch (error: any) {
@@ -886,7 +837,7 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
       <Card>
         <CardContent className="py-12 text-center">
           <p className="text-muted-foreground">
-            Nenhum pipeline configurado. Clique em "Sincronizar RD Station" para importar.
+            Nenhum pipeline configurado.
           </p>
         </CardContent>
       </Card>
@@ -950,12 +901,8 @@ export const CRMDealsKanban = ({ syncEnabled }: CRMDealsKanbanProps) => {
             </SelectContent>
           </Select>
           
-          {syncEnabled && (
-            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-              <RefreshCw className="h-3 w-3 mr-1" />
-              Sync bidirecional
-            </Badge>
-          )}
+
+
         </div>
 
         {/* Filter Row */}

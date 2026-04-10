@@ -22,11 +22,7 @@ interface Activity {
   } | null;
 }
 
-interface CRMActivitiesProps {
-  syncEnabled: boolean;
-}
-
-export const CRMActivities = ({ syncEnabled }: CRMActivitiesProps) => {
+export const CRMActivities = () => {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -157,7 +153,7 @@ export const CRMActivities = ({ syncEnabled }: CRMActivitiesProps) => {
             <CardContent className="py-12 text-center">
               <p className="text-muted-foreground">
                 {activities.length === 0
-                  ? 'Nenhuma atividade. Sincronize com o RD Station.'
+                  ? 'Nenhuma atividade registrada.'
                   : 'Nenhuma atividade encontrada.'}
               </p>
             </CardContent>
@@ -226,10 +222,10 @@ export const CRMActivities = ({ syncEnabled }: CRMActivitiesProps) => {
         )}
       </div>
 
-      {syncEnabled && activities.length > 0 && (
+      {activities.length > 0 && (
         <div className="text-center pt-4">
-          <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20">
-            Gerencie atividades no RD Station
+          <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+            Gerencie atividades diretamente aqui no CRM
           </Badge>
         </div>
       )}

@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, RefreshCw, Users, Target, Activity, TrendingUp, Calendar, Settings, LayoutDashboard, BarChart3, Bell, Star, Clock, CheckCircle2, Zap, ClipboardList, Trophy, FileSignature, Wallet, AlertTriangle, Megaphone } from 'lucide-react';
+import { Loader2, Users, Target, Activity, TrendingUp, Calendar, Settings, LayoutDashboard, BarChart3, Bell, Star, Clock, CheckCircle2, Zap, ClipboardList, Trophy, FileSignature, Wallet, AlertTriangle, Megaphone } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CRMContactsList } from './CRMContactsList';
@@ -61,27 +61,14 @@ export const CRMDashboard = () => {
     periodLabel: ''
   });
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncEnabled, setSyncEnabled] = useState(true);
-  const [lastSync, setLastSync] = useState<string | null>(null);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('all');
 
   useEffect(() => {
     fetchStats();
-    fetchSettings();
   }, [periodFilter]);
 
-  const fetchSettings = async () => {
-    const { data } = await supabase
-      .from('crm_settings')
-      .select('*')
-      .single();
-    
-    if (data) {
-      setSyncEnabled(data.rd_station_sync_enabled);
-      setLastSync(data.last_full_sync_at);
-    }
-  };
+
+
 
   const getDateFilter = () => {
     if (periodFilter === 'all') return null;
@@ -202,28 +189,8 @@ export const CRMDashboard = () => {
     }
   };
 
-  const handleFullSync = async () => {
-    setSyncing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('crm-sync', {
-        body: { action: 'full_sync' }
-      });
 
-      if (error) throw error;
 
-      toast.success(
-        `Sincronização concluída: ${data.pipelines?.pipelines || 0} pipelines, ${data.contacts?.contacts || 0} contatos, ${data.deals?.deals || 0} oportunidades`
-      );
-
-      fetchStats();
-      fetchSettings();
-    } catch (error: any) {
-      console.error('Sync error:', error);
-      toast.error(`Erro na sincronização: ${error.message}`);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -249,42 +216,6 @@ export const CRMDashboard = () => {
           <p className="text-muted-foreground">
             Gestão de leads e oportunidades
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {syncEnabled ? (
-              <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                <RefreshCw className="h-3 w-3 mr-1" />
-                Sync Bidirecional
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
-                Modo Independente
-              </Badge>
-            )}
-            {lastSync && (
-              <span>
-                Última sync: {new Date(lastSync).toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  hour: '2-digit',
-                  minute: '2-digit'
-                })}
-              </span>
-            )}
-          </div>
-          <Button
-            onClick={handleFullSync}
-            disabled={syncing}
-            variant="outline"
-          >
-            {syncing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            Sincronizar RD Station
-          </Button>
         </div>
       </div>
 
@@ -468,15 +399,15 @@ export const CRMDashboard = () => {
         </TabsContent>
         
         <TabsContent value="kanban" className="mt-6">
-          <CRMDealsKanban syncEnabled={syncEnabled} />
+          <CRMDealsKanban />
         </TabsContent>
         
         <TabsContent value="contacts" className="mt-6">
-          <CRMContactsList syncEnabled={syncEnabled} />
+          <CRMContactsList />
         </TabsContent>
         
         <TabsContent value="activities" className="mt-6">
-          <CRMActivities syncEnabled={syncEnabled} />
+          <CRMActivities />
         </TabsContent>
         
         <TabsContent value="tasks" className="mt-6">
@@ -529,7 +460,7 @@ export const CRMDashboard = () => {
         
         {isAdmin && (
           <TabsContent value="settings" className="mt-6">
-            <CRMSettings onSettingsChange={fetchSettings} />
+            <CRMSettings onSettingsChange={() => {}} />
           </TabsContent>
         )}
       </Tabs>
