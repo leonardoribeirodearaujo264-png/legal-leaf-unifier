@@ -163,7 +163,7 @@ export const Layout = ({ children }: LayoutProps) => {
   };
 
   return (
-    <SidebarProvider defaultOpen={true}>
+    <SidebarProvider defaultOpen={false}>
       <div className="min-h-[100dvh] flex w-full">
         <AppSidebar unreadMessagesCount={unreadMessagesCount} />
         
