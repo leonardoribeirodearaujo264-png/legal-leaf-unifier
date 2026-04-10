@@ -74,11 +74,7 @@ interface Deal {
   };
 }
 
-interface CRMContactsListProps {
-  syncEnabled: boolean;
-}
-
-export const CRMContactsList = ({ syncEnabled }: CRMContactsListProps) => {
+export const CRMContactsList = () => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
