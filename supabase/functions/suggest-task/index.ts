@@ -147,60 +147,79 @@ ${contentParts.join('\n\n')}
 LEMBRE-SE: Não sugira "conferir publicações" ou qualquer tarefa genérica. Sugira a AÇÃO PROCESSUAL CONCRETA.
 Responda APENAS com o JSON, sem texto adicional.`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: [
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.3,
-      }),
-    });
+    // Retry logic with exponential backoff for 529 (Overloaded)
+    const MAX_RETRIES = 2;
+    const INITIAL_DELAY = 2000;
+    let response: Response | null = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Anthropic API error:', response.status, errorText);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+        }),
+      });
+
+      if (response.ok) break;
+
+      if (response.status === 529 && attempt < MAX_RETRIES) {
+        const delay = INITIAL_DELAY * Math.pow(2, attempt);
+        console.warn(`Anthropic API overloaded (529). Retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Not a retryable error or retries exhausted — handle it
+      break;
+    }
+
+    if (!response!.ok) {
+      const errorText = await response!.text();
+      console.error('Anthropic API error:', response!.status, errorText);
       
-      if (response.status === 429) {
+      if (response!.status === 529) {
+        return new Response(JSON.stringify({ 
+          error: 'O serviço de IA está temporariamente sobrecarregado. Tente novamente em alguns segundos.' 
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (response!.status === 429) {
         return new Response(JSON.stringify({ 
           error: 'Limite de requisições excedido. Tente novamente em alguns segundos.' 
         }), {
-          status: 429,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
-      if (response.status === 401) {
+      if (response!.status === 401) {
         return new Response(JSON.stringify({ 
           error: 'Erro de autenticação com a API.' 
         }), {
-          status: 401,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      if (response.status === 400 && errorText.toLowerCase().includes('credit balance')) {
+      if ((response!.status === 400 && errorText.toLowerCase().includes('credit balance')) || response!.status === 402) {
         return new Response(JSON.stringify({ 
           error: 'A API de IA está sem créditos. Entre em contato com o administrador para recarregar os créditos da Anthropic.' 
         }), {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: 'A API de IA está sem créditos. Entre em contato com o administrador para recarregar os créditos da Anthropic.' 
-        }), {
-          status: 402,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -208,19 +227,19 @@ Responda APENAS com o JSON, sem texto adicional.`;
       const errorMessage = (() => {
         try {
           const parsed = JSON.parse(errorText);
-          return parsed?.error?.message || `Erro da API Anthropic (${response.status})`;
+          return parsed?.error?.message || `Erro da API Anthropic (${response!.status})`;
         } catch {
-          return `Erro da API Anthropic (${response.status})`;
+          return `Erro da API Anthropic (${response!.status})`;
         }
       })();
       
       return new Response(JSON.stringify({ error: errorMessage }), {
-        status: response.status,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const aiResponse = await response.json();
+    const aiResponse = await response!.json();
     const content = aiResponse.content?.[0]?.text;
 
     if (!content) {

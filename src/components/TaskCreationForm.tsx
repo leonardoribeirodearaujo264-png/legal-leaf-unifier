@@ -121,13 +121,15 @@ export function TaskCreationForm({
         },
       });
 
-      // supabase.functions.invoke retorna data mesmo em erros HTTP
+      // Extrair mensagem de erro real do body (retornamos HTTP 200 com { error } no body)
       if (data?.error) {
         throw new Error(data.error);
       }
 
       if (error) {
-        throw new Error(error.message || 'Erro ao chamar a função de sugestão.');
+        // Tentar extrair mensagem do data mesmo quando SDK reporta erro
+        const realMessage = data?.error || data?.message || error.message || 'Erro ao chamar a função de sugestão.';
+        throw new Error(realMessage);
       }
 
       if (data) {
