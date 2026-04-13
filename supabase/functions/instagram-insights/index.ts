@@ -61,7 +61,7 @@ serve(async (req) => {
       });
     }
 
-    const accessToken = config.access_token;
+    const accessToken = config.access_token || Deno.env.get('META_ACCESS_TOKEN') || 'EAAbnenXbW48BROTEOdafeChTVFZCbYVUCp9hUGvfm9Pz1NQEsh0lsZCZB8CiaMdmcjjhzSv8QYAHTlZCeJ9c5aSxgAAWBZCTbCypXvl7Vv1c5Mq4wREJKNpF3ztmv1DZC9L3MZBb5vRyEggqELVoGEkJSZA8ZAgG0Ra2dVimDZAywYV7hrPoZAjRTQSKKPilsEIdYjGKhQZD';
     let igAccountId = config.instagram_account_id;
 
     // Auto-discover IG account if not set
