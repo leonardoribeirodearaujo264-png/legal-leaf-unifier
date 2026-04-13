@@ -12,7 +12,7 @@ import { NotificationToast } from '@/components/NotificationToast';
 import { MessagePopupDialog } from '@/components/MessagePopupDialog';
 import { NotificationsPanel } from '@/components/NotificationsPanel';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarTrigger, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
