@@ -184,58 +184,97 @@ Responda APENAS com o JSON, sem texto adicional.`;
       break;
     }
 
+    // If Anthropic failed, try OpenAI as fallback
     if (!response!.ok) {
-      const errorText = await response!.text();
-      console.error('Anthropic API error:', response!.status, errorText);
-      
-      if (response!.status === 529) {
+      const anthropicStatus = response!.status;
+      const anthropicError = await response!.text();
+      console.warn(`Anthropic failed (${anthropicStatus}). Attempting OpenAI fallback...`, anthropicError);
+
+      const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+      if (OPENAI_API_KEY) {
+        try {
+          const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              max_tokens: 1000,
+              temperature: 0.3,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
+            }),
+          });
+
+          if (openaiResponse.ok) {
+            console.log('OpenAI fallback succeeded');
+            const openaiData = await openaiResponse.json();
+            const fallbackContent = openaiData.choices?.[0]?.message?.content;
+            if (fallbackContent) {
+              // Parse and return the fallback response
+              let suggestion;
+              try {
+                const jsonStr = fallbackContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+                suggestion = JSON.parse(jsonStr);
+              } catch {
+                suggestion = {
+                  suggestedTaskType: 'Análise de movimentação',
+                  suggestedTaskTypeId: null,
+                  taskTitle: `Analisar movimentação - ${processNumber || 'Processo'}`,
+                  taskDescription: 'Verificar e tomar providências sobre a movimentação recente do processo.',
+                  suggestedDeadline: null,
+                  isUrgent: false,
+                  isImportant: true,
+                  reasoning: 'Sugestão padrão via IA alternativa.',
+                };
+              }
+              return new Response(JSON.stringify(suggestion), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              });
+            }
+          } else {
+            console.error('OpenAI fallback also failed:', openaiResponse.status);
+          }
+        } catch (fallbackErr) {
+          console.error('OpenAI fallback error:', fallbackErr);
+        }
+      }
+
+      // Both failed — return user-friendly error based on original Anthropic status
+      if (anthropicStatus === 529) {
         return new Response(JSON.stringify({ 
           error: 'O serviço de IA está temporariamente sobrecarregado. Tente novamente em alguns segundos.' 
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-
-      if (response!.status === 429) {
+      if (anthropicStatus === 429) {
         return new Response(JSON.stringify({ 
           error: 'Limite de requisições excedido. Tente novamente em alguns segundos.' 
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
-      
-      if (response!.status === 401) {
+      if (anthropicStatus === 401) {
         return new Response(JSON.stringify({ 
           error: 'Erro de autenticação com a API.' 
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      if ((anthropicStatus === 400 && anthropicError.toLowerCase().includes('credit balance')) || anthropicStatus === 402) {
+        return new Response(JSON.stringify({ 
+          error: 'A API de IA está sem créditos. Entre em contato com o administrador.' 
+        }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
 
-      if ((response!.status === 400 && errorText.toLowerCase().includes('credit balance')) || response!.status === 402) {
-        return new Response(JSON.stringify({ 
-          error: 'A API de IA está sem créditos. Entre em contato com o administrador para recarregar os créditos da Anthropic.' 
-        }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
       const errorMessage = (() => {
         try {
-          const parsed = JSON.parse(errorText);
-          return parsed?.error?.message || `Erro da API Anthropic (${response!.status})`;
+          return JSON.parse(anthropicError)?.error?.message || `Erro da API (${anthropicStatus})`;
         } catch {
-          return `Erro da API Anthropic (${response!.status})`;
+          return `Erro da API (${anthropicStatus})`;
         }
       })();
-      
       return new Response(JSON.stringify({ error: errorMessage }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
