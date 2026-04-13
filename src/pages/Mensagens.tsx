@@ -155,6 +155,7 @@ const Mensagens = () => {
   // Document attachments
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   // Templates
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -590,6 +591,7 @@ const Mensagens = () => {
       }
     } finally {
       setSending(false);
+      setTimeout(() => textareaRef.current?.focus(), 50);
     }
   };
 
@@ -625,9 +627,7 @@ const Mensagens = () => {
   };
 
   const canEditMessage = (msg: Message) => {
-    // Admins e sócios podem editar qualquer mensagem a qualquer momento
-    if (isAdminOrSocio) return true;
-    // Autor pode editar dentro de 6 horas
+    // Apenas o autor pode editar suas próprias mensagens dentro de 6 horas
     if (msg.sender_id !== user?.id) return false;
     const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
     return minutesSinceSent <= 360;
@@ -2106,7 +2106,8 @@ const Mensagens = () => {
                       />
                       
                       <div className="flex gap-2">
-                        <Textarea
+                      <Textarea
+                          ref={textareaRef}
                           placeholder="Digite sua mensagem..."
                           value={newMessage}
                           onChange={(e) => setNewMessage(e.target.value)}
