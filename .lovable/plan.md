@@ -1,36 +1,19 @@
 
 
-## Corrigir erro "Sugerir Tarefa com IA" nas movimentações
+## Correções nas Mensagens Internas
 
-### Diagnóstico
+### Problema 1: Cursor perde foco após enviar mensagem com Enter
+O `Textarea` de digitação não tem uma `ref` associada. Após o `handleSend` limpar o texto (`setNewMessage('')`), o foco sai do campo. Solução: criar um `textareaRef`, atribuir ao `Textarea`, e ao final do `handleSend`, chamar `textareaRef.current?.focus()`.
 
-O erro que aparece na tela é **"Edge Function returned a non-2xx status code"** — uma mensagem genérica do SDK do Supabase.
+### Problema 2: Destinatário consegue editar mensagem do remetente
+A função `canEditMessage` (linha 627) permite que admins/sócios editem **qualquer** mensagem. Isso está errado — edição deve ser restrita apenas ao autor da mensagem. Solução: remover a permissão de admin/sócio para editar mensagens alheias, mantendo apenas a verificação `msg.sender_id === user?.id`.
 
-Nos logs da edge function, o erro real é:
-```
-Anthropic API error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}
-```
+### Alterações no arquivo
 
-A API da Anthropic retornou **529 (Overloaded)** — os servidores do Claude estão sobrecarregados. O código atual não trata esse status e cai no handler genérico que retorna status 500, fazendo o SDK do Supabase engolir a mensagem real.
+**`src/pages/Mensagens.tsx`**:
 
-### O que vou fazer
-
-**1. Adicionar retry automático com backoff para erros 529 (Overloaded)**
-- Se a Anthropic retornar 529, a função tenta novamente até 2 vezes com espera de 2s e 4s.
-- Isso resolve a maioria dos casos de sobrecarga temporária sem intervenção do usuário.
-
-**2. Tratar o erro 529 explicitamente**
-- Se após os retries ainda falhar, retornar uma mensagem clara: "O serviço de IA está temporariamente sobrecarregado. Tente novamente em alguns segundos."
-
-**3. Melhorar o tratamento de erro no frontend**
-- No `TaskCreationForm.tsx`, quando `supabase.functions.invoke` retorna erro, extrair a mensagem do `data` (que contém o JSON de erro) em vez de mostrar a mensagem genérica do SDK.
-
-### Arquivos que serão alterados
-
-| Arquivo | Mudança |
-|---------|---------|
-| `supabase/functions/suggest-task/index.ts` | Adicionar retry com backoff para 529 + tratar erro explicitamente |
-| `src/components/TaskCreationForm.tsx` | Melhorar extração da mensagem de erro real |
-
-### Sem alteração no banco de dados
+1. Adicionar `const textareaRef = useRef<HTMLTextAreaElement>(null)` junto aos outros refs
+2. No `handleSend`, após `setNewMessage('')`, adicionar `setTimeout(() => textareaRef.current?.focus(), 50)`
+3. Atribuir `ref={textareaRef}` no `Textarea` de digitação (linha ~2109)
+4. Na função `canEditMessage` (linha 627-634): remover o bloco que permite admin/sócio editar qualquer mensagem — apenas o autor pode editar suas próprias mensagens dentro de 6 horas
 
