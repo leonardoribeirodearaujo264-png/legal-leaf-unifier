@@ -164,16 +164,49 @@ export const Layout = ({ children }: LayoutProps) => {
 
   return (
     <SidebarProvider defaultOpen={false}>
+      <LayoutInner
+        showBackButton={showBackButton}
+        handleBack={handleBack}
+        searchOpen={searchOpen}
+        setSearchOpen={setSearchOpen}
+        searchCategories={searchCategories}
+        allSearchableItems={allSearchableItems}
+        handleSearchSelect={handleSearchSelect}
+        unreadMessagesCount={unreadMessagesCount}
+        unreadAnnouncementsCount={unreadAnnouncementsCount}
+        popupEnabled={popupEnabled}
+        lastReceivedMessage={lastReceivedMessage}
+        dismissPopup={dismissPopup}
+        profile={profile}
+        user={user}
+        signOut={signOut}
+        navigate={navigate}
+        location={location}
+      >
+        {children}
+      </LayoutInner>
+    </SidebarProvider>
+  );
+};
+
+function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSearchOpen, searchCategories, allSearchableItems, handleSearchSelect, unreadMessagesCount, popupEnabled, lastReceivedMessage, dismissPopup, profile, user, signOut, navigate, location }: any) {
+  const { state: sidebarState, toggleSidebar } = useSidebar();
+  const [scrolledDown, setScrolledDown] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const onScroll = () => setScrolledDown(el.scrollTop > 100);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const showFloatingTrigger = sidebarState === 'collapsed' && scrolledDown;
+
+  return (
       <div className="min-h-[100dvh] flex w-full">
         <AppSidebar unreadMessagesCount={unreadMessagesCount} />
-        
-        <SidebarInset className="flex-1 flex flex-col">
-          {/* Global Search Dialog */}
-          <CommandDialog open={searchOpen} onOpenChange={setSearchOpen}>
-            <CommandInput placeholder="Buscar na intranet... (Ctrl+K)" />
-            <CommandList>
-              <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
-              {searchCategories.map((category) => {
                 const items = allSearchableItems.filter(item => item.category === category);
                 if (items.length === 0) return null;
                 return (
