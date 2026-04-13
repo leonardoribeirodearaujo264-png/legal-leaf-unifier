@@ -1,19 +1,23 @@
 
 
-## Correções nas Mensagens Internas
+## Botão flutuante para expandir o menu lateral
 
-### Problema 1: Cursor perde foco após enviar mensagem com Enter
-O `Textarea` de digitação não tem uma `ref` associada. Após o `handleSend` limpar o texto (`setNewMessage('')`), o foco sai do campo. Solução: criar um `textareaRef`, atribuir ao `Textarea`, e ao final do `handleSend`, chamar `textareaRef.current?.focus()`.
+### Problema
+Quando o menu lateral está recolhido e o usuário rola a página para baixo, o botão de expandir o menu fica preso no cabeçalho (topo). Para expandir, é necessário voltar ao topo da página.
 
-### Problema 2: Destinatário consegue editar mensagem do remetente
-A função `canEditMessage` (linha 627) permite que admins/sócios editem **qualquer** mensagem. Isso está errado — edição deve ser restrita apenas ao autor da mensagem. Solução: remover a permissão de admin/sócio para editar mensagens alheias, mantendo apenas a verificação `msg.sender_id === user?.id`.
+### Solução
+Adicionar um botão flutuante (fixed) no canto esquerdo da tela que aparece somente quando:
+1. O sidebar está recolhido (collapsed)
+2. O usuário rolou para baixo (mais de 100px)
 
-### Alterações no arquivo
+O botão ficará fixo na tela, acompanhando o scroll, permitindo expandir o menu de qualquer posição da página.
 
-**`src/pages/Mensagens.tsx`**:
+### Alteração
 
-1. Adicionar `const textareaRef = useRef<HTMLTextAreaElement>(null)` junto aos outros refs
-2. No `handleSend`, após `setNewMessage('')`, adicionar `setTimeout(() => textareaRef.current?.focus(), 50)`
-3. Atribuir `ref={textareaRef}` no `Textarea` de digitação (linha ~2109)
-4. Na função `canEditMessage` (linha 627-634): remover o bloco que permite admin/sócio editar qualquer mensagem — apenas o autor pode editar suas próprias mensagens dentro de 6 horas
+**`src/components/Layout.tsx`**:
+- Adicionar estado `scrolledDown` que detecta quando o scroll passou de 100px
+- Adicionar listener de scroll no container de conteúdo
+- Renderizar um `SidebarTrigger` flutuante (position fixed, left, meio da tela vertical) que aparece apenas quando sidebar está collapsed E o usuário rolou para baixo
+- Usar `useSidebar()` para verificar o estado do sidebar
+- Estilo: botão redondo com ícone de menu, sombra, fundo sólido, z-index alto
 
