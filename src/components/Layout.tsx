@@ -1,9 +1,9 @@
-import { ReactNode, useEffect, useState, useLayoutEffect, useMemo } from 'react';
+import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
-import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell, BellOff, BellRing } from 'lucide-react';
+import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell, BellOff, BellRing, PanelLeft } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UpdatesNotification } from '@/components/UpdatesNotification';
