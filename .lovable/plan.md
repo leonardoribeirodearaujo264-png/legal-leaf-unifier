@@ -1,23 +1,32 @@
 
 
-## Botão flutuante para expandir o menu lateral
+## Textarea auto-expansível em toda a aplicação
 
 ### Problema
-Quando o menu lateral está recolhido e o usuário rola a página para baixo, o botão de expandir o menu fica preso no cabeçalho (topo). Para expandir, é necessário voltar ao topo da página.
+Os campos de texto (Textarea) não expandem conforme o usuário digita. Em textos longos, fica limitado a 1-2 linhas visíveis, obrigando o usuário a rolar dentro do campo.
 
 ### Solução
-Adicionar um botão flutuante (fixed) no canto esquerdo da tela que aparece somente quando:
-1. O sidebar está recolhido (collapsed)
-2. O usuário rolou para baixo (mais de 100px)
-
-O botão ficará fixo na tela, acompanhando o scroll, permitindo expandir o menu de qualquer posição da página.
+Modificar o componente base `Textarea` (`src/components/ui/textarea.tsx`) para incluir auto-resize nativo. Isso afetará automaticamente **todos** os lugares que usam o componente: Mensagens Internas, WhatsApp, Assistente IA, etc.
 
 ### Alteração
 
-**`src/components/Layout.tsx`**:
-- Adicionar estado `scrolledDown` que detecta quando o scroll passou de 100px
-- Adicionar listener de scroll no container de conteúdo
-- Renderizar um `SidebarTrigger` flutuante (position fixed, left, meio da tela vertical) que aparece apenas quando sidebar está collapsed E o usuário rolou para baixo
-- Usar `useSidebar()` para verificar o estado do sidebar
-- Estilo: botão redondo com ícone de menu, sombra, fundo sólido, z-index alto
+**`src/components/ui/textarea.tsx`**:
+- Adicionar lógica de auto-resize usando `useEffect` + `useCallback`
+- A cada mudança de valor, ajustar `textarea.style.height` baseado no `scrollHeight`
+- Respeitar o `max-height` já definido via CSS (classes como `max-h-32`, `max-h-[200px]`)
+- Combinar refs (interno + externo via `forwardRef`) usando um callback ref
+- O textarea começa pequeno (`rows=1` / `min-h`) e cresce até o limite máximo, depois ativa scroll
+
+**Lógica central:**
+```typescript
+const adjustHeight = () => {
+  if (internalRef.current) {
+    internalRef.current.style.height = 'auto';
+    internalRef.current.style.height = `${internalRef.current.scrollHeight}px`;
+  }
+};
+// Chamado no onChange e via useEffect quando value muda
+```
+
+Isso é aplicado no componente base, então todas as Textareas do projeto (Mensagens, WhatsApp, Assistente IA, comentários internos, etc.) passarão a expandir automaticamente.
 
