@@ -205,13 +205,35 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
   const showFloatingTrigger = sidebarState === 'collapsed' && scrolledDown;
 
   return (
+      <>
+      {/* Floating Sidebar Trigger */}
+      {showFloatingTrigger && (
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={toggleSidebar}
+          className="fixed left-3 top-1/2 -translate-y-1/2 z-[60] h-10 w-10 rounded-full shadow-lg bg-card border-border hover:bg-accent transition-all"
+          title="Expandir menu"
+        >
+          <PanelLeft className="w-5 h-5" />
+        </Button>
+      )}
+
       <div className="min-h-[100dvh] flex w-full">
         <AppSidebar unreadMessagesCount={unreadMessagesCount} />
-                const items = allSearchableItems.filter(item => item.category === category);
+        
+        <SidebarInset className="flex-1 flex flex-col">
+          {/* Global Search Dialog */}
+          <CommandDialog open={searchOpen} onOpenChange={setSearchOpen}>
+            <CommandInput placeholder="Buscar na intranet... (Ctrl+K)" />
+            <CommandList>
+              <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
+              {searchCategories.map((category: string) => {
+                const items = allSearchableItems.filter((item: any) => item.category === category);
                 if (items.length === 0) return null;
                 return (
                   <CommandGroup key={category} heading={category}>
-                    {items.map((item) => (
+                    {items.map((item: any) => (
                       <CommandItem
                         key={item.path}
                         onSelect={() => handleSearchSelect(item.path)}
@@ -345,7 +367,6 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
                 className="h-7 text-xs"
                 onClick={() => {
                   Notification.requestPermission().then(() => {
-                    // Force re-render by toggling a dummy state
                     window.dispatchEvent(new Event('notification-permission-changed'));
                   });
                 }}
@@ -383,7 +404,7 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
 
           {/* Main Content */}
           <main className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
+            <div ref={mainRef} className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
               {showBackButton && (
                 <Button
                   variant="ghost"
@@ -405,6 +426,6 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
           </main>
         </SidebarInset>
       </div>
-    </SidebarProvider>
+      </>
   );
-};
+}
