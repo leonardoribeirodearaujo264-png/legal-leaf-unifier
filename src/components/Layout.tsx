@@ -1,9 +1,9 @@
-import { ReactNode, useEffect, useState, useLayoutEffect, useMemo } from 'react';
+import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
-import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell, BellOff, BellRing } from 'lucide-react';
+import { LogOut, Search as SearchIcon, ArrowLeft, Menu, MessageCircle, Bell, BellOff, BellRing, PanelLeft } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { UpdatesNotification } from '@/components/UpdatesNotification';
@@ -12,7 +12,7 @@ import { NotificationToast } from '@/components/NotificationToast';
 import { MessagePopupDialog } from '@/components/MessagePopupDialog';
 import { NotificationsPanel } from '@/components/NotificationsPanel';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
-import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarTrigger, SidebarInset, useSidebar } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -164,6 +164,61 @@ export const Layout = ({ children }: LayoutProps) => {
 
   return (
     <SidebarProvider defaultOpen={false}>
+      <LayoutInner
+        showBackButton={showBackButton}
+        handleBack={handleBack}
+        searchOpen={searchOpen}
+        setSearchOpen={setSearchOpen}
+        searchCategories={searchCategories}
+        allSearchableItems={allSearchableItems}
+        handleSearchSelect={handleSearchSelect}
+        unreadMessagesCount={unreadMessagesCount}
+        unreadAnnouncementsCount={unreadAnnouncementsCount}
+        popupEnabled={popupEnabled}
+        lastReceivedMessage={lastReceivedMessage}
+        dismissPopup={dismissPopup}
+        profile={profile}
+        user={user}
+        signOut={signOut}
+        navigate={navigate}
+        location={location}
+      >
+        {children}
+      </LayoutInner>
+    </SidebarProvider>
+  );
+};
+
+function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSearchOpen, searchCategories, allSearchableItems, handleSearchSelect, unreadMessagesCount, popupEnabled, lastReceivedMessage, dismissPopup, profile, user, signOut, navigate, location }: any) {
+  const { state: sidebarState, toggleSidebar } = useSidebar();
+  const [scrolledDown, setScrolledDown] = useState(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const onScroll = () => setScrolledDown(el.scrollTop > 100);
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const showFloatingTrigger = sidebarState === 'collapsed' && scrolledDown;
+
+  return (
+      <>
+      {/* Floating Sidebar Trigger */}
+      {showFloatingTrigger && (
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={toggleSidebar}
+          className="fixed left-3 top-1/2 -translate-y-1/2 z-[60] h-10 w-10 rounded-full shadow-lg bg-card border-border hover:bg-accent transition-all"
+          title="Expandir menu"
+        >
+          <PanelLeft className="w-5 h-5" />
+        </Button>
+      )}
+
       <div className="min-h-[100dvh] flex w-full">
         <AppSidebar unreadMessagesCount={unreadMessagesCount} />
         
@@ -173,12 +228,12 @@ export const Layout = ({ children }: LayoutProps) => {
             <CommandInput placeholder="Buscar na intranet... (Ctrl+K)" />
             <CommandList>
               <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
-              {searchCategories.map((category) => {
-                const items = allSearchableItems.filter(item => item.category === category);
+              {searchCategories.map((category: string) => {
+                const items = allSearchableItems.filter((item: any) => item.category === category);
                 if (items.length === 0) return null;
                 return (
                   <CommandGroup key={category} heading={category}>
-                    {items.map((item) => (
+                    {items.map((item: any) => (
                       <CommandItem
                         key={item.path}
                         onSelect={() => handleSearchSelect(item.path)}
@@ -312,7 +367,6 @@ export const Layout = ({ children }: LayoutProps) => {
                 className="h-7 text-xs"
                 onClick={() => {
                   Notification.requestPermission().then(() => {
-                    // Force re-render by toggling a dummy state
                     window.dispatchEvent(new Event('notification-permission-changed'));
                   });
                 }}
@@ -350,7 +404,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
           {/* Main Content */}
           <main className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
+            <div ref={mainRef} className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
               {showBackButton && (
                 <Button
                   variant="ghost"
@@ -372,6 +426,6 @@ export const Layout = ({ children }: LayoutProps) => {
           </main>
         </SidebarInset>
       </div>
-    </SidebarProvider>
+      </>
   );
-};
+}
