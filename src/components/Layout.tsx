@@ -191,18 +191,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
 function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSearchOpen, searchCategories, allSearchableItems, handleSearchSelect, unreadMessagesCount, popupEnabled, lastReceivedMessage, dismissPopup, profile, user, signOut, navigate, location }: any) {
   const { state: sidebarState, toggleSidebar } = useSidebar();
-  const [scrolledDown, setScrolledDown] = useState(false);
-  const mainRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    const onScroll = () => setScrolledDown(el.scrollTop > 100);
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const showFloatingTrigger = sidebarState === 'collapsed' && scrolledDown;
+  const showFloatingTrigger = sidebarState === 'collapsed';
 
   return (
       <>
