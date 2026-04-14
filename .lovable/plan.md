@@ -1,32 +1,24 @@
 
 
-## Textarea auto-expansível em toda a aplicação
+## Corrigir scroll do menu recolhido e botão flutuante
 
-### Problema
-Os campos de texto (Textarea) não expandem conforme o usuário digita. Em textos longos, fica limitado a 1-2 linhas visíveis, obrigando o usuário a rolar dentro do campo.
+### Problema 1: Menu recolhido não permite scroll
+O componente `SidebarContent` em `src/components/ui/sidebar.tsx` (linha 334) tem a classe `group-data-[collapsible=icon]:overflow-hidden`, que desabilita o scroll quando o sidebar está no modo ícone (recolhido). Isso impede o usuário de rolar pelos itens do menu.
 
-### Solução
-Modificar o componente base `Textarea` (`src/components/ui/textarea.tsx`) para incluir auto-resize nativo. Isso afetará automaticamente **todos** os lugares que usam o componente: Mensagens Internas, WhatsApp, Assistente IA, etc.
+**Solução:** Trocar `group-data-[collapsible=icon]:overflow-hidden` por `group-data-[collapsible=icon]:overflow-y-auto` para permitir scroll vertical mesmo quando recolhido.
 
-### Alteração
+### Problema 2: Botão flutuante de expandir não funciona bem
+O botão flutuante atual depende do scroll do conteúdo principal (`mainRef`), mas quando o sidebar está recolhido e o usuário não consegue rolar os itens do menu, o botão fica inacessível. Além disso, o botão flutuante pode conflitar com o scroll do próprio sidebar.
 
-**`src/components/ui/textarea.tsx`**:
-- Adicionar lógica de auto-resize usando `useEffect` + `useCallback`
-- A cada mudança de valor, ajustar `textarea.style.height` baseado no `scrollHeight`
-- Respeitar o `max-height` já definido via CSS (classes como `max-h-32`, `max-h-[200px]`)
-- Combinar refs (interno + externo via `forwardRef`) usando um callback ref
-- O textarea começa pequeno (`rows=1` / `min-h`) e cresce até o limite máximo, depois ativa scroll
+**Solução:** Simplificar — remover a condição de `scrolledDown` do botão flutuante. Quando o sidebar estiver recolhido, o botão flutuante de expandir sempre ficará visível (fixo no canto esquerdo), garantindo que o usuário sempre possa expandir o menu independentemente da posição de scroll.
 
-**Lógica central:**
-```typescript
-const adjustHeight = () => {
-  if (internalRef.current) {
-    internalRef.current.style.height = 'auto';
-    internalRef.current.style.height = `${internalRef.current.scrollHeight}px`;
-  }
-};
-// Chamado no onChange e via useEffect quando value muda
-```
+### Alterações
 
-Isso é aplicado no componente base, então todas as Textareas do projeto (Mensagens, WhatsApp, Assistente IA, comentários internos, etc.) passarão a expandir automaticamente.
+**`src/components/ui/sidebar.tsx`** (linha 334):
+- Trocar `group-data-[collapsible=icon]:overflow-hidden` por `group-data-[collapsible=icon]:overflow-y-auto`
+
+**`src/components/Layout.tsx`**:
+- Remover o estado `scrolledDown` e o listener de scroll associado
+- Mudar a condição do botão flutuante de `sidebarState === 'collapsed' && scrolledDown` para apenas `sidebarState === 'collapsed'`
+- Remover `mainRef` e o `useEffect` de scroll (linhas 194-203) já que não serão mais necessários
 
