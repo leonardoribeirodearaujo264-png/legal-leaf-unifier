@@ -1,26 +1,29 @@
 
 
-## Corrigir menu lateral: expandido por padrão, grupos recolhidos
+## Corrigir "Analisar com IA" no Meta Ads (página em branco)
 
-### Problema
-1. Menu inicia recolhido (só ícones), com ícones desalinhados/repetidos
-2. Os grupos de menu (Produção Jurídica, Ferramentas, etc.) iniciam abertos, mostrando todos os itens de uma vez
+### Causa raiz
+A edge function `meta-ads-ai-analysis` usa `supabase.auth.getClaims(token)` — esse método **não existe** no Supabase JS client. Isso causa um erro no runtime da função, que retorna um erro 500 ou crash silencioso. No frontend, o erro não é tratado de forma que impeça a renderização, causando a tela em branco.
 
-### Solução
+### Correção
 
-**`src/components/Layout.tsx`** (linha 166):
-- Trocar `defaultOpen={false}` para `defaultOpen={true}` — o menu mostra texto por padrão
-- Remover o botão flutuante e lógica associada (já não será necessário com menu expandido por padrão)
+**`supabase/functions/meta-ads-ai-analysis/index.ts`**:
+- Substituir `supabase.auth.getClaims(token)` por `supabase.auth.getUser()`, que é o método correto para validar autenticação
+- Extrair o `user.id` para usar ao salvar a análise no banco
+- Manter toda a lógica restante (chamada ao Anthropic, salvamento no histórico)
 
-**`src/components/AppSidebar.tsx`** (linhas 132-137):
-- Mudar a inicialização de `openGroups` para começar vazio (nenhum grupo expandido por padrão)
-- Remover a lógica que auto-abre o grupo da rota ativa (useEffect linhas 139-148)
-- O grupo só abrirá quando o usuário clicar nele manualmente
-- Manter a persistência no localStorage para que, após clicar, o estado seja lembrado
+Trecho da correção:
+```typescript
+// ANTES (não funciona):
+const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+if (claimsError || !claimsData?.claims) { return 401 }
+// user_id: claimsData.claims.sub
 
-### Resultado
-- Menu lateral aparece expandido (com texto) por padrão
-- Todos os grupos começam fechados, mostrando apenas os títulos (ex: "⚖️ Produção Jurídica")
-- Ao clicar num grupo, ele expande mostrando os itens
-- O estado dos grupos abertos/fechados é salvo no localStorage
+// DEPOIS:
+const { data: { user }, error: userError } = await supabase.auth.getUser();
+if (userError || !user) { return 401 }
+// user_id: user.id
+```
+
+Essa é uma correção pontual em um arquivo — nenhuma mudança necessária no frontend.
 
