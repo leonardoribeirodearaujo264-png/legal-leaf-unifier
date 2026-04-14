@@ -393,7 +393,7 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
 
           {/* Main Content */}
           <main className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div ref={mainRef} className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
+            <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
               {showBackButton && (
                 <Button
                   variant="ghost"
