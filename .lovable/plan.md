@@ -1,24 +1,26 @@
 
 
-## Corrigir scroll do menu recolhido e botão flutuante
+## Corrigir menu lateral: expandido por padrão, grupos recolhidos
 
-### Problema 1: Menu recolhido não permite scroll
-O componente `SidebarContent` em `src/components/ui/sidebar.tsx` (linha 334) tem a classe `group-data-[collapsible=icon]:overflow-hidden`, que desabilita o scroll quando o sidebar está no modo ícone (recolhido). Isso impede o usuário de rolar pelos itens do menu.
+### Problema
+1. Menu inicia recolhido (só ícones), com ícones desalinhados/repetidos
+2. Os grupos de menu (Produção Jurídica, Ferramentas, etc.) iniciam abertos, mostrando todos os itens de uma vez
 
-**Solução:** Trocar `group-data-[collapsible=icon]:overflow-hidden` por `group-data-[collapsible=icon]:overflow-y-auto` para permitir scroll vertical mesmo quando recolhido.
+### Solução
 
-### Problema 2: Botão flutuante de expandir não funciona bem
-O botão flutuante atual depende do scroll do conteúdo principal (`mainRef`), mas quando o sidebar está recolhido e o usuário não consegue rolar os itens do menu, o botão fica inacessível. Além disso, o botão flutuante pode conflitar com o scroll do próprio sidebar.
+**`src/components/Layout.tsx`** (linha 166):
+- Trocar `defaultOpen={false}` para `defaultOpen={true}` — o menu mostra texto por padrão
+- Remover o botão flutuante e lógica associada (já não será necessário com menu expandido por padrão)
 
-**Solução:** Simplificar — remover a condição de `scrolledDown` do botão flutuante. Quando o sidebar estiver recolhido, o botão flutuante de expandir sempre ficará visível (fixo no canto esquerdo), garantindo que o usuário sempre possa expandir o menu independentemente da posição de scroll.
+**`src/components/AppSidebar.tsx`** (linhas 132-137):
+- Mudar a inicialização de `openGroups` para começar vazio (nenhum grupo expandido por padrão)
+- Remover a lógica que auto-abre o grupo da rota ativa (useEffect linhas 139-148)
+- O grupo só abrirá quando o usuário clicar nele manualmente
+- Manter a persistência no localStorage para que, após clicar, o estado seja lembrado
 
-### Alterações
-
-**`src/components/ui/sidebar.tsx`** (linha 334):
-- Trocar `group-data-[collapsible=icon]:overflow-hidden` por `group-data-[collapsible=icon]:overflow-y-auto`
-
-**`src/components/Layout.tsx`**:
-- Remover o estado `scrolledDown` e o listener de scroll associado
-- Mudar a condição do botão flutuante de `sidebarState === 'collapsed' && scrolledDown` para apenas `sidebarState === 'collapsed'`
-- Remover `mainRef` e o `useEffect` de scroll (linhas 194-203) já que não serão mais necessários
+### Resultado
+- Menu lateral aparece expandido (com texto) por padrão
+- Todos os grupos começam fechados, mostrando apenas os títulos (ex: "⚖️ Produção Jurídica")
+- Ao clicar num grupo, ele expande mostrando os itens
+- O estado dos grupos abertos/fechados é salvo no localStorage
 
