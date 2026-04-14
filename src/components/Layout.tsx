@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
