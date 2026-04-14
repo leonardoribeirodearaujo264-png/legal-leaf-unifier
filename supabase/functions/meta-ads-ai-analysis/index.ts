@@ -140,7 +140,7 @@ Seja direto, use números reais e percentuais. Foque em insights acionáveis.`;
 
     try {
       await serviceClient.from('meta_ads_ai_analyses').insert({
-        user_id: claimsData.claims.sub,
+        user_id: user.id,
         analysis_text: analysis,
         date_from,
         date_to,
