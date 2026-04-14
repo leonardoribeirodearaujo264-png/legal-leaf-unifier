@@ -163,7 +163,7 @@ export const Layout = ({ children }: LayoutProps) => {
   };
 
   return (
-    <SidebarProvider defaultOpen={false}>
+    <SidebarProvider defaultOpen={true}>
       <LayoutInner
         showBackButton={showBackButton}
         handleBack={handleBack}
@@ -190,23 +190,10 @@ export const Layout = ({ children }: LayoutProps) => {
 };
 
 function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSearchOpen, searchCategories, allSearchableItems, handleSearchSelect, unreadMessagesCount, popupEnabled, lastReceivedMessage, dismissPopup, profile, user, signOut, navigate, location }: any) {
-  const { state: sidebarState, toggleSidebar } = useSidebar();
-  const showFloatingTrigger = sidebarState === 'collapsed';
+  const { state: sidebarState } = useSidebar();
 
   return (
       <>
-      {/* Floating Sidebar Trigger */}
-      {showFloatingTrigger && (
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={toggleSidebar}
-          className="fixed left-3 top-1/2 -translate-y-1/2 z-[60] h-10 w-10 rounded-full shadow-lg bg-card border-border hover:bg-accent transition-all"
-          title="Expandir menu"
-        >
-          <PanelLeft className="w-5 h-5" />
-        </Button>
-      )}
 
       <div className="min-h-[100dvh] flex w-full">
         <AppSidebar unreadMessagesCount={unreadMessagesCount} />

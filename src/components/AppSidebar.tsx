@@ -131,21 +131,8 @@ export function AppSidebar({ unreadMessagesCount: externalUnreadCount }: AppSide
 
   // ─── Open groups state with localStorage persistence ──────
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
-    const saved = loadOpenGroups();
-    if (saved.size === 0 && activeGroupId) saved.add(activeGroupId);
-    return saved;
+    return loadOpenGroups();
   });
-
-  useEffect(() => {
-    if (activeGroupId && !openGroups.has(activeGroupId)) {
-      setOpenGroups(prev => {
-        const next = new Set(prev);
-        next.add(activeGroupId);
-        saveOpenGroups(next);
-        return next;
-      });
-    }
-  }, [activeGroupId]);
 
   const toggleGroup = useCallback((id: string) => {
     setOpenGroups(prev => {
