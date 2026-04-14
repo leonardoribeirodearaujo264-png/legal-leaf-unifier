@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { ReactNode, useEffect, useState, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
@@ -191,18 +191,7 @@ export const Layout = ({ children }: LayoutProps) => {
 
 function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSearchOpen, searchCategories, allSearchableItems, handleSearchSelect, unreadMessagesCount, popupEnabled, lastReceivedMessage, dismissPopup, profile, user, signOut, navigate, location }: any) {
   const { state: sidebarState, toggleSidebar } = useSidebar();
-  const [scrolledDown, setScrolledDown] = useState(false);
-  const mainRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
-    const onScroll = () => setScrolledDown(el.scrollTop > 100);
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-
-  const showFloatingTrigger = sidebarState === 'collapsed' && scrolledDown;
+  const showFloatingTrigger = sidebarState === 'collapsed';
 
   return (
       <>
@@ -404,7 +393,7 @@ function LayoutInner({ children, showBackButton, handleBack, searchOpen, setSear
 
           {/* Main Content */}
           <main className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <div ref={mainRef} className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
+            <div className="flex-1 flex flex-col p-4 md:p-6 lg:p-8 overflow-x-hidden overflow-y-auto min-w-0">
               {showBackButton && (
                 <Button
                   variant="ghost"
