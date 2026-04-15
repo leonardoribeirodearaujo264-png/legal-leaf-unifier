@@ -270,7 +270,7 @@ export function TaskCreationForm({
         ) : (
           <>
             <Sparkles className="h-4 w-4 mr-2 text-purple-500" />
-            Sugerir Tarefa com IA
+            {hasMovementContext ? 'Sugerir Tarefa com IA' : 'Sugerir com IA (descreva a tarefa acima)'}
           </>
         )}
       </Button>
