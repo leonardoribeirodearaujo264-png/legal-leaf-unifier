@@ -1,32 +1,35 @@
 
 
-## Padronizar Criação de Tarefa ADVBox + Sugestão IA do Zero
+## Padronizar Criação de Tarefa em Todas as Telas ADVBox
 
 ### Diagnóstico
 
-Todas as telas de criação de tarefa ADVBox **já usam o mesmo componente** (`TaskCreationForm`). Os campos são idênticos. O problema real é:
+Após inspeção de todas as telas, confirmei que:
 
-1. **Sugestão com IA não funciona ao criar do zero**: O botão "Sugerir Tarefa com IA" envia `movementTitle` e `publicationContent` baseados no `initialData`, que vêm vazios quando se cria uma tarefa do zero (na aba de ranking/lista). A edge function `suggest-task` retorna erro 400 porque exige pelo menos um deles.
+- **MovimentacoesAdvbox**, **ProcessosAtivos**, **ProcessosDashboard** → usam `TaskCreationDialog` (que internamente usa `TaskCreationForm`) — campos completos ✅
+- **PublicacoesFeed** → usa `TaskCreationForm` diretamente com preview da publicação — campos completos ✅
+- **TarefasAdvbox (botão "Nova Tarefa")** → usa `TaskCreationForm` diretamente — campos completos ✅
+- **RelatoriosProdutividadeTarefas (aba Produtividade / Ranking)** → **NÃO TEM opção de criar tarefa** ❌
 
-2. **A IA deveria usar o que o usuário digitou**: Quando não há contexto de movimentação, a IA deve usar o que o usuário já digitou nos campos "Título" e "Descrição" para sugerir a tarefa.
+O problema é que a aba de Produtividade/Ranking de tarefas não possui nenhum botão ou funcionalidade para criar tarefas. As demais telas já usam o mesmo componente `TaskCreationForm` com campos idênticos.
 
 ### Alterações
 
-**Arquivo: `src/components/TaskCreationForm.tsx`**
+**Arquivo: `src/pages/RelatoriosProdutividadeTarefas.tsx`**
 
-- Atualizar a função `suggestTaskWithAI` para enviar os valores **atuais** dos campos `taskTitle` e `comments` (não os do `initialData`)
-- Se o usuário não digitou nada nos campos, mostrar um toast pedindo que preencha pelo menos o título ou descrição antes de sugerir
-- Ajustar o texto do botão: quando não há contexto de movimentação, mostrar "Descreva a tarefa e clique para sugerir com IA"
+1. Importar `TaskCreationForm`, `Dialog`, `ScrollArea`, `Label`, `Plus`
+2. Adicionar estados: `dialogOpen`, `newTaskProcessNumber`, `isCreatingTask`, `advboxTaskTypes`, `advboxUsers`, `loadingTaskTypes`, `loadingUsers`
+3. Adicionar funções `fetchAdvboxTaskTypes` e `fetchAdvboxUsers` (chamando `advbox-integration/task-types` e `advbox-integration/users`)
+4. Adicionar botão "Nova Tarefa" no header (ao lado dos filtros)
+5. Adicionar Dialog com:
+   - Campo "Número do Processo" (igual ao da TarefasAdvbox)
+   - `TaskCreationForm` com todos os campos (título, descrição, categoria, responsável, participantes, datas, prazo, local, urgente/importante, sugestão IA)
+   - Lógica de submit que busca o `lawsuit_id` pelo número do processo
 
-**Arquivo: `supabase/functions/suggest-task/index.ts`**
-
-- Relaxar a validação: aceitar `publicationContent` mesmo sem `movementTitle` (já aceita)
-- Adicionar um modo "criação livre" no prompt: quando o conteúdo não parece ser uma movimentação processual, a IA deve sugerir categoria, prazo e detalhamento com base na descrição do usuário
-- Manter o comportamento atual para movimentações (backward-compatible)
+O dialog será idêntico ao que já existe na página TarefasAdvbox (linhas 671-783), garantindo 100% de consistência.
 
 ### Resultado
-- O botão "Sugerir com IA" funciona em **todos** os contextos de criação de tarefa
-- Quando há movimentação: sugere baseado no andamento (como hoje)
-- Quando é criação livre: sugere baseado no que o usuário digitou
-- Layout e campos continuam 100% idênticos em todas as telas
+- Todas as 6 telas de criação de tarefa ADVBox terão os mesmos campos
+- A sugestão com IA funciona em todas (incluindo modo "criação livre")
+- Nenhum componente existente é alterado — apenas o relatório de produtividade recebe o botão que faltava
 
