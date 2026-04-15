@@ -833,7 +833,9 @@ Deno.serve(async (req) => {
       // Endpoint para buscar TODAS as movimentações com paginação completa (paralelo)
       case 'movements-full': {
         console.log('Fetching ALL movements with PARALLEL pagination...');
-        const cacheKey = 'movements-full';
+        const dateStart = url.searchParams.get('date_start');
+        const dateEnd = url.searchParams.get('date_end');
+        const cacheKey = dateStart ? `movements-full-${dateStart}-${dateEnd || 'now'}` : 'movements-full';
         
         const cached = cache.get(cacheKey);
         const now = Date.now();
@@ -841,7 +843,7 @@ Deno.serve(async (req) => {
         if (!forceRefresh && cached && (now - cached.timestamp) < CACHE_TTL) {
           const items = extractItems(cached.data);
           const totalCount = extractTotalCount(cached.data, items.length);
-          console.log(`Cache hit for movements-full: ${items.length} items`);
+          console.log(`Cache hit for ${cacheKey}: ${items.length} items`);
           
           return new Response(JSON.stringify({
             data: items,
@@ -858,8 +860,12 @@ Deno.serve(async (req) => {
         }
         
         try {
-          // Primeiro, buscar a primeira página para descobrir o totalCount
-          const firstPage = await makeAdvboxRequest({ endpoint: '/last_movements?limit=100&offset=0' });
+          // Build endpoint with optional date filters (API v1.2.0)
+          let movEndpoint = '/last_movements?limit=100&offset=0';
+          if (dateStart) movEndpoint += `&date_start=${dateStart}`;
+          if (dateEnd) movEndpoint += `&date_end=${dateEnd}`;
+          
+          const firstPage = await makeAdvboxRequest({ endpoint: movEndpoint });
           const firstItems = firstPage.data || [];
           const totalCount = firstPage.totalCount || firstItems.length;
           
