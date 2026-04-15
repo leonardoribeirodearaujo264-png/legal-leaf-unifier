@@ -694,6 +694,11 @@ Deno.serve(async (req) => {
       case 'lawsuits-recent': {
         const startDate = url.searchParams.get('start_date'); // formato: YYYY-MM-DD
         const endDate = url.searchParams.get('end_date'); // formato: YYYY-MM-DD (opcional)
+        // Filtros server-side da API v1.2.0
+        const statusClosureStart = url.searchParams.get('status_closure_start');
+        const statusClosureEnd = url.searchParams.get('status_closure_end');
+        const productionDateStart = url.searchParams.get('production_date_start');
+        const productionDateEnd = url.searchParams.get('production_date_end');
         
         console.log(`Fetching RECENT lawsuits from ${startDate} to ${endDate || 'now'}...`);
         
@@ -710,6 +715,36 @@ Deno.serve(async (req) => {
         const startDateObj = new Date(startDate + 'T00:00:00Z');
         const endDateObj = endDate ? new Date(endDate + 'T23:59:59Z') : new Date();
         
+        // Se filtros server-side foram fornecidos, usar endpoint com parâmetros
+        const hasServerFilters = statusClosureStart || statusClosureEnd || productionDateStart || productionDateEnd;
+        
+        if (hasServerFilters) {
+          console.log('Using server-side lawsuit filters...');
+          const filterParams: string[] = [];
+          if (statusClosureStart) filterParams.push(`status_closure_start=${statusClosureStart}`);
+          if (statusClosureEnd) filterParams.push(`status_closure_end=${statusClosureEnd}`);
+          if (productionDateStart) filterParams.push(`production_date_start=${productionDateStart}`);
+          if (productionDateEnd) filterParams.push(`production_date_end=${productionDateEnd}`);
+          
+          const filterQuery = filterParams.join('&');
+          const filterCacheKey = `lawsuits-filtered-${filterQuery}`;
+          
+          const result = await getCachedOrFetch(filterCacheKey, async () => {
+            return await makeAdvboxRequest({ endpoint: `/lawsuits?${filterQuery}` });
+          }, forceRefresh);
+          
+          const items = extractItems(result.data);
+          return new Response(JSON.stringify({
+            data: items,
+            totalCount: items.length,
+            dataSource: 'api-server-filtered',
+            metadata: result.metadata,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Fallback: client-side filtering
         // PRIORIDADE 1: Usar cache completo se disponível
         const fullCacheKey = 'lawsuits-full';
         let allLawsuits: any[] = [];
