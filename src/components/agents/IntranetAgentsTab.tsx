@@ -90,11 +90,12 @@ export function IntranetAgentsTab() {
     setLoading(false);
   };
 
-  const deleteAgent = async (agentId: string) => {
-    if (!confirm('Tem certeza que deseja excluir este agente?')) return;
-    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', agentId);
+  const confirmDelete = async () => {
+    if (!deletingAgentId) return;
+    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId);
     if (error) { toast.error('Erro ao excluir agente'); }
     else { toast.success('Agente excluído'); loadAgents(); }
+    setDeletingAgentId(null);
   };
 
   if (loading) {
