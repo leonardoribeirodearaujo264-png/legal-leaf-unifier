@@ -885,8 +885,11 @@ Deno.serve(async (req) => {
             for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
               const batch = remainingPages.slice(i, i + BATCH_SIZE);
               
-              const batchPromises = batch.map(offset =>
-                makeAdvboxRequest({ endpoint: `/last_movements?limit=100&offset=${offset}` })
+              const batchPromises = batch.map(offset => {
+                let batchEndpoint = `/last_movements?limit=100&offset=${offset}`;
+                if (dateStart) batchEndpoint += `&date_start=${dateStart}`;
+                if (dateEnd) batchEndpoint += `&date_end=${dateEnd}`;
+                return makeAdvboxRequest({ endpoint: batchEndpoint })
                   .then(res => res.data || [])
                   .catch(err => {
                     console.warn(`Failed to fetch movements offset=${offset}:`, err.message);
