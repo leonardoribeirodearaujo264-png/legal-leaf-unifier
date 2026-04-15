@@ -2452,6 +2452,23 @@ Deno.serve(async (req) => {
           });
         }
 
+        // competence: API v1.2.0 - formato MM/YYYY para competência contábil
+        // Repassar se fornecido pelo frontend
+        if (body.competence) {
+          // Validar formato MM/YYYY
+          if (!/^\d{2}\/\d{4}$/.test(body.competence)) {
+            return new Response(JSON.stringify({ 
+              error: 'Campo competence deve estar no formato MM/YYYY' 
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        // sectors_id: API v1.2.0 - ID do setor/centro de custo adicional
+        // Repassar se fornecido
+
         console.log(`Creating transaction:`, JSON.stringify(body).substring(0, 200));
         
         const data = await makeAdvboxRequest({
