@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, CheckCircle2, AlertCircle, User, Calendar, Filter } from 'lucide-react';
+import { TrendingUp, Clock, CheckCircle2, AlertCircle, User, Calendar, Filter, Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval, differenceInDays } from 'date-fns';
@@ -16,6 +18,7 @@ import { AdvboxDataStatus } from '@/components/AdvboxDataStatus';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { TaskCreationForm } from '@/components/TaskCreationForm';
 
 interface Task {
   id: string;
@@ -47,9 +50,54 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   const { toast } = useToast();
   const { isAdmin, profile } = useUserRole();
 
+  // Task creation dialog states
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newTaskProcessNumber, setNewTaskProcessNumber] = useState('');
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [advboxTaskTypes, setAdvboxTaskTypes] = useState<Array<{ id: number; name: string }>>([]);
+  const [advboxUsers, setAdvboxUsers] = useState<Array<{ id: number; name: string }>>([]);
+  const [loadingTaskTypes, setLoadingTaskTypes] = useState(false);
+  const [loadingAdvboxUsers, setLoadingAdvboxUsers] = useState(false);
+
   useEffect(() => {
     fetchTasks();
   }, []);
+
+  const fetchAdvboxTaskTypes = async () => {
+    setLoadingTaskTypes(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('advbox-integration/task-types');
+      if (error) throw error;
+      const rawData = data?.data || [];
+      const types = Array.isArray(rawData) ? rawData.map((t: any) => ({
+        id: t.id || t.tasks_id,
+        name: t.task || t.name || t.title || `Tipo ${t.id || t.tasks_id}`,
+      })).filter((t: any) => t.id && t.name) : [];
+      setAdvboxTaskTypes(types);
+    } catch (err) {
+      console.error('Erro ao buscar tipos de tarefa:', err);
+    } finally {
+      setLoadingTaskTypes(false);
+    }
+  };
+
+  const fetchAdvboxUsers = async () => {
+    setLoadingAdvboxUsers(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('advbox-integration/users');
+      if (error) throw error;
+      const rawData = data?.data || data?.users || [];
+      const users = Array.isArray(rawData) ? rawData.map((u: any) => ({
+        id: u.id || u.user_id,
+        name: u.name || u.full_name || u.email || `Usuário ${u.id}`,
+      })).filter((u: any) => u.id) : [];
+      setAdvboxUsers(users);
+    } catch (err) {
+      console.error('Erro ao buscar usuários Advbox:', err);
+    } finally {
+      setLoadingAdvboxUsers(false);
+    }
+  };
 
   const fetchTasks = async (forceRefresh = false) => {
     setLoading(true);
@@ -398,9 +446,119 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
             </div>
           </div>
           
-          <Button onClick={() => fetchTasks(true)} variant="outline">
-            Atualizar Dados
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => fetchTasks(true)} variant="outline">
+              Atualizar Dados
+            </Button>
+
+            <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) setNewTaskProcessNumber('');
+            }}>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Nova Tarefa
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+                <DialogHeader className="flex-shrink-0">
+                  <DialogTitle>Criar Nova Tarefa</DialogTitle>
+                  <DialogDescription>
+                    Preencha os campos abaixo para criar uma nova tarefa no Advbox
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-2 flex-shrink-0 border-b pb-4 mb-4">
+                  <Label htmlFor="process_number_prod" className="text-sm font-medium">Número do Processo *</Label>
+                  <Input
+                    id="process_number_prod"
+                    value={newTaskProcessNumber}
+                    onChange={(e) => setNewTaskProcessNumber(e.target.value)}
+                    placeholder="Ex: 1234567-89.2023.8.26.0100"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Informe o número do processo para vincular a tarefa no Advbox
+                  </p>
+                </div>
+
+                <ScrollArea className="flex-1 overflow-y-auto pr-4">
+                  <TaskCreationForm
+                    initialData={{
+                      lawsuitId: 0,
+                      processNumber: newTaskProcessNumber,
+                      title: '',
+                      description: '',
+                    }}
+                    taskTypes={advboxTaskTypes}
+                    advboxUsers={advboxUsers}
+                    loadingTaskTypes={loadingTaskTypes}
+                    loadingUsers={loadingAdvboxUsers}
+                    onFetchTaskTypes={fetchAdvboxTaskTypes}
+                    onFetchUsers={fetchAdvboxUsers}
+                    onSubmit={async (taskData) => {
+                      if (!newTaskProcessNumber.trim()) {
+                        toast({
+                          title: 'Número do processo obrigatório',
+                          description: 'Informe o número do processo para criar a tarefa no Advbox.',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+                      
+                      setIsCreatingTask(true);
+                      try {
+                        const { data: lawsuitsData, error: lawsuitsError } = await supabase.functions.invoke(
+                          'advbox-integration/lawsuits'
+                        );
+                        if (lawsuitsError) throw lawsuitsError;
+
+                        const lawsuits = (lawsuitsData as any)?.data || lawsuitsData || [];
+                        const processNumber = newTaskProcessNumber.trim();
+                        const lawsuit = (lawsuits as any[]).find(
+                          (l: any) => l.process_number === processNumber
+                        );
+
+                        if (!lawsuit) {
+                          throw new Error('Processo não encontrado no Advbox');
+                        }
+
+                        taskData.lawsuits_id = parseInt(String(lawsuit.id), 10);
+
+                        const { error } = await supabase.functions.invoke('advbox-integration/create-task', {
+                          body: taskData,
+                        });
+                        if (error) throw error;
+
+                        toast({
+                          title: 'Tarefa criada',
+                          description: 'A tarefa foi criada com sucesso no Advbox.',
+                        });
+
+                        setDialogOpen(false);
+                        setNewTaskProcessNumber('');
+                        fetchTasks();
+                      } catch (error) {
+                        console.error('Error creating task:', error);
+                        toast({
+                          title: 'Erro ao criar tarefa',
+                          description: error instanceof Error ? error.message : 'Não foi possível criar a tarefa.',
+                          variant: 'destructive',
+                        });
+                      } finally {
+                        setIsCreatingTask(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setDialogOpen(false);
+                      setNewTaskProcessNumber('');
+                    }}
+                    isSubmitting={isCreatingTask}
+                  />
+                </ScrollArea>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
