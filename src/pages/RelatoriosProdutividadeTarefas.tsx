@@ -50,6 +50,15 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   const { toast } = useToast();
   const { isAdmin, profile } = useUserRole();
 
+  // Task creation dialog states
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newTaskProcessNumber, setNewTaskProcessNumber] = useState('');
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [advboxTaskTypes, setAdvboxTaskTypes] = useState<Array<{ id: number; name: string }>>([]);
+  const [advboxUsers, setAdvboxUsers] = useState<Array<{ id: number; name: string }>>([]);
+  const [loadingTaskTypes, setLoadingTaskTypes] = useState(false);
+  const [loadingAdvboxUsers, setLoadingAdvboxUsers] = useState(false);
+
   useEffect(() => {
     fetchTasks();
   }, []);
