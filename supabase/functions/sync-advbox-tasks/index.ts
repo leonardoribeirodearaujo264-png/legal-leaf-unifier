@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
     let totalCount = 0;
     let iterations = 0;
     const maxIterations = 100;
-    const DELAY_BETWEEN_REQUESTS = 1500;
+    const DELAY_BETWEEN_REQUESTS = 2100; // API rate limit: 30 req/min = 1 a cada 2s, margem de segurança
 
     try {
       while (hasMore && iterations < maxIterations) {
