@@ -502,6 +502,33 @@ export type Database = {
         }
         Relationships: []
       }
+      advbox_settings_cache: {
+        Row: {
+          created_at: string
+          data: Json
+          fetched_at: string
+          id: string
+          setting_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json
+          fetched_at?: string
+          id?: string
+          setting_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          fetched_at?: string
+          id?: string
+          setting_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       advbox_sync_status: {
         Row: {
           completed_at: string | null
