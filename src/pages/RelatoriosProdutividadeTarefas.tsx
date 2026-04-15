@@ -446,9 +446,119 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
             </div>
           </div>
           
-          <Button onClick={() => fetchTasks(true)} variant="outline">
-            Atualizar Dados
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={() => fetchTasks(true)} variant="outline">
+              Atualizar Dados
+            </Button>
+
+            <Dialog open={dialogOpen} onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) setNewTaskProcessNumber('');
+            }}>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  Nova Tarefa
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+                <DialogHeader className="flex-shrink-0">
+                  <DialogTitle>Criar Nova Tarefa</DialogTitle>
+                  <DialogDescription>
+                    Preencha os campos abaixo para criar uma nova tarefa no Advbox
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="space-y-2 flex-shrink-0 border-b pb-4 mb-4">
+                  <Label htmlFor="process_number_prod" className="text-sm font-medium">Número do Processo *</Label>
+                  <Input
+                    id="process_number_prod"
+                    value={newTaskProcessNumber}
+                    onChange={(e) => setNewTaskProcessNumber(e.target.value)}
+                    placeholder="Ex: 1234567-89.2023.8.26.0100"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Informe o número do processo para vincular a tarefa no Advbox
+                  </p>
+                </div>
+
+                <ScrollArea className="flex-1 overflow-y-auto pr-4">
+                  <TaskCreationForm
+                    initialData={{
+                      lawsuitId: 0,
+                      processNumber: newTaskProcessNumber,
+                      title: '',
+                      description: '',
+                    }}
+                    taskTypes={advboxTaskTypes}
+                    advboxUsers={advboxUsers}
+                    loadingTaskTypes={loadingTaskTypes}
+                    loadingUsers={loadingAdvboxUsers}
+                    onFetchTaskTypes={fetchAdvboxTaskTypes}
+                    onFetchUsers={fetchAdvboxUsers}
+                    onSubmit={async (taskData) => {
+                      if (!newTaskProcessNumber.trim()) {
+                        toast({
+                          title: 'Número do processo obrigatório',
+                          description: 'Informe o número do processo para criar a tarefa no Advbox.',
+                          variant: 'destructive',
+                        });
+                        return;
+                      }
+                      
+                      setIsCreatingTask(true);
+                      try {
+                        const { data: lawsuitsData, error: lawsuitsError } = await supabase.functions.invoke(
+                          'advbox-integration/lawsuits'
+                        );
+                        if (lawsuitsError) throw lawsuitsError;
+
+                        const lawsuits = (lawsuitsData as any)?.data || lawsuitsData || [];
+                        const processNumber = newTaskProcessNumber.trim();
+                        const lawsuit = (lawsuits as any[]).find(
+                          (l: any) => l.process_number === processNumber
+                        );
+
+                        if (!lawsuit) {
+                          throw new Error('Processo não encontrado no Advbox');
+                        }
+
+                        taskData.lawsuits_id = parseInt(String(lawsuit.id), 10);
+
+                        const { error } = await supabase.functions.invoke('advbox-integration/create-task', {
+                          body: taskData,
+                        });
+                        if (error) throw error;
+
+                        toast({
+                          title: 'Tarefa criada',
+                          description: 'A tarefa foi criada com sucesso no Advbox.',
+                        });
+
+                        setDialogOpen(false);
+                        setNewTaskProcessNumber('');
+                        fetchTasks();
+                      } catch (error) {
+                        console.error('Error creating task:', error);
+                        toast({
+                          title: 'Erro ao criar tarefa',
+                          description: error instanceof Error ? error.message : 'Não foi possível criar a tarefa.',
+                          variant: 'destructive',
+                        });
+                      } finally {
+                        setIsCreatingTask(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setDialogOpen(false);
+                      setNewTaskProcessNumber('');
+                    }}
+                    isSubmitting={isCreatingTask}
+                  />
+                </ScrollArea>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
