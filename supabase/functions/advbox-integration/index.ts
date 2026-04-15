@@ -1239,6 +1239,41 @@ Deno.serve(async (req) => {
       // ========== TAREFAS (POSTS) ==========
       
       case 'tasks': {
+        // Filtros avançados da API v1.2.0
+        const completedStart = url.searchParams.get('completed_start');
+        const completedEnd = url.searchParams.get('completed_end');
+        const deadlineStart = url.searchParams.get('deadline_start');
+        const deadlineEnd = url.searchParams.get('deadline_end');
+        
+        const hasAdvancedFilters = completedStart || completedEnd || deadlineStart || deadlineEnd;
+        
+        if (hasAdvancedFilters) {
+          // Usar filtros server-side da API
+          console.log('Fetching tasks with advanced filters...');
+          const filterParams: string[] = [];
+          if (completedStart) filterParams.push(`completed_start=${completedStart}`);
+          if (completedEnd) filterParams.push(`completed_end=${completedEnd}`);
+          if (deadlineStart) filterParams.push(`deadline_start=${deadlineStart}`);
+          if (deadlineEnd) filterParams.push(`deadline_end=${deadlineEnd}`);
+          
+          const filterQuery = filterParams.join('&');
+          const filterCacheKey = `tasks-filtered-${filterQuery}`;
+          
+          const result = await getCachedOrFetch(filterCacheKey, async () => {
+            return await makeAdvboxRequest({ endpoint: `/posts?${filterQuery}` });
+          }, forceRefresh);
+          
+          const items = extractItems(result.data);
+          return new Response(JSON.stringify({
+            data: items,
+            totalCount: items.length,
+            metadata: result.metadata,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Comportamento padrão: buscar tudo com paginação completa
         console.log('Fetching ALL tasks with complete pagination...');
         const cacheKey = 'tasks-full';
         
