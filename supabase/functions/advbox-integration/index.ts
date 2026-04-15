@@ -894,8 +894,8 @@ Deno.serve(async (req) => {
                   .catch(err => {
                     console.warn(`Failed to fetch movements offset=${offset}:`, err.message);
                     return [];
-                  })
-              );
+                  });
+              });
               
               const batchResults = await Promise.all(batchPromises);
               for (const items of batchResults) {
