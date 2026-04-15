@@ -8,6 +8,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Agent {
   id: string;
@@ -69,6 +73,7 @@ export function IntranetAgentsTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
 
   useEffect(() => { loadAgents(); }, []);
 
@@ -85,11 +90,12 @@ export function IntranetAgentsTab() {
     setLoading(false);
   };
 
-  const deleteAgent = async (agentId: string) => {
-    if (!confirm('Tem certeza que deseja excluir este agente?')) return;
-    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', agentId);
+  const confirmDelete = async () => {
+    if (!deletingAgentId) return;
+    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId);
     if (error) { toast.error('Erro ao excluir agente'); }
     else { toast.success('Agente excluído'); loadAgents(); }
+    setDeletingAgentId(null);
   };
 
   if (loading) {
@@ -176,7 +182,7 @@ export function IntranetAgentsTab() {
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingAgent(agent); setShowCreate(true); }}>
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteAgent(agent.id)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeletingAgentId(agent.id)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </>
@@ -194,6 +200,23 @@ export function IntranetAgentsTab() {
       )}
 
       <CreateAgentDialog open={showCreate} onOpenChange={setShowCreate} onSuccess={loadAgents} editingAgent={editingAgent} />
+
+      <AlertDialog open={!!deletingAgentId} onOpenChange={(open) => { if (!open) setDeletingAgentId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir agente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este agente? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
