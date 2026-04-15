@@ -1706,6 +1706,18 @@ Deno.serve(async (req) => {
           const [y, m, d] = body.date_deadline.split('-');
           body.date_deadline = `${d}/${m}/${y}`;
         }
+
+        // Formatar end_date se presente
+        if (body.end_date && body.end_date.includes('-')) {
+          const [y, m, d] = body.end_date.split('-');
+          body.end_date = `${d}/${m}/${y}`;
+        }
+
+        // display_schedule: API v1.2.0 - boolean para exibir na agenda
+        // Repassar se fornecido, caso contrário não incluir
+        if (body.display_schedule !== undefined) {
+          body.display_schedule = Boolean(body.display_schedule);
+        }
         
         const data = await makeAdvboxRequest({ 
           endpoint: '/posts', 
