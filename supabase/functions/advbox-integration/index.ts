@@ -2053,6 +2053,37 @@ Deno.serve(async (req) => {
         const advboxPayload: Record<string, any> = {
           name: body.name,
         };
+
+        // Campos obrigatórios: users_id e customers_origins_id
+        // Buscar do settings cache se não fornecidos
+        if (!body.users_id || !body.customers_origins_id) {
+          try {
+            const settings = await getSettingsWithCache();
+            if (!body.users_id) {
+              const users = settings.users || settings.account?.users || [];
+              if (users.length > 0) {
+                advboxPayload.users_id = users[0].id;
+                console.log('Auto-assigned users_id:', advboxPayload.users_id);
+              }
+            } else {
+              advboxPayload.users_id = body.users_id;
+            }
+            if (!body.customers_origins_id) {
+              const origins = settings.origins || settings.customers_origins || settings.account?.origins || [];
+              if (origins.length > 0) {
+                advboxPayload.customers_origins_id = origins[0].id;
+                console.log('Auto-assigned customers_origins_id:', advboxPayload.customers_origins_id);
+              }
+            } else {
+              advboxPayload.customers_origins_id = body.customers_origins_id;
+            }
+          } catch (e) {
+            console.warn('Could not auto-assign required fields from settings:', e);
+          }
+        } else {
+          advboxPayload.users_id = body.users_id;
+          advboxPayload.customers_origins_id = body.customers_origins_id;
+        }
         if (body.email) advboxPayload.email = body.email;
         if (body.phone) advboxPayload.cellphone = body.phone;
         if (body.cpf) advboxPayload.identification = body.cpf;
