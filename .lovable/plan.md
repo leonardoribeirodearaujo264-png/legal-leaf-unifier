@@ -1,49 +1,49 @@
 
 
-## Implementar gaps da integração ADVBox + verificar cache de settings
+## Implementar gaps da integração ADVBox (comparação com outra cliente)
 
-### Diagnóstico
+Após comparação detalhada, a maioria das melhorias da outra cliente **já está implementada** no seu sistema. Restam 5 gaps reais a corrigir:
 
-1. **Cache de settings vazio**: A tabela `advbox_settings_cache` tem 0 registros — o cache nunca foi populado porque nenhuma chamada ao endpoint `settings` foi feita ainda (ou a função não foi re-deployada após a última atualização).
+### O que já está implementado (sem ação necessária)
+- Cache persistente `/settings` com TTL 24h
+- `create-movement` usando `POST /lawsuits/movement` (endpoint correto)
+- Filtros server-side de processos, tarefas e movimentações
+- `complete-task` retorna erro informativo (limitação da API)
+- Mapeamento correto de campos de cliente (identification, document, CEP com hífen)
+- Endpoints `update-lawsuit`, `update-transaction`, `create-transaction`, `task-history`
+- Delay de 2000ms na `advbox-integration`
+- Parâmetro `month` nos aniversariantes
 
-2. **Gaps identificados na edge function**:
-   - `case 'tasks'`: busca `/posts` sem filtros `completed_start/end`, `deadline_start/end`
-   - `case 'customer-birthdays'`: chama `/customers/birthdays` sem parâmetro `month`
-   - `case 'create-task'`: não envia `display_schedule`
-   - `case 'create-transaction'`: não aceita `competence` (MM/YYYY)
-   - `case 'lawsuits-recent'`: filtra client-side em vez de usar filtros server-side da API
+### Gaps a corrigir
 
-### Alterações
+**1. Remover `update-task` fantasma (linha 1767)**
+O case `update-task` chama `PUT /posts/{id}` que **não existe** na API. Deve retornar erro informativo (igual ao `complete-task`) em vez de tentar chamar um endpoint inexistente.
 
-**Arquivo: `supabase/functions/advbox-integration/index.ts`**
+**2. Ajustar delays nas sync functions para 2100ms**
+- `sync-advbox-tasks`: 1500ms → 2100ms
+- `sync-advbox-customers`: 300ms → 2100ms
+- `sync-advbox-status`: 500ms → 2100ms
+- `sync-advbox-financial`: 500ms entre batches → 2100ms
 
-1. **Tasks com filtros avançados** (case `tasks`, ~linha 1236):
-   - Aceitar query params `completed_start`, `completed_end`, `deadline_start`, `deadline_end`
-   - Quando fornecidos, construir endpoint `/posts?completed_start=DD/MM/YYYY&completed_end=...` em vez de buscar tudo
-   - Manter o comportamento atual (sem filtros = busca completa) como fallback
+**3. Filtro `origin` no endpoint de movimentações por processo**
+O case `movements` (linha 1122) não aceita `?origin=TRIBUNAL|MANUAL`. Adicionar suporte a esse parâmetro e tratar resposta 204 (sem dados).
 
-2. **Aniversariantes com mês** (case `customer-birthdays`, ~linha 1143):
-   - Aceitar query param `month` (1-12)
-   - Quando fornecido, chamar `/customers/birthdays?month={month}`
+**4. Validações financeiras usando settings**
+Na criação de transações (`create-transaction`), validar:
+- `entry_type="income"` aceita apenas categorias tipo CRÉDITO
+- `entry_type="expense"` aceita apenas categorias tipo DÉBITO
+- `date_payment` não pode ser data futura
+- `amount` deve ser > 0
 
-3. **display_schedule na criação de tarefa** (case `create-task`, ~linha 1585):
-   - Aceitar campo `display_schedule` no body e repassar à API
-   - Default: não incluir (mantém comportamento atual)
+**5. Validações de frontend nos formulários ADVBox**
+- CPF/CNPJ com algoritmo real
+- Pasta do processo máximo 30 caracteres
+- `end_time` requer `end_date`
 
-4. **competence na criação de transação** (case `create-transaction`, ~linha 2337):
-   - Aceitar campo `competence` (MM/YYYY) no body e repassar à API
-
-5. **Filtros server-side em lawsuits-recent** (case `lawsuits-recent`, ~linha 666):
-   - Quando disponíveis, usar parâmetros de filtro da API (`status_closure_start`, `status_closure_end`, `production_date_start`, `production_date_end`) passados como query params
-   - Manter filtro client-side como fallback
-
-6. **Popular cache de settings automaticamente** (início da função):
-   - Na inicialização (primeiro request), chamar `getSettingsWithCache()` em background para garantir que o cache é populado
-   - Adicionar um case `refresh-settings` para forçar atualização manual
-
-### Resultado
-- Consultas de tarefas por período (concluídas/prazo) serão server-side, reduzindo tráfego
-- Aniversariantes filtráveis por mês específico
-- Campos `display_schedule` e `competence` disponíveis para criação
-- Cache de settings será populado automaticamente no primeiro uso
+### Arquivos modificados
+- `supabase/functions/advbox-integration/index.ts` — corrigir update-task, adicionar origin filter, validações financeiras
+- `supabase/functions/sync-advbox-tasks/index.ts` — delay 2100ms
+- `supabase/functions/sync-advbox-customers/index.ts` — delay 2100ms
+- `supabase/functions/sync-advbox-status/index.ts` — delay 2100ms
+- `supabase/functions/sync-advbox-financial/index.ts` — delay 2100ms
 
