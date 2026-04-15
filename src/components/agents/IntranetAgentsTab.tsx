@@ -200,6 +200,23 @@ export function IntranetAgentsTab() {
       )}
 
       <CreateAgentDialog open={showCreate} onOpenChange={setShowCreate} onSuccess={loadAgents} editingAgent={editingAgent} />
+
+      <AlertDialog open={!!deletingAgentId} onOpenChange={(open) => { if (!open) setDeletingAgentId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir agente</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir este agente? Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
