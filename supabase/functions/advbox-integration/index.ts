@@ -1577,8 +1577,57 @@ Deno.serve(async (req) => {
         const body = await req.json();
         console.log('Creating task with body:', JSON.stringify(body));
         
-        // Nota: tasks_id é requerido pelo Advbox mas o endpoint /tasks não está acessível
-        // Se não foi fornecido, tentar criar sem ele (o Advbox pode usar um padrão)
+        // Validar campos obrigatórios conforme API v1.2.0
+        if (!body.from) {
+          // Tentar buscar o primeiro usuário do settings cache como fallback
+          try {
+            const settings = await getSettingsWithCache();
+            const users = settings.users || settings.account?.users || [];
+            if (users.length > 0) {
+              body.from = users[0].id;
+              console.log('Auto-assigned from user:', body.from);
+            }
+          } catch (e) {
+            console.warn('Could not auto-assign from user:', e);
+          }
+        }
+
+        if (!body.tasks_id) {
+          return new Response(JSON.stringify({ error: 'tasks_id é obrigatório (tipo da tarefa)' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (!body.lawsuits_id) {
+          return new Response(JSON.stringify({ error: 'lawsuits_id é obrigatório (processo vinculado)' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Formatar start_date se necessário (API espera DD/MM/YYYY)
+        if (body.start_date && body.start_date.includes('-')) {
+          const [y, m, d] = body.start_date.split('-');
+          body.start_date = `${d}/${m}/${y}`;
+        }
+        if (!body.start_date) {
+          const now = new Date();
+          body.start_date = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+        }
+
+        // Garantir guests como array
+        if (!body.guests) {
+          body.guests = body.from ? [body.from] : [];
+        } else if (!Array.isArray(body.guests)) {
+          body.guests = [body.guests];
+        }
+
+        // Formatar date_deadline se presente
+        if (body.date_deadline && body.date_deadline.includes('-')) {
+          const [y, m, d] = body.date_deadline.split('-');
+          body.date_deadline = `${d}/${m}/${y}`;
+        }
         
         const data = await makeAdvboxRequest({ 
           endpoint: '/posts', 
@@ -2006,9 +2055,9 @@ Deno.serve(async (req) => {
         };
         if (body.email) advboxPayload.email = body.email;
         if (body.phone) advboxPayload.cellphone = body.phone;
-        if (body.cpf) advboxPayload.individual_registration = body.cpf;
+        if (body.cpf) advboxPayload.identification = body.cpf;
         if (body.cnpj) advboxPayload.company_registration = body.cnpj;
-        if (body.rg) advboxPayload.identity_card = body.rg;
+        if (body.rg) advboxPayload.document = body.rg;
         if (body.orgao_emissor) advboxPayload.issuing_body = body.orgao_emissor;
         if (body.birthday) advboxPayload.birthdate = body.birthday;
         if (body.profissao) advboxPayload.occupation = body.profissao;
@@ -2022,7 +2071,14 @@ Deno.serve(async (req) => {
         if (body.bairro) advboxPayload.neighborhood = body.bairro;
         if (body.cidade) advboxPayload.city = body.cidade;
         if (body.estado) advboxPayload.state = body.estado;
-        if (body.cep) advboxPayload.zip_code = body.cep;
+        if (body.cep) {
+          // Formatar CEP com hífen (obrigatório: 99999-999)
+          let cep = body.cep.replace(/\D/g, '');
+          if (cep.length === 8 && !cep.includes('-')) {
+            cep = cep.substring(0, 5) + '-' + cep.substring(5);
+          }
+          advboxPayload.postalcode = cep;
+        }
         if (body.telefone_fixo) advboxPayload.phone = body.telefone_fixo;
         if (body.celular) advboxPayload.cellphone = body.celular;
         if (body.telefone_comercial) advboxPayload.business_phone = body.telefone_comercial;
