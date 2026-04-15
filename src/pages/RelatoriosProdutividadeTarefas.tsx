@@ -63,6 +63,42 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
     fetchTasks();
   }, []);
 
+  const fetchAdvboxTaskTypes = async () => {
+    setLoadingTaskTypes(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('advbox-integration/task-types');
+      if (error) throw error;
+      const rawData = data?.data || [];
+      const types = Array.isArray(rawData) ? rawData.map((t: any) => ({
+        id: t.id || t.tasks_id,
+        name: t.task || t.name || t.title || `Tipo ${t.id || t.tasks_id}`,
+      })).filter((t: any) => t.id && t.name) : [];
+      setAdvboxTaskTypes(types);
+    } catch (err) {
+      console.error('Erro ao buscar tipos de tarefa:', err);
+    } finally {
+      setLoadingTaskTypes(false);
+    }
+  };
+
+  const fetchAdvboxUsers = async () => {
+    setLoadingAdvboxUsers(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('advbox-integration/users');
+      if (error) throw error;
+      const rawData = data?.data || data?.users || [];
+      const users = Array.isArray(rawData) ? rawData.map((u: any) => ({
+        id: u.id || u.user_id,
+        name: u.name || u.full_name || u.email || `Usuário ${u.id}`,
+      })).filter((u: any) => u.id) : [];
+      setAdvboxUsers(users);
+    } catch (err) {
+      console.error('Erro ao buscar usuários Advbox:', err);
+    } finally {
+      setLoadingAdvboxUsers(false);
+    }
+  };
+
   const fetchTasks = async (forceRefresh = false) => {
     setLoading(true);
     try {
