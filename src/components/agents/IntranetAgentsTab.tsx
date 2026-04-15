@@ -8,6 +8,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface Agent {
   id: string;
