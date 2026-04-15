@@ -529,7 +529,35 @@ Deno.serve(async (req) => {
 
     console.log('Advbox integration called:', path, 'force_refresh:', forceRefresh);
 
+    // Auto-populate settings cache in background on first request
+    if (!cache.has('advbox-settings-full')) {
+      getSettingsWithCache().catch(err => console.warn('Background settings cache population failed:', err));
+    }
+
     switch (path) {
+      // ========== REFRESH SETTINGS ==========
+      case 'refresh-settings': {
+        console.log('Force refreshing settings cache...');
+        try {
+          const settings = await getSettingsWithCache(true);
+          return new Response(JSON.stringify({ 
+            success: true, 
+            data: settings,
+            message: 'Settings cache atualizado com sucesso',
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          return new Response(JSON.stringify({ 
+            error: 'Falha ao atualizar cache de settings',
+            details: error instanceof Error ? error.message : String(error),
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
       // ========== PROCESSOS (LAWSUITS) ==========
       
       // Endpoint COMPLETO - busca TODOS os processos com paginação
@@ -666,6 +694,11 @@ Deno.serve(async (req) => {
       case 'lawsuits-recent': {
         const startDate = url.searchParams.get('start_date'); // formato: YYYY-MM-DD
         const endDate = url.searchParams.get('end_date'); // formato: YYYY-MM-DD (opcional)
+        // Filtros server-side da API v1.2.0
+        const statusClosureStart = url.searchParams.get('status_closure_start');
+        const statusClosureEnd = url.searchParams.get('status_closure_end');
+        const productionDateStart = url.searchParams.get('production_date_start');
+        const productionDateEnd = url.searchParams.get('production_date_end');
         
         console.log(`Fetching RECENT lawsuits from ${startDate} to ${endDate || 'now'}...`);
         
@@ -682,6 +715,36 @@ Deno.serve(async (req) => {
         const startDateObj = new Date(startDate + 'T00:00:00Z');
         const endDateObj = endDate ? new Date(endDate + 'T23:59:59Z') : new Date();
         
+        // Se filtros server-side foram fornecidos, usar endpoint com parâmetros
+        const hasServerFilters = statusClosureStart || statusClosureEnd || productionDateStart || productionDateEnd;
+        
+        if (hasServerFilters) {
+          console.log('Using server-side lawsuit filters...');
+          const filterParams: string[] = [];
+          if (statusClosureStart) filterParams.push(`status_closure_start=${statusClosureStart}`);
+          if (statusClosureEnd) filterParams.push(`status_closure_end=${statusClosureEnd}`);
+          if (productionDateStart) filterParams.push(`production_date_start=${productionDateStart}`);
+          if (productionDateEnd) filterParams.push(`production_date_end=${productionDateEnd}`);
+          
+          const filterQuery = filterParams.join('&');
+          const filterCacheKey = `lawsuits-filtered-${filterQuery}`;
+          
+          const result = await getCachedOrFetch(filterCacheKey, async () => {
+            return await makeAdvboxRequest({ endpoint: `/lawsuits?${filterQuery}` });
+          }, forceRefresh);
+          
+          const items = extractItems(result.data);
+          return new Response(JSON.stringify({
+            data: items,
+            totalCount: items.length,
+            dataSource: 'api-server-filtered',
+            metadata: result.metadata,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Fallback: client-side filtering
         // PRIORIDADE 1: Usar cache completo se disponível
         const fullCacheKey = 'lawsuits-full';
         let allLawsuits: any[] = [];
@@ -1141,8 +1204,14 @@ Deno.serve(async (req) => {
       }
 
       case 'customer-birthdays': {
-        const result = await getCachedOrFetch('customer-birthdays', async () => {
-          return await makeAdvboxRequest({ endpoint: '/customers/birthdays' });
+        const monthParam = url.searchParams.get('month');
+        const birthdayEndpoint = monthParam 
+          ? `/customers/birthdays?month=${monthParam}` 
+          : '/customers/birthdays';
+        const birthdayCacheKey = monthParam ? `customer-birthdays-${monthParam}` : 'customer-birthdays';
+        
+        const result = await getCachedOrFetch(birthdayCacheKey, async () => {
+          return await makeAdvboxRequest({ endpoint: birthdayEndpoint });
         }, forceRefresh);
         return new Response(JSON.stringify(result), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1205,6 +1274,41 @@ Deno.serve(async (req) => {
       // ========== TAREFAS (POSTS) ==========
       
       case 'tasks': {
+        // Filtros avançados da API v1.2.0
+        const completedStart = url.searchParams.get('completed_start');
+        const completedEnd = url.searchParams.get('completed_end');
+        const deadlineStart = url.searchParams.get('deadline_start');
+        const deadlineEnd = url.searchParams.get('deadline_end');
+        
+        const hasAdvancedFilters = completedStart || completedEnd || deadlineStart || deadlineEnd;
+        
+        if (hasAdvancedFilters) {
+          // Usar filtros server-side da API
+          console.log('Fetching tasks with advanced filters...');
+          const filterParams: string[] = [];
+          if (completedStart) filterParams.push(`completed_start=${completedStart}`);
+          if (completedEnd) filterParams.push(`completed_end=${completedEnd}`);
+          if (deadlineStart) filterParams.push(`deadline_start=${deadlineStart}`);
+          if (deadlineEnd) filterParams.push(`deadline_end=${deadlineEnd}`);
+          
+          const filterQuery = filterParams.join('&');
+          const filterCacheKey = `tasks-filtered-${filterQuery}`;
+          
+          const result = await getCachedOrFetch(filterCacheKey, async () => {
+            return await makeAdvboxRequest({ endpoint: `/posts?${filterQuery}` });
+          }, forceRefresh);
+          
+          const items = extractItems(result.data);
+          return new Response(JSON.stringify({
+            data: items,
+            totalCount: items.length,
+            metadata: result.metadata,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        // Comportamento padrão: buscar tudo com paginação completa
         console.log('Fetching ALL tasks with complete pagination...');
         const cacheKey = 'tasks-full';
         
@@ -1636,6 +1740,18 @@ Deno.serve(async (req) => {
         if (body.date_deadline && body.date_deadline.includes('-')) {
           const [y, m, d] = body.date_deadline.split('-');
           body.date_deadline = `${d}/${m}/${y}`;
+        }
+
+        // Formatar end_date se presente
+        if (body.end_date && body.end_date.includes('-')) {
+          const [y, m, d] = body.end_date.split('-');
+          body.end_date = `${d}/${m}/${y}`;
+        }
+
+        // display_schedule: API v1.2.0 - boolean para exibir na agenda
+        // Repassar se fornecido, caso contrário não incluir
+        if (body.display_schedule !== undefined) {
+          body.display_schedule = Boolean(body.display_schedule);
         }
         
         const data = await makeAdvboxRequest({ 
@@ -2370,6 +2486,23 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
+
+        // competence: API v1.2.0 - formato MM/YYYY para competência contábil
+        // Repassar se fornecido pelo frontend
+        if (body.competence) {
+          // Validar formato MM/YYYY
+          if (!/^\d{2}\/\d{4}$/.test(body.competence)) {
+            return new Response(JSON.stringify({ 
+              error: 'Campo competence deve estar no formato MM/YYYY' 
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        // sectors_id: API v1.2.0 - ID do setor/centro de custo adicional
+        // Repassar se fornecido
 
         console.log(`Creating transaction:`, JSON.stringify(body).substring(0, 200));
         
