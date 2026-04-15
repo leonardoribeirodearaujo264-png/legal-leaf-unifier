@@ -1169,8 +1169,14 @@ Deno.serve(async (req) => {
       }
 
       case 'customer-birthdays': {
-        const result = await getCachedOrFetch('customer-birthdays', async () => {
-          return await makeAdvboxRequest({ endpoint: '/customers/birthdays' });
+        const monthParam = url.searchParams.get('month');
+        const birthdayEndpoint = monthParam 
+          ? `/customers/birthdays?month=${monthParam}` 
+          : '/customers/birthdays';
+        const birthdayCacheKey = monthParam ? `customer-birthdays-${monthParam}` : 'customer-birthdays';
+        
+        const result = await getCachedOrFetch(birthdayCacheKey, async () => {
+          return await makeAdvboxRequest({ endpoint: birthdayEndpoint });
         }, forceRefresh);
         return new Response(JSON.stringify(result), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
