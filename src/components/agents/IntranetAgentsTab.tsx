@@ -182,7 +182,7 @@ export function IntranetAgentsTab() {
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingAgent(agent); setShowCreate(true); }}>
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteAgent(agent.id)}>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeletingAgentId(agent.id)}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </>
