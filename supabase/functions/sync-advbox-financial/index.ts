@@ -821,7 +821,7 @@ serve(async (req) => {
       }
 
       if (batchCount > 0) {
-        await sleep(500); // Small delay between batches
+        await sleep(2100); // API rate limit: 30 req/min = 1 a cada 2s, margem de segurança
       }
 
       try {

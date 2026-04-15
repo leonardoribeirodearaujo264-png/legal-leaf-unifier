@@ -85,7 +85,7 @@ serve(async (req) => {
         }
 
         // Delay para evitar rate limit
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 2100)); // API rate limit: 30 req/min
 
       } catch (err) {
         console.error(`Erro ao processar contrato ${contrato.id}:`, err);

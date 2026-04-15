@@ -1127,8 +1127,24 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
-        const data = await makeAdvboxRequest({ endpoint: `/movements/${lawsuitId}` });
-        return new Response(JSON.stringify(data), {
+        
+        // API v1.2.0: filtro por origin (TRIBUNAL|MANUAL)
+        const origin = url.searchParams.get('origin');
+        let endpoint = `/movements/${lawsuitId}`;
+        if (origin && ['TRIBUNAL', 'MANUAL'].includes(origin.toUpperCase())) {
+          endpoint += `?origin=${origin.toUpperCase()}`;
+        }
+        
+        const response = await makeAdvboxRequest({ endpoint });
+        
+        // API retorna 204 quando não há movimentações (não é erro)
+        if (response === null || response === undefined) {
+          return new Response(JSON.stringify({ data: [], totalCount: 0 }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        return new Response(JSON.stringify(response), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -1765,22 +1781,14 @@ Deno.serve(async (req) => {
       }
 
       case 'update-task': {
-        const body = await req.json();
-        const { task_id, ...updateData } = body;
-        
-        if (!task_id) {
-          return new Response(JSON.stringify({ error: 'Task ID is required' }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-
-        const data = await makeAdvboxRequest({ 
-          endpoint: `/posts/${task_id}`, 
-          method: 'PUT',
-          body: updateData 
-        });
-        return new Response(JSON.stringify(data), {
+        // A API do ADVBox não possui endpoint PUT /posts/{id} para atualizar tarefas.
+        // Apenas GET /posts (listar) e POST /posts (criar) estão disponíveis.
+        // A atualização deve ser feita localmente na tabela advbox_tasks.
+        return new Response(JSON.stringify({ 
+          error: 'A API do ADVBox não possui endpoint para atualizar tarefas. Use a atualização local na tabela advbox_tasks.',
+          limitation: true 
+        }), {
+          status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -2487,10 +2495,69 @@ Deno.serve(async (req) => {
           });
         }
 
+        // Validação: amount deve ser > 0
+        if (body.amount <= 0) {
+          return new Response(JSON.stringify({ error: 'O valor (amount) deve ser maior que zero.' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Validação: date_payment não pode ser data futura
+        if (body.date_payment) {
+          const today = new Date();
+          today.setHours(23, 59, 59, 999);
+          // Suportar formato DD/MM/YYYY e YYYY-MM-DD
+          let paymentDate: Date;
+          const ddmmMatch = String(body.date_payment).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+          if (ddmmMatch) {
+            paymentDate = new Date(`${ddmmMatch[3]}-${ddmmMatch[2]}-${ddmmMatch[1]}`);
+          } else {
+            paymentDate = new Date(body.date_payment);
+          }
+          if (!isNaN(paymentDate.getTime()) && paymentDate > today) {
+            return new Response(JSON.stringify({ error: 'A data de pagamento (date_payment) não pode ser uma data futura.' }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        // Validação: entry_type vs categoria (CRÉDITO/DÉBITO) usando settings cache
+        if (body.entry_type && body.categories_id) {
+          try {
+            const settings = await getSettingsWithCache();
+            if (settings?.financial?.categories) {
+              const category = settings.financial.categories.find(
+                (c: any) => String(c.id) === String(body.categories_id)
+              );
+              if (category) {
+                const catType = (category.type || category.tipo || '').toUpperCase();
+                if (body.entry_type === 'income' && catType !== 'CRÉDITO' && catType !== 'CREDITO') {
+                  return new Response(JSON.stringify({ 
+                    error: `Tipo "income" (receita) aceita apenas categorias do tipo CRÉDITO. A categoria selecionada é do tipo ${catType}.` 
+                  }), {
+                    status: 400,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                  });
+                }
+                if (body.entry_type === 'expense' && catType !== 'DÉBITO' && catType !== 'DEBITO') {
+                  return new Response(JSON.stringify({ 
+                    error: `Tipo "expense" (despesa) aceita apenas categorias do tipo DÉBITO. A categoria selecionada é do tipo ${catType}.` 
+                  }), {
+                    status: 400,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                  });
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Could not validate category type against settings:', e);
+          }
+        }
+
         // competence: API v1.2.0 - formato MM/YYYY para competência contábil
-        // Repassar se fornecido pelo frontend
         if (body.competence) {
-          // Validar formato MM/YYYY
           if (!/^\d{2}\/\d{4}$/.test(body.competence)) {
             return new Response(JSON.stringify({ 
               error: 'Campo competence deve estar no formato MM/YYYY' 
@@ -2500,9 +2567,6 @@ Deno.serve(async (req) => {
             });
           }
         }
-
-        // sectors_id: API v1.2.0 - ID do setor/centro de custo adicional
-        // Repassar se fornecido
 
         console.log(`Creating transaction:`, JSON.stringify(body).substring(0, 200));
         
