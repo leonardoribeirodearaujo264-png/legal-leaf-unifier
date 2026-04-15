@@ -2115,6 +2115,201 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ========== NOVOS ENDPOINTS (API v1.2.0) ==========
+
+      case 'update-lawsuit': {
+        const body = await req.json();
+        const { lawsuit_id, ...updateData } = body;
+        
+        if (!lawsuit_id) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Validar campos permitidos pela API v1.2.0
+        const allowedFields = ['stages_id', 'responsible_id', 'fees_expec', 'fees_money', 'contingency', 'exit_production', 'exit_execution', 'status_closure'];
+        const filteredData: Record<string, any> = {};
+        for (const key of allowedFields) {
+          if (updateData[key] !== undefined) {
+            filteredData[key] = updateData[key];
+          }
+        }
+
+        console.log(`Updating lawsuit ${lawsuit_id}:`, JSON.stringify(filteredData));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/lawsuits/${lawsuit_id}`,
+          method: 'PUT',
+          body: filteredData,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'update-transaction': {
+        // Check financial permission
+        const permCheckUpdateTx = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/get_admin_permission`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY!,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ _user_id: userId, _feature: 'financial' }),
+          }
+        );
+        
+        if (permCheckUpdateTx.ok) {
+          const perm = await permCheckUpdateTx.json();
+          if (perm !== 'edit') {
+            return new Response(JSON.stringify({ error: 'Permissão negada. Necessário permissão de edição financeira.' }), {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        const body = await req.json();
+        const { transaction_id, ...txUpdateData } = body;
+        
+        if (!transaction_id) {
+          return new Response(JSON.stringify({ error: 'transaction_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Campos permitidos pela API v1.2.0 para PUT /transactions/{id}
+        const allowedTxFields = ['date_due', 'date_payment', 'amount', 'description', 'debit_account', 'categories_id', 'cost_centers_id'];
+        const filteredTxData: Record<string, any> = {};
+        for (const key of allowedTxFields) {
+          if (txUpdateData[key] !== undefined) {
+            filteredTxData[key] = txUpdateData[key];
+          }
+        }
+
+        console.log(`Updating transaction ${transaction_id}:`, JSON.stringify(filteredTxData));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/transactions/${transaction_id}`,
+          method: 'PUT',
+          body: filteredTxData,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'create-movement': {
+        const body = await req.json();
+        const { lawsuit_id, date, description } = body;
+        
+        if (!lawsuit_id || !date || !description) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id, date e description são obrigatórios' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (description.length < 10) {
+          return new Response(JSON.stringify({ error: 'description deve ter no mínimo 10 caracteres' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Creating movement for lawsuit ${lawsuit_id}:`, date, description.substring(0, 50));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: '/lawsuits/movement',
+          method: 'POST',
+          body: { lawsuit_id, date, description },
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'create-transaction': {
+        // Check financial permission
+        const permCheckCreateTx = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/get_admin_permission`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY!,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ _user_id: userId, _feature: 'financial' }),
+          }
+        );
+        
+        if (permCheckCreateTx.ok) {
+          const perm = await permCheckCreateTx.json();
+          if (perm !== 'edit') {
+            return new Response(JSON.stringify({ error: 'Permissão negada. Necessário permissão de edição financeira.' }), {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        const body = await req.json();
+        
+        // Campos obrigatórios pela API v1.2.0
+        if (!body.date_due || !body.amount || !body.debit_account || !body.categories_id || !body.cost_centers_id) {
+          return new Response(JSON.stringify({ 
+            error: 'Campos obrigatórios: date_due, amount, debit_account, categories_id, cost_centers_id' 
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Creating transaction:`, JSON.stringify(body).substring(0, 200));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: '/transactions',
+          method: 'POST',
+          body,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'task-history': {
+        const lawsuitId = url.searchParams.get('lawsuit_id');
+        const status = url.searchParams.get('status') || 'all'; // pending, completed, all
+        
+        if (!lawsuitId) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Fetching task history for lawsuit ${lawsuitId}, status: ${status}`);
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/history/${lawsuitId}?status=${status}`,
+        });
+
+        return new Response(JSON.stringify({ data: data.data || data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       default:
         return new Response(JSON.stringify({ error: 'Endpoint not found' }), {
           status: 404,
