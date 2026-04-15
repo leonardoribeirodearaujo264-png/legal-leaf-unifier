@@ -104,20 +104,41 @@ export function TaskCreationForm({
     }
   }, [initialData]);
 
+  const hasMovementContext = !!(initialData.title && initialData.title.trim());
+
   const suggestTaskWithAI = async () => {
+    // When creating from scratch, require user to type something first
+    const currentTitle = taskTitle.trim();
+    const currentDescription = comments.trim();
+
+    if (!hasMovementContext && !currentTitle && !currentDescription) {
+      toast({
+        title: 'Descreva a tarefa primeiro',
+        description: 'Preencha o título ou a descrição antes de solicitar a sugestão da IA.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsSuggestingTask(true);
     setAiSuggestion(null);
 
     try {
+      // Use current field values (user may have edited them)
+      const titleToSend = currentTitle || initialData.title || '';
+      const descToSend = currentDescription || initialData.description || '';
+      const contentToSend = descToSend
+        ? `${titleToSend}\n\n${descToSend}`
+        : titleToSend;
+
       const { data, error } = await supabase.functions.invoke('suggest-task', {
         body: {
-          movementTitle: initialData.title || '',
-          publicationContent: initialData.description 
-            ? `${initialData.title || ''}\n\n${initialData.description}` 
-            : initialData.title || '',
+          movementTitle: hasMovementContext ? titleToSend : '',
+          publicationContent: contentToSend,
           processNumber: initialData.processNumber,
           customerName: initialData.customerName,
           taskTypes: taskTypes.map(t => ({ id: t.id, name: t.name })),
+          freeForm: !hasMovementContext,
         },
       });
 
@@ -127,7 +148,6 @@ export function TaskCreationForm({
       }
 
       if (error) {
-        // Tentar extrair mensagem do data mesmo quando SDK reporta erro
         const realMessage = data?.error || data?.message || error.message || 'Erro ao chamar a função de sugestão.';
         throw new Error(realMessage);
       }
