@@ -1501,11 +1501,9 @@ Deno.serve(async (req) => {
       }
 
       case 'settings': {
-        // Endpoint para buscar configurações da conta
-        const result = await getCachedOrFetch('settings', async () => {
-          return await makeAdvboxRequest({ endpoint: '/settings' });
-        }, forceRefresh);
-        return new Response(JSON.stringify(result), {
+        // Endpoint para buscar configurações da conta (com cache persistente)
+        const settings = await getSettingsWithCache(forceRefresh);
+        return new Response(JSON.stringify({ data: settings }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
