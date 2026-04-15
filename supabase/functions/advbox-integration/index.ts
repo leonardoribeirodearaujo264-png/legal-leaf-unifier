@@ -19,7 +19,7 @@ const fetchStatus = new Map<string, { inProgress: boolean; startedAt: number; pr
 
 // Valores padrão caso não consiga buscar do banco
 let CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-let DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada request para evitar rate limit
+let DELAY_BETWEEN_REQUESTS = 2000; // 2s entre cada request (API permite 30 GETs/min = 1 a cada 2s)
 
 // Buscar configurações do banco
 async function loadSettings() {
