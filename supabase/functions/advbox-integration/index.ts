@@ -35,7 +35,7 @@ async function loadSettings() {
       const data = await response.json();
       if (data && data.length > 0) {
         CACHE_TTL = data[0].cache_ttl_minutes * 60 * 1000;
-        DELAY_BETWEEN_REQUESTS = Math.max(data[0].delay_between_requests_ms, 1000); // Mínimo 1s
+        DELAY_BETWEEN_REQUESTS = Math.max(data[0].delay_between_requests_ms, 2000); // Mínimo 2s
         console.log(`Settings loaded: cache_ttl=${CACHE_TTL}ms, delay=${DELAY_BETWEEN_REQUESTS}ms`);
       }
     }
@@ -75,6 +75,112 @@ async function saveDashboardCacheToDb(updates: Record<string, any>) {
   }
 }
 
+// Helper: Save/read settings cache from DB
+async function saveSettingsCacheToDb(settingKey: string, data: any) {
+  try {
+    if (!SUPABASE_SERVICE_ROLE_KEY) return;
+    const body = {
+      setting_key: settingKey,
+      data: JSON.stringify(data),
+      fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    // Upsert by setting_key
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/advbox_settings_cache?setting_key=eq.${settingKey}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ data, fetched_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+      }
+    );
+    if (!response.ok || response.status === 404) {
+      // Try insert if not found
+      await fetch(`${SUPABASE_URL}/rest/v1/advbox_settings_cache`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ setting_key: settingKey, data, fetched_at: new Date().toISOString() }),
+      });
+    }
+    console.log(`Settings cache saved for key: ${settingKey}`);
+  } catch (err) {
+    console.warn('Error saving settings cache:', err);
+  }
+}
+
+async function getSettingsCacheFromDb(settingKey: string, maxAgeHours = 24): Promise<any | null> {
+  try {
+    if (!SUPABASE_SERVICE_ROLE_KEY) return null;
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/advbox_settings_cache?setting_key=eq.${settingKey}&select=data,fetched_at`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    if (!response.ok) return null;
+    const rows = await response.json();
+    if (!rows || rows.length === 0) return null;
+    const row = rows[0];
+    const age = (Date.now() - new Date(row.fetched_at).getTime()) / (1000 * 60 * 60);
+    if (age > maxAgeHours) {
+      console.log(`Settings cache for ${settingKey} is stale (${age.toFixed(1)}h old)`);
+      return null;
+    }
+    return row.data;
+  } catch (err) {
+    console.warn('Error reading settings cache:', err);
+    return null;
+  }
+}
+
+// Helper: Get full settings with DB cache fallback
+async function getSettingsWithCache(forceRefresh = false): Promise<any> {
+  const cacheKey = 'advbox-settings-full';
+  
+  // Check memory cache first
+  const memCached = cache.get(cacheKey);
+  if (!forceRefresh && memCached && (Date.now() - memCached.timestamp) < 60 * 60 * 1000) {
+    return memCached.data;
+  }
+  
+  // Check DB cache
+  if (!forceRefresh) {
+    const dbCached = await getSettingsCacheFromDb('settings');
+    if (dbCached) {
+      cache.set(cacheKey, { data: dbCached, timestamp: Date.now() });
+      return dbCached;
+    }
+  }
+  
+  // Fetch from API
+  try {
+    const result = await makeAdvboxRequest({ endpoint: '/settings' });
+    const settings = result.data || result;
+    cache.set(cacheKey, { data: settings, timestamp: Date.now() });
+    // Save to DB (non-blocking)
+    saveSettingsCacheToDb('settings', settings).catch(() => {});
+    return settings;
+  } catch (error) {
+    // Fall back to any available cache
+    if (memCached) return memCached.data;
+    const dbFallback = await getSettingsCacheFromDb('settings', 168); // 7 days fallback
+    if (dbFallback) return dbFallback;
+    throw error;
+  }
+}
 
 
 function sleep(ms: number): Promise<void> {
@@ -769,7 +875,7 @@ Deno.serve(async (req) => {
             }
             
             // Buscar em lotes paralelos de 5
-            const BATCH_SIZE = 5;
+            const BATCH_SIZE = 3; // Reduced from 5 to comply with 30 GETs/min limit
             for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
               const batch = remainingPages.slice(i, i + BATCH_SIZE);
               
