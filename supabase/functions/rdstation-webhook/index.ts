@@ -148,29 +148,73 @@ serve(async (req) => {
 
     if (marianaUser && advboxToken) {
       try {
-        // Criar tarefa no Advbox
-        const taskResponse = await fetch('https://app.advbox.com.br/api/v1/tarefas', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Token ${advboxToken}`,
-          },
-          body: JSON.stringify({
-            titulo: `Novo Contrato: ${clientName} - ${productName}`,
-            descricao: `Contrato fechado no RD Station.\n\nCliente: ${clientName}\nProduto: ${productName}\nValor: R$ ${dealValue?.toLocaleString('pt-BR')}\n\nPor favor, crie as tarefas necessárias (petição inicial, recurso, etc.) e distribua para a equipe.`,
-            data_limite: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 dias
-            prioridade: 'alta',
-          }),
-        });
+        // Buscar settings do ADVBox para obter IDs corretos
+        let fromUserId = null;
+        let taskTypeId = null;
+        
+        try {
+          const settingsResponse = await fetch(`${supabaseUrl}/rest/v1/advbox_settings_cache?setting_key=eq.settings&select=data`, {
+            headers: {
+              'apikey': supabaseServiceKey,
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+            },
+          });
+          if (settingsResponse.ok) {
+            const rows = await settingsResponse.json();
+            if (rows?.[0]?.data) {
+              const settings = rows[0].data;
+              const users = settings.users || settings.account?.users || [];
+              const tasks = settings.tasks || settings.account?.tasks || [];
+              // Buscar Mariana nos usuários do ADVBox
+              const marianaAdvbox = users.find((u: any) => 
+                (u.name || '').toLowerCase().includes('mariana')
+              );
+              fromUserId = marianaAdvbox?.id || (users[0]?.id || null);
+              // Buscar um tipo de tarefa genérico
+              taskTypeId = tasks[0]?.id || tasks[0]?.tasks_id || null;
+            }
+          }
+        } catch (settingsErr) {
+          console.warn('Could not fetch settings cache:', settingsErr);
+        }
 
-        if (taskResponse.ok) {
-          const taskData = await taskResponse.json();
-          advboxTaskId = taskData.id;
-          advboxTaskCreated = true;
-          console.log('Advbox task created:', advboxTaskId);
+        if (fromUserId && taskTypeId) {
+          // Criar tarefa via POST /posts (API v1.2.0)
+          const today = new Date();
+          const startDate = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+          const deadline = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+          const deadlineDate = `${String(deadline.getDate()).padStart(2, '0')}/${String(deadline.getMonth() + 1).padStart(2, '0')}/${deadline.getFullYear()}`;
+
+          const taskResponse = await fetch(`https://app.advbox.com.br/api/v1/posts`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${advboxToken}`,
+            },
+            body: JSON.stringify({
+              from: fromUserId,
+              guests: [fromUserId],
+              tasks_id: taskTypeId,
+              lawsuits_id: 0, // Sem processo vinculado
+              start_date: startDate,
+              date_deadline: deadlineDate,
+              comments: `Contrato fechado no RD Station.\n\nCliente: ${clientName}\nProduto: ${productName}\nValor: R$ ${dealValue?.toLocaleString('pt-BR')}\n\nPor favor, crie as tarefas necessárias (petição inicial, recurso, etc.) e distribua para a equipe.`,
+              urgent: true,
+              important: true,
+            }),
+          });
+
+          if (taskResponse.ok) {
+            const taskData = await taskResponse.json();
+            advboxTaskId = taskData.id || taskData.data?.id;
+            advboxTaskCreated = true;
+            console.log('Advbox task created via POST /posts:', advboxTaskId);
+          } else {
+            const errorText = await taskResponse.text();
+            console.error('Advbox task creation failed:', errorText);
+          }
         } else {
-          const errorText = await taskResponse.text();
-          console.error('Advbox task creation failed:', errorText);
+          console.warn('Missing fromUserId or taskTypeId from settings cache, skipping Advbox task creation');
         }
       } catch (advboxError) {
         console.error('Error creating Advbox task:', advboxError);

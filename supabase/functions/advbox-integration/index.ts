@@ -19,7 +19,7 @@ const fetchStatus = new Map<string, { inProgress: boolean; startedAt: number; pr
 
 // Valores padrão caso não consiga buscar do banco
 let CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-let DELAY_BETWEEN_REQUESTS = 1500; // 1.5s entre cada request para evitar rate limit
+let DELAY_BETWEEN_REQUESTS = 2000; // 2s entre cada request (API permite 30 GETs/min = 1 a cada 2s)
 
 // Buscar configurações do banco
 async function loadSettings() {
@@ -35,7 +35,7 @@ async function loadSettings() {
       const data = await response.json();
       if (data && data.length > 0) {
         CACHE_TTL = data[0].cache_ttl_minutes * 60 * 1000;
-        DELAY_BETWEEN_REQUESTS = Math.max(data[0].delay_between_requests_ms, 1000); // Mínimo 1s
+        DELAY_BETWEEN_REQUESTS = Math.max(data[0].delay_between_requests_ms, 2000); // Mínimo 2s
         console.log(`Settings loaded: cache_ttl=${CACHE_TTL}ms, delay=${DELAY_BETWEEN_REQUESTS}ms`);
       }
     }
@@ -75,6 +75,112 @@ async function saveDashboardCacheToDb(updates: Record<string, any>) {
   }
 }
 
+// Helper: Save/read settings cache from DB
+async function saveSettingsCacheToDb(settingKey: string, data: any) {
+  try {
+    if (!SUPABASE_SERVICE_ROLE_KEY) return;
+    const body = {
+      setting_key: settingKey,
+      data: JSON.stringify(data),
+      fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    // Upsert by setting_key
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/advbox_settings_cache?setting_key=eq.${settingKey}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ data, fetched_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+      }
+    );
+    if (!response.ok || response.status === 404) {
+      // Try insert if not found
+      await fetch(`${SUPABASE_URL}/rest/v1/advbox_settings_cache`, {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ setting_key: settingKey, data, fetched_at: new Date().toISOString() }),
+      });
+    }
+    console.log(`Settings cache saved for key: ${settingKey}`);
+  } catch (err) {
+    console.warn('Error saving settings cache:', err);
+  }
+}
+
+async function getSettingsCacheFromDb(settingKey: string, maxAgeHours = 24): Promise<any | null> {
+  try {
+    if (!SUPABASE_SERVICE_ROLE_KEY) return null;
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/advbox_settings_cache?setting_key=eq.${settingKey}&select=data,fetched_at`,
+      {
+        headers: {
+          'apikey': SUPABASE_SERVICE_ROLE_KEY,
+          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+      }
+    );
+    if (!response.ok) return null;
+    const rows = await response.json();
+    if (!rows || rows.length === 0) return null;
+    const row = rows[0];
+    const age = (Date.now() - new Date(row.fetched_at).getTime()) / (1000 * 60 * 60);
+    if (age > maxAgeHours) {
+      console.log(`Settings cache for ${settingKey} is stale (${age.toFixed(1)}h old)`);
+      return null;
+    }
+    return row.data;
+  } catch (err) {
+    console.warn('Error reading settings cache:', err);
+    return null;
+  }
+}
+
+// Helper: Get full settings with DB cache fallback
+async function getSettingsWithCache(forceRefresh = false): Promise<any> {
+  const cacheKey = 'advbox-settings-full';
+  
+  // Check memory cache first
+  const memCached = cache.get(cacheKey);
+  if (!forceRefresh && memCached && (Date.now() - memCached.timestamp) < 60 * 60 * 1000) {
+    return memCached.data;
+  }
+  
+  // Check DB cache
+  if (!forceRefresh) {
+    const dbCached = await getSettingsCacheFromDb('settings');
+    if (dbCached) {
+      cache.set(cacheKey, { data: dbCached, timestamp: Date.now() });
+      return dbCached;
+    }
+  }
+  
+  // Fetch from API
+  try {
+    const result = await makeAdvboxRequest({ endpoint: '/settings' });
+    const settings = result.data || result;
+    cache.set(cacheKey, { data: settings, timestamp: Date.now() });
+    // Save to DB (non-blocking)
+    saveSettingsCacheToDb('settings', settings).catch(() => {});
+    return settings;
+  } catch (error) {
+    // Fall back to any available cache
+    if (memCached) return memCached.data;
+    const dbFallback = await getSettingsCacheFromDb('settings', 168); // 7 days fallback
+    if (dbFallback) return dbFallback;
+    throw error;
+  }
+}
 
 
 function sleep(ms: number): Promise<void> {
@@ -727,7 +833,9 @@ Deno.serve(async (req) => {
       // Endpoint para buscar TODAS as movimentações com paginação completa (paralelo)
       case 'movements-full': {
         console.log('Fetching ALL movements with PARALLEL pagination...');
-        const cacheKey = 'movements-full';
+        const dateStart = url.searchParams.get('date_start');
+        const dateEnd = url.searchParams.get('date_end');
+        const cacheKey = dateStart ? `movements-full-${dateStart}-${dateEnd || 'now'}` : 'movements-full';
         
         const cached = cache.get(cacheKey);
         const now = Date.now();
@@ -735,7 +843,7 @@ Deno.serve(async (req) => {
         if (!forceRefresh && cached && (now - cached.timestamp) < CACHE_TTL) {
           const items = extractItems(cached.data);
           const totalCount = extractTotalCount(cached.data, items.length);
-          console.log(`Cache hit for movements-full: ${items.length} items`);
+          console.log(`Cache hit for ${cacheKey}: ${items.length} items`);
           
           return new Response(JSON.stringify({
             data: items,
@@ -752,8 +860,12 @@ Deno.serve(async (req) => {
         }
         
         try {
-          // Primeiro, buscar a primeira página para descobrir o totalCount
-          const firstPage = await makeAdvboxRequest({ endpoint: '/last_movements?limit=100&offset=0' });
+          // Build endpoint with optional date filters (API v1.2.0)
+          let movEndpoint = '/last_movements?limit=100&offset=0';
+          if (dateStart) movEndpoint += `&date_start=${dateStart}`;
+          if (dateEnd) movEndpoint += `&date_end=${dateEnd}`;
+          
+          const firstPage = await makeAdvboxRequest({ endpoint: movEndpoint });
           const firstItems = firstPage.data || [];
           const totalCount = firstPage.totalCount || firstItems.length;
           
@@ -769,18 +881,21 @@ Deno.serve(async (req) => {
             }
             
             // Buscar em lotes paralelos de 5
-            const BATCH_SIZE = 5;
+            const BATCH_SIZE = 3; // Reduced from 5 to comply with 30 GETs/min limit
             for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
               const batch = remainingPages.slice(i, i + BATCH_SIZE);
               
-              const batchPromises = batch.map(offset =>
-                makeAdvboxRequest({ endpoint: `/last_movements?limit=100&offset=${offset}` })
+              const batchPromises = batch.map(offset => {
+                let batchEndpoint = `/last_movements?limit=100&offset=${offset}`;
+                if (dateStart) batchEndpoint += `&date_start=${dateStart}`;
+                if (dateEnd) batchEndpoint += `&date_end=${dateEnd}`;
+                return makeAdvboxRequest({ endpoint: batchEndpoint })
                   .then(res => res.data || [])
                   .catch(err => {
                     console.warn(`Failed to fetch movements offset=${offset}:`, err.message);
                     return [];
-                  })
-              );
+                  });
+              });
               
               const batchResults = await Promise.all(batchPromises);
               for (const items of batchResults) {
@@ -1395,11 +1510,9 @@ Deno.serve(async (req) => {
       }
 
       case 'settings': {
-        // Endpoint para buscar configurações da conta
-        const result = await getCachedOrFetch('settings', async () => {
-          return await makeAdvboxRequest({ endpoint: '/settings' });
-        }, forceRefresh);
-        return new Response(JSON.stringify(result), {
+        // Endpoint para buscar configurações da conta (com cache persistente)
+        const settings = await getSettingsWithCache(forceRefresh);
+        return new Response(JSON.stringify({ data: settings }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -1473,8 +1586,57 @@ Deno.serve(async (req) => {
         const body = await req.json();
         console.log('Creating task with body:', JSON.stringify(body));
         
-        // Nota: tasks_id é requerido pelo Advbox mas o endpoint /tasks não está acessível
-        // Se não foi fornecido, tentar criar sem ele (o Advbox pode usar um padrão)
+        // Validar campos obrigatórios conforme API v1.2.0
+        if (!body.from) {
+          // Tentar buscar o primeiro usuário do settings cache como fallback
+          try {
+            const settings = await getSettingsWithCache();
+            const users = settings.users || settings.account?.users || [];
+            if (users.length > 0) {
+              body.from = users[0].id;
+              console.log('Auto-assigned from user:', body.from);
+            }
+          } catch (e) {
+            console.warn('Could not auto-assign from user:', e);
+          }
+        }
+
+        if (!body.tasks_id) {
+          return new Response(JSON.stringify({ error: 'tasks_id é obrigatório (tipo da tarefa)' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (!body.lawsuits_id) {
+          return new Response(JSON.stringify({ error: 'lawsuits_id é obrigatório (processo vinculado)' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Formatar start_date se necessário (API espera DD/MM/YYYY)
+        if (body.start_date && body.start_date.includes('-')) {
+          const [y, m, d] = body.start_date.split('-');
+          body.start_date = `${d}/${m}/${y}`;
+        }
+        if (!body.start_date) {
+          const now = new Date();
+          body.start_date = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+        }
+
+        // Garantir guests como array
+        if (!body.guests) {
+          body.guests = body.from ? [body.from] : [];
+        } else if (!Array.isArray(body.guests)) {
+          body.guests = [body.guests];
+        }
+
+        // Formatar date_deadline se presente
+        if (body.date_deadline && body.date_deadline.includes('-')) {
+          const [y, m, d] = body.date_deadline.split('-');
+          body.date_deadline = `${d}/${m}/${y}`;
+        }
         
         const data = await makeAdvboxRequest({ 
           endpoint: '/posts', 
@@ -1900,11 +2062,42 @@ Deno.serve(async (req) => {
         const advboxPayload: Record<string, any> = {
           name: body.name,
         };
+
+        // Campos obrigatórios: users_id e customers_origins_id
+        // Buscar do settings cache se não fornecidos
+        if (!body.users_id || !body.customers_origins_id) {
+          try {
+            const settings = await getSettingsWithCache();
+            if (!body.users_id) {
+              const users = settings.users || settings.account?.users || [];
+              if (users.length > 0) {
+                advboxPayload.users_id = users[0].id;
+                console.log('Auto-assigned users_id:', advboxPayload.users_id);
+              }
+            } else {
+              advboxPayload.users_id = body.users_id;
+            }
+            if (!body.customers_origins_id) {
+              const origins = settings.origins || settings.customers_origins || settings.account?.origins || [];
+              if (origins.length > 0) {
+                advboxPayload.customers_origins_id = origins[0].id;
+                console.log('Auto-assigned customers_origins_id:', advboxPayload.customers_origins_id);
+              }
+            } else {
+              advboxPayload.customers_origins_id = body.customers_origins_id;
+            }
+          } catch (e) {
+            console.warn('Could not auto-assign required fields from settings:', e);
+          }
+        } else {
+          advboxPayload.users_id = body.users_id;
+          advboxPayload.customers_origins_id = body.customers_origins_id;
+        }
         if (body.email) advboxPayload.email = body.email;
         if (body.phone) advboxPayload.cellphone = body.phone;
-        if (body.cpf) advboxPayload.individual_registration = body.cpf;
+        if (body.cpf) advboxPayload.identification = body.cpf;
         if (body.cnpj) advboxPayload.company_registration = body.cnpj;
-        if (body.rg) advboxPayload.identity_card = body.rg;
+        if (body.rg) advboxPayload.document = body.rg;
         if (body.orgao_emissor) advboxPayload.issuing_body = body.orgao_emissor;
         if (body.birthday) advboxPayload.birthdate = body.birthday;
         if (body.profissao) advboxPayload.occupation = body.profissao;
@@ -1918,7 +2111,14 @@ Deno.serve(async (req) => {
         if (body.bairro) advboxPayload.neighborhood = body.bairro;
         if (body.cidade) advboxPayload.city = body.cidade;
         if (body.estado) advboxPayload.state = body.estado;
-        if (body.cep) advboxPayload.zip_code = body.cep;
+        if (body.cep) {
+          // Formatar CEP com hífen (obrigatório: 99999-999)
+          let cep = body.cep.replace(/\D/g, '');
+          if (cep.length === 8 && !cep.includes('-')) {
+            cep = cep.substring(0, 5) + '-' + cep.substring(5);
+          }
+          advboxPayload.postalcode = cep;
+        }
         if (body.telefone_fixo) advboxPayload.phone = body.telefone_fixo;
         if (body.celular) advboxPayload.cellphone = body.celular;
         if (body.telefone_comercial) advboxPayload.business_phone = body.telefone_comercial;
@@ -2009,6 +2209,201 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
+      }
+
+      // ========== NOVOS ENDPOINTS (API v1.2.0) ==========
+
+      case 'update-lawsuit': {
+        const body = await req.json();
+        const { lawsuit_id, ...updateData } = body;
+        
+        if (!lawsuit_id) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Validar campos permitidos pela API v1.2.0
+        const allowedFields = ['stages_id', 'responsible_id', 'fees_expec', 'fees_money', 'contingency', 'exit_production', 'exit_execution', 'status_closure'];
+        const filteredData: Record<string, any> = {};
+        for (const key of allowedFields) {
+          if (updateData[key] !== undefined) {
+            filteredData[key] = updateData[key];
+          }
+        }
+
+        console.log(`Updating lawsuit ${lawsuit_id}:`, JSON.stringify(filteredData));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/lawsuits/${lawsuit_id}`,
+          method: 'PUT',
+          body: filteredData,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'update-transaction': {
+        // Check financial permission
+        const permCheckUpdateTx = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/get_admin_permission`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY!,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ _user_id: userId, _feature: 'financial' }),
+          }
+        );
+        
+        if (permCheckUpdateTx.ok) {
+          const perm = await permCheckUpdateTx.json();
+          if (perm !== 'edit') {
+            return new Response(JSON.stringify({ error: 'Permissão negada. Necessário permissão de edição financeira.' }), {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        const body = await req.json();
+        const { transaction_id, ...txUpdateData } = body;
+        
+        if (!transaction_id) {
+          return new Response(JSON.stringify({ error: 'transaction_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Campos permitidos pela API v1.2.0 para PUT /transactions/{id}
+        const allowedTxFields = ['date_due', 'date_payment', 'amount', 'description', 'debit_account', 'categories_id', 'cost_centers_id'];
+        const filteredTxData: Record<string, any> = {};
+        for (const key of allowedTxFields) {
+          if (txUpdateData[key] !== undefined) {
+            filteredTxData[key] = txUpdateData[key];
+          }
+        }
+
+        console.log(`Updating transaction ${transaction_id}:`, JSON.stringify(filteredTxData));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/transactions/${transaction_id}`,
+          method: 'PUT',
+          body: filteredTxData,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'create-movement': {
+        const body = await req.json();
+        const { lawsuit_id, date, description } = body;
+        
+        if (!lawsuit_id || !date || !description) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id, date e description são obrigatórios' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        if (description.length < 10) {
+          return new Response(JSON.stringify({ error: 'description deve ter no mínimo 10 caracteres' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Creating movement for lawsuit ${lawsuit_id}:`, date, description.substring(0, 50));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: '/lawsuits/movement',
+          method: 'POST',
+          body: { lawsuit_id, date, description },
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'create-transaction': {
+        // Check financial permission
+        const permCheckCreateTx = await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/get_admin_permission`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_ANON_KEY!,
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ _user_id: userId, _feature: 'financial' }),
+          }
+        );
+        
+        if (permCheckCreateTx.ok) {
+          const perm = await permCheckCreateTx.json();
+          if (perm !== 'edit') {
+            return new Response(JSON.stringify({ error: 'Permissão negada. Necessário permissão de edição financeira.' }), {
+              status: 403,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+
+        const body = await req.json();
+        
+        // Campos obrigatórios pela API v1.2.0
+        if (!body.date_due || !body.amount || !body.debit_account || !body.categories_id || !body.cost_centers_id) {
+          return new Response(JSON.stringify({ 
+            error: 'Campos obrigatórios: date_due, amount, debit_account, categories_id, cost_centers_id' 
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Creating transaction:`, JSON.stringify(body).substring(0, 200));
+        
+        const data = await makeAdvboxRequest({
+          endpoint: '/transactions',
+          method: 'POST',
+          body,
+        });
+
+        return new Response(JSON.stringify({ success: true, data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      case 'task-history': {
+        const lawsuitId = url.searchParams.get('lawsuit_id');
+        const status = url.searchParams.get('status') || 'all'; // pending, completed, all
+        
+        if (!lawsuitId) {
+          return new Response(JSON.stringify({ error: 'lawsuit_id é obrigatório' }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        console.log(`Fetching task history for lawsuit ${lawsuitId}, status: ${status}`);
+        
+        const data = await makeAdvboxRequest({
+          endpoint: `/history/${lawsuitId}?status=${status}`,
+        });
+
+        return new Response(JSON.stringify({ data: data.data || data }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
 
       default:
