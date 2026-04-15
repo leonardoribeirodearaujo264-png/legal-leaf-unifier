@@ -529,7 +529,35 @@ Deno.serve(async (req) => {
 
     console.log('Advbox integration called:', path, 'force_refresh:', forceRefresh);
 
+    // Auto-populate settings cache in background on first request
+    if (!cache.has('advbox-settings-full')) {
+      getSettingsWithCache().catch(err => console.warn('Background settings cache population failed:', err));
+    }
+
     switch (path) {
+      // ========== REFRESH SETTINGS ==========
+      case 'refresh-settings': {
+        console.log('Force refreshing settings cache...');
+        try {
+          const settings = await getSettingsWithCache(true);
+          return new Response(JSON.stringify({ 
+            success: true, 
+            data: settings,
+            message: 'Settings cache atualizado com sucesso',
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        } catch (error) {
+          return new Response(JSON.stringify({ 
+            error: 'Falha ao atualizar cache de settings',
+            details: error instanceof Error ? error.message : String(error),
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
       // ========== PROCESSOS (LAWSUITS) ==========
       
       // Endpoint COMPLETO - busca TODOS os processos com paginação
