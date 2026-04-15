@@ -73,6 +73,7 @@ export function IntranetAgentsTab() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
 
   useEffect(() => { loadAgents(); }, []);
 
