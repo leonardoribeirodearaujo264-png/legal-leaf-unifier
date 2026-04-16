@@ -104,6 +104,7 @@ export const CRMContactsList = () => {
     fetchContacts();
     fetchProfiles();
     fetchContactDealsMapping();
+    fetchCommercialProfiles();
   }, []);
 
   const fetchProfiles = async () => {
@@ -387,6 +388,16 @@ export const CRMContactsList = () => {
     }
   };
 
+  const fetchCommercialProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('position', ['comercial', 'socio'])
+      .eq('is_active', true)
+      .order('full_name');
+    if (data) setCommercialProfiles(data);
+  };
+
   const handleCreateLead = async () => {
     if (!newLeadForm.name.trim()) {
       toast.error('Nome é obrigatório');
@@ -394,7 +405,7 @@ export const CRMContactsList = () => {
     }
     setCreatingLead(true);
     try {
-      const { error } = await supabase.from('crm_contacts').insert({
+      const { data: contactData, error } = await supabase.from('crm_contacts').insert({
         name: newLeadForm.name.trim(),
         email: newLeadForm.email?.trim() || null,
         phone: newLeadForm.phone?.trim() || null,
@@ -405,12 +416,34 @@ export const CRMContactsList = () => {
         website: newLeadForm.website?.trim() || null,
         linkedin: newLeadForm.linkedin?.trim() || null,
         notes: newLeadForm.notes?.trim() || null,
-      });
+      }).select('id').single();
       if (error) throw error;
-      toast.success('Lead criado com sucesso');
+
+      // Create deal if requested
+      if (createDeal && contactData) {
+        const { error: dealError } = await supabase.from('crm_deals').insert({
+          name: newLeadForm.name.trim(),
+          contact_id: contactData.id,
+          stage_id: '16a09c94-98b2-46d7-8e42-9d4d0303f7db', // Recepção/apresentação
+          value: dealValue ? parseFloat(dealValue) : 0,
+          product_name: dealProduct?.trim() || null,
+          owner_id: dealOwnerId || null,
+        });
+        if (dealError) {
+          console.error('Error creating deal:', dealError);
+          toast.warning('Lead criado, mas houve erro ao criar a oportunidade');
+        }
+      }
+
+      toast.success(createDeal ? 'Lead e oportunidade criados com sucesso' : 'Lead criado com sucesso');
       setNewLeadForm({ name: '', email: '', phone: '', company: '', job_title: '', city: '', state: '', website: '', linkedin: '', notes: '' });
+      setCreateDeal(false);
+      setDealProduct('');
+      setDealValue('');
+      setDealOwnerId('');
       setNewLeadDialogOpen(false);
       fetchContacts();
+      fetchContactDealsMapping();
     } catch (error) {
       console.error('Error creating lead:', error);
       toast.error('Erro ao criar lead');
