@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useSessionRefresh } from '@/hooks/useSessionRefresh';
 import { toast } from 'sonner';
 import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
