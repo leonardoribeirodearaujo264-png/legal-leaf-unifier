@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Search, Eye, Mail, Phone, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Calendar, Tag, FileText, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Package, Award, Target, Briefcase, Upload, UserPlus } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CRMContactsImport } from './CRMContactsImport';
@@ -92,12 +93,18 @@ export const CRMContactsList = () => {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [newLeadDialogOpen, setNewLeadDialogOpen] = useState(false);
   const [newLeadForm, setNewLeadForm] = useState({ name: '', email: '', phone: '', company: '', job_title: '', city: '', state: '', website: '', linkedin: '', notes: '' });
+  const [createDeal, setCreateDeal] = useState(false);
+  const [dealProduct, setDealProduct] = useState('');
+  const [dealValue, setDealValue] = useState('');
+  const [dealOwnerId, setDealOwnerId] = useState('');
+  const [commercialProfiles, setCommercialProfiles] = useState<{ id: string; full_name: string }[]>([]);
   const [creatingLead, setCreatingLead] = useState(false);
 
   useEffect(() => {
     fetchContacts();
     fetchProfiles();
     fetchContactDealsMapping();
+    fetchCommercialProfiles();
   }, []);
 
   const fetchProfiles = async () => {
@@ -303,12 +310,16 @@ export const CRMContactsList = () => {
     return types[type] || type;
   };
 
+  const normalizePhone = (val: string | null | undefined) => (val || '').replace(/\D/g, '');
+
   const filteredContacts = contacts.filter(contact => {
     const search = searchTerm.toLowerCase();
+    const searchDigits = normalizePhone(searchTerm);
     const matchesSearch = (
       contact.name?.toLowerCase().includes(search) ||
       contact.email?.toLowerCase().includes(search) ||
-      contact.phone?.includes(search) ||
+      (searchDigits.length > 0 && normalizePhone(contact.phone).includes(searchDigits)) ||
+      contact.phone?.includes(searchTerm) ||
       contact.company?.toLowerCase().includes(search) ||
       contact.job_title?.toLowerCase().includes(search)
     );
@@ -377,6 +388,16 @@ export const CRMContactsList = () => {
     }
   };
 
+  const fetchCommercialProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('position', ['comercial', 'socio'])
+      .eq('is_active', true)
+      .order('full_name');
+    if (data) setCommercialProfiles(data);
+  };
+
   const handleCreateLead = async () => {
     if (!newLeadForm.name.trim()) {
       toast.error('Nome é obrigatório');
@@ -384,7 +405,7 @@ export const CRMContactsList = () => {
     }
     setCreatingLead(true);
     try {
-      const { error } = await supabase.from('crm_contacts').insert({
+      const { data: contactData, error } = await supabase.from('crm_contacts').insert({
         name: newLeadForm.name.trim(),
         email: newLeadForm.email?.trim() || null,
         phone: newLeadForm.phone?.trim() || null,
@@ -395,12 +416,34 @@ export const CRMContactsList = () => {
         website: newLeadForm.website?.trim() || null,
         linkedin: newLeadForm.linkedin?.trim() || null,
         notes: newLeadForm.notes?.trim() || null,
-      });
+      }).select('id').single();
       if (error) throw error;
-      toast.success('Lead criado com sucesso');
+
+      // Create deal if requested
+      if (createDeal && contactData) {
+        const { error: dealError } = await supabase.from('crm_deals').insert({
+          name: newLeadForm.name.trim(),
+          contact_id: contactData.id,
+          stage_id: '16a09c94-98b2-46d7-8e42-9d4d0303f7db', // Recepção/apresentação
+          value: dealValue ? parseFloat(dealValue) : 0,
+          product_name: dealProduct?.trim() || null,
+          owner_id: dealOwnerId || null,
+        });
+        if (dealError) {
+          console.error('Error creating deal:', dealError);
+          toast.warning('Lead criado, mas houve erro ao criar a oportunidade');
+        }
+      }
+
+      toast.success(createDeal ? 'Lead e oportunidade criados com sucesso' : 'Lead criado com sucesso');
       setNewLeadForm({ name: '', email: '', phone: '', company: '', job_title: '', city: '', state: '', website: '', linkedin: '', notes: '' });
+      setCreateDeal(false);
+      setDealProduct('');
+      setDealValue('');
+      setDealOwnerId('');
       setNewLeadDialogOpen(false);
       fetchContacts();
+      fetchContactDealsMapping();
     } catch (error) {
       console.error('Error creating lead:', error);
       toast.error('Erro ao criar lead');
@@ -1173,6 +1216,44 @@ export const CRMContactsList = () => {
             <div>
               <Label>Observações</Label>
               <Textarea value={newLeadForm.notes} onChange={e => setNewLeadForm(p => ({ ...p, notes: e.target.value }))} placeholder="Anotações sobre o lead..." rows={3} />
+            </div>
+
+            {/* Criar oportunidade */}
+            <div className="border-t pt-3 mt-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="create-deal"
+                  checked={createDeal}
+                  onCheckedChange={(checked) => setCreateDeal(!!checked)}
+                />
+                <Label htmlFor="create-deal" className="cursor-pointer font-medium">Criar oportunidade vinculada</Label>
+              </div>
+
+              {createDeal && (
+                <>
+                  <div>
+                    <Label>Produto</Label>
+                    <Input value={dealProduct} onChange={e => setDealProduct(e.target.value)} placeholder="Ex: Trabalhista, Previdenciário..." />
+                  </div>
+                  <div>
+                    <Label>Valor (R$)</Label>
+                    <Input type="number" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} placeholder="0,00" />
+                  </div>
+                  <div>
+                    <Label>Responsável</Label>
+                    <Select value={dealOwnerId} onValueChange={setDealOwnerId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o responsável" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {commercialProfiles.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           <DialogFooter>

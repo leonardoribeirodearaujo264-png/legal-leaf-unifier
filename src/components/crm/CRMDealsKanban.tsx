@@ -370,6 +370,7 @@ export const CRMDealsKanban = () => {
     utmSource: 'all',
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [commercialProfiles, setCommercialProfiles] = useState<{ id: string; full_name: string }[]>([]);
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>(() => {
     return (localStorage.getItem('crm-view-mode') as 'kanban' | 'list') || 'kanban';
   });
@@ -401,8 +402,52 @@ export const CRMDealsKanban = () => {
   }, []);
 
   const fetchData = async () => {
-    await Promise.all([fetchStages(), fetchDeals(), fetchProfiles()]);
+    await Promise.all([fetchStages(), fetchDeals(), fetchProfiles(), fetchCommercialProfiles()]);
     setLoading(false);
+  };
+
+  const fetchCommercialProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('position', ['comercial', 'socio'])
+      .eq('is_active', true)
+      .order('full_name');
+    if (data) setCommercialProfiles(data);
+  };
+
+  const handleChangeOwner = async (dealId: string, newOwnerId: string) => {
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) return;
+    
+    const oldOwnerName = deal.owner_id && profiles[deal.owner_id] ? profiles[deal.owner_id].full_name : 'Nenhum';
+    const newOwnerName = profiles[newOwnerId]?.full_name || 'Desconhecido';
+    const currentUserName = user?.id && profiles[user.id] ? profiles[user.id].full_name : 'Sistema';
+
+    const { error } = await supabase
+      .from('crm_deals')
+      .update({ owner_id: newOwnerId, updated_at: new Date().toISOString() })
+      .eq('id', dealId);
+
+    if (error) {
+      toast.error('Erro ao alterar responsável');
+      return;
+    }
+
+    // Log in history
+    await supabase.from('crm_deal_history').insert({
+      deal_id: dealId,
+      changed_by: user?.id || null,
+      notes: `Responsável alterado de ${oldOwnerName} para ${newOwnerName} por ${currentUserName}`,
+    });
+
+    toast.success(`Responsável alterado para ${newOwnerName}`);
+    
+    // Update local state
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, owner_id: newOwnerId } : d));
+    if (selectedDeal?.id === dealId) {
+      setSelectedDeal(prev => prev ? { ...prev, owner_id: newOwnerId } : prev);
+    }
   };
 
   const fetchProfiles = async () => {
@@ -500,13 +545,19 @@ export const CRMDealsKanban = () => {
     return 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-600';
   };
 
+  const normalizePhone = (val: string | null | undefined) => (val || '').replace(/\D/g, '');
+
   const getStageDeals = (stageId: string) => {
     let filtered = deals.filter(deal => {
       const matchesStage = deal.stage_id === stageId;
+      const searchLower = searchTerm.toLowerCase();
+      const searchDigits = normalizePhone(searchTerm);
       const matchesSearch = searchTerm === '' || 
-        deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        deal.contact?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        deal.product_name?.toLowerCase().includes(searchTerm.toLowerCase());
+        deal.name.toLowerCase().includes(searchLower) ||
+        deal.contact?.name?.toLowerCase().includes(searchLower) ||
+        deal.product_name?.toLowerCase().includes(searchLower) ||
+        deal.contact?.email?.toLowerCase().includes(searchLower) ||
+        (searchDigits.length > 0 && normalizePhone(deal.contact?.phone).includes(searchDigits));
       
       // Filter by owner
       const matchesOwner = filters.ownerId === 'all' || deal.owner_id === filters.ownerId;
@@ -1015,11 +1066,15 @@ export const CRMDealsKanban = () => {
       {/* List View */}
       {viewMode === 'list' && (
         <CRMDealsListView
-          deals={deals.filter(deal => {
+        deals={deals.filter(deal => {
             if (!searchTerm) return true;
-            return deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              deal.contact?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              deal.product_name?.toLowerCase().includes(searchTerm.toLowerCase());
+            const s = searchTerm.toLowerCase();
+            const sd = normalizePhone(searchTerm);
+            return deal.name.toLowerCase().includes(s) ||
+              deal.contact?.name?.toLowerCase().includes(s) ||
+              deal.product_name?.toLowerCase().includes(s) ||
+              deal.contact?.email?.toLowerCase().includes(s) ||
+              (sd.length > 0 && normalizePhone(deal.contact?.phone).includes(sd));
           }) as any}
           stages={stages as any}
           profiles={profiles}
@@ -1165,14 +1220,25 @@ export const CRMDealsKanban = () => {
                     )}
 
                     {/* Responsável */}
-                    {selectedDeal.owner_id && profiles[selectedDeal.owner_id] && (
+                    <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <UserCircle className="h-4 w-4 text-blue-600" />
-                        <span className="text-blue-600 font-medium">
-                          Responsável: {profiles[selectedDeal.owner_id].full_name}
-                        </span>
+                        <span className="text-sm font-medium">Responsável</span>
                       </div>
-                    )}
+                      <Select
+                        value={selectedDeal.owner_id || ''}
+                        onValueChange={(val) => handleChangeOwner(selectedDeal.id, val)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecione o responsável" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {commercialProfiles.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                     {/* Star Rating */}
                     <div className="space-y-1">
