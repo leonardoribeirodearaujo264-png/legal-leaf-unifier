@@ -227,6 +227,17 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   // Filtrar tarefas por período, responsável, prioridade e status
   const filteredTasks = useMemo(() => {
     return visibleTasks.filter((task) => {
+      // Ignorar tarefas descontinuadas/excluídas
+      const status = task.status?.toLowerCase();
+      if (status === 'stale' || status === 'deleted') return false;
+
+      // Ignorar tarefas cujos responsáveis são todos inativos
+      if (activeNames.size > 0 && task.assigned_to) {
+        const names = task.assigned_to.split(',').map((n: string) => n.trim()).filter(Boolean);
+        const hasActive = names.some((n: string) => activeNames.has(n.toUpperCase()));
+        if (!hasActive) return false;
+      }
+
       // Filtro por responsável (só para admin)
       if (isAdmin && selectedUser !== 'all') {
         const names = task.assigned_to ? task.assigned_to.split(',').map((n: string) => n.trim()) : [];
