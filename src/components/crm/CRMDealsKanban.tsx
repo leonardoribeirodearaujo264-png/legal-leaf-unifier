@@ -1223,14 +1223,25 @@ export const CRMDealsKanban = () => {
                     )}
 
                     {/* Responsável */}
-                    {selectedDeal.owner_id && profiles[selectedDeal.owner_id] && (
+                    <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <UserCircle className="h-4 w-4 text-blue-600" />
-                        <span className="text-blue-600 font-medium">
-                          Responsável: {profiles[selectedDeal.owner_id].full_name}
-                        </span>
+                        <span className="text-sm font-medium">Responsável</span>
                       </div>
-                    )}
+                      <Select
+                        value={selectedDeal.owner_id || ''}
+                        onValueChange={(val) => handleChangeOwner(selectedDeal.id, val)}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Selecione o responsável" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {commercialProfiles.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
                     {/* Star Rating */}
                     <div className="space-y-1">
