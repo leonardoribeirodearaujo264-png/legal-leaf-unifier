@@ -402,8 +402,55 @@ export const CRMDealsKanban = () => {
   }, []);
 
   const fetchData = async () => {
-    await Promise.all([fetchStages(), fetchDeals(), fetchProfiles()]);
+    await Promise.all([fetchStages(), fetchDeals(), fetchProfiles(), fetchCommercialProfiles()]);
     setLoading(false);
+  };
+
+  const fetchCommercialProfiles = async () => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .in('position', ['comercial', 'socio'])
+      .eq('is_active', true)
+      .order('full_name');
+    if (data) setCommercialProfiles(data);
+  };
+
+  const handleChangeOwner = async (dealId: string, newOwnerId: string) => {
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) return;
+    
+    const oldOwnerName = deal.owner_id && profiles[deal.owner_id] ? profiles[deal.owner_id].full_name : 'Nenhum';
+    const newOwnerName = profiles[newOwnerId]?.full_name || 'Desconhecido';
+    const currentUserName = user?.id && profiles[user.id] ? profiles[user.id].full_name : 'Sistema';
+
+    const { error } = await supabase
+      .from('crm_deals')
+      .update({ owner_id: newOwnerId, updated_at: new Date().toISOString() })
+      .eq('id', dealId);
+
+    if (error) {
+      toast.error('Erro ao alterar responsável');
+      return;
+    }
+
+    // Log in history
+    await supabase.from('crm_deal_history').insert({
+      deal_id: dealId,
+      field_name: 'owner_id',
+      old_value: deal.owner_id || '',
+      new_value: newOwnerId,
+      changed_by: user?.id || null,
+      notes: `Responsável alterado de ${oldOwnerName} para ${newOwnerName} por ${currentUserName}`,
+    });
+
+    toast.success(`Responsável alterado para ${newOwnerName}`);
+    
+    // Update local state
+    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, owner_id: newOwnerId } : d));
+    if (selectedDeal?.id === dealId) {
+      setSelectedDeal(prev => prev ? { ...prev, owner_id: newOwnerId } : prev);
+    }
   };
 
   const fetchProfiles = async () => {
