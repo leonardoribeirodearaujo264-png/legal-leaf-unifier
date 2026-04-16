@@ -282,6 +282,22 @@ export function MessageInput({ onSendMessage, conversationPhone, onToggleComment
       )}
 
       <div className="flex items-end gap-2">
+        {/* Emoji picker */}
+        <EmojiPicker
+          onEmojiSelect={(emoji) => {
+            const ta = textareaRef.current;
+            const start = ta?.selectionStart || text.length;
+            const end = ta?.selectionEnd || text.length;
+            const newText = text.substring(0, start) + emoji + text.substring(end);
+            setText(newText);
+            setTimeout(() => {
+              ta?.focus();
+              const pos = start + emoji.length;
+              ta?.setSelectionRange(pos, pos);
+            }, 0);
+          }}
+        />
+
         {/* Attachment menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
