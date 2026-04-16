@@ -195,7 +195,7 @@ export function IntranetAgentsTab() {
                       {modelLabels[agent.model] || agent.model}
                     </Badge>
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      {user?.id === agent.created_by && (
+                      {(user?.id === agent.created_by || isAdmin) && (
                         <>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingAgent(agent); setShowCreate(true); }}>
                             <Edit className="h-3.5 w-3.5" />
