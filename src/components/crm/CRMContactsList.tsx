@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Search, Eye, Mail, Phone, Building, MapPin, Globe, Linkedin, Twitter, Facebook, Calendar, Tag, FileText, Edit2, Save, X, History, UserCircle, CheckCircle, Circle, Video, MessageSquare, Package, Award, Target, Briefcase, Upload, UserPlus } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CRMContactsImport } from './CRMContactsImport';
@@ -92,6 +93,11 @@ export const CRMContactsList = () => {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [newLeadDialogOpen, setNewLeadDialogOpen] = useState(false);
   const [newLeadForm, setNewLeadForm] = useState({ name: '', email: '', phone: '', company: '', job_title: '', city: '', state: '', website: '', linkedin: '', notes: '' });
+  const [createDeal, setCreateDeal] = useState(false);
+  const [dealProduct, setDealProduct] = useState('');
+  const [dealValue, setDealValue] = useState('');
+  const [dealOwnerId, setDealOwnerId] = useState('');
+  const [commercialProfiles, setCommercialProfiles] = useState<{ id: string; full_name: string }[]>([]);
   const [creatingLead, setCreatingLead] = useState(false);
 
   useEffect(() => {
