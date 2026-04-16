@@ -73,6 +73,7 @@ import { format, isToday, isYesterday, differenceInMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { EmojiPicker } from '@/components/EmojiPicker';
 
 interface UserProfile {
   id: string;
@@ -2143,6 +2144,21 @@ const Mensagens = () => {
                           disabled={sending}
                           className="flex-1 min-h-[44px] max-h-[200px] resize-none"
                           rows={1}
+                        />
+                        <EmojiPicker
+                          onEmojiSelect={(emoji) => {
+                            const ta = textareaRef.current;
+                            const start = ta?.selectionStart || newMessage.length;
+                            const end = ta?.selectionEnd || newMessage.length;
+                            const updated = newMessage.substring(0, start) + emoji + newMessage.substring(end);
+                            setNewMessage(updated);
+                            setTimeout(() => {
+                              ta?.focus();
+                              const pos = start + emoji.length;
+                              ta?.setSelectionRange(pos, pos);
+                            }, 0);
+                          }}
+                          disabled={sending}
                         />
                         <Button
                           type="button"
