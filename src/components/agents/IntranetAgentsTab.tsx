@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useSessionRefresh } from '@/hooks/useSessionRefresh';
 import { toast } from 'sonner';
 import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
@@ -68,6 +70,8 @@ const dataAccessLabels: Record<string, string> = {
 
 export function IntranetAgentsTab() {
   const { user } = useAuth();
+  const { isAdmin } = useUserRole();
+  const { retryWithRefresh } = useSessionRefresh();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -92,9 +96,23 @@ export function IntranetAgentsTab() {
 
   const confirmDelete = async () => {
     if (!deletingAgentId) return;
-    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId);
-    if (error) { toast.error('Erro ao excluir agente'); }
-    else { toast.success('Agente excluído'); loadAgents(); }
+    const result = await retryWithRefresh(() =>
+      supabase
+        .from('intranet_agents')
+        .update({ is_active: false })
+        .eq('id', deletingAgentId)
+        .select()
+    );
+
+    if (result.error) {
+      console.error('Delete error:', result.error);
+      toast.error(`Erro ao excluir: ${result.error.message}`);
+    } else if (!result.data || result.data.length === 0) {
+      toast.error('Você não tem permissão para excluir este agente');
+    } else {
+      toast.success('Agente excluído');
+      loadAgents();
+    }
     setDeletingAgentId(null);
   };
 
@@ -177,7 +195,7 @@ export function IntranetAgentsTab() {
                       {modelLabels[agent.model] || agent.model}
                     </Badge>
                     <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      {user?.id === agent.created_by && (
+                      {(user?.id === agent.created_by || isAdmin) && (
                         <>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingAgent(agent); setShowCreate(true); }}>
                             <Edit className="h-3.5 w-3.5" />
