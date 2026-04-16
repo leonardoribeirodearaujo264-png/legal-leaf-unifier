@@ -1217,6 +1217,44 @@ export const CRMContactsList = () => {
               <Label>Observações</Label>
               <Textarea value={newLeadForm.notes} onChange={e => setNewLeadForm(p => ({ ...p, notes: e.target.value }))} placeholder="Anotações sobre o lead..." rows={3} />
             </div>
+
+            {/* Criar oportunidade */}
+            <div className="border-t pt-3 mt-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="create-deal"
+                  checked={createDeal}
+                  onCheckedChange={(checked) => setCreateDeal(!!checked)}
+                />
+                <Label htmlFor="create-deal" className="cursor-pointer font-medium">Criar oportunidade vinculada</Label>
+              </div>
+
+              {createDeal && (
+                <>
+                  <div>
+                    <Label>Produto</Label>
+                    <Input value={dealProduct} onChange={e => setDealProduct(e.target.value)} placeholder="Ex: Trabalhista, Previdenciário..." />
+                  </div>
+                  <div>
+                    <Label>Valor (R$)</Label>
+                    <Input type="number" step="0.01" value={dealValue} onChange={e => setDealValue(e.target.value)} placeholder="0,00" />
+                  </div>
+                  <div>
+                    <Label>Responsável</Label>
+                    <Select value={dealOwnerId} onValueChange={setDealOwnerId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o responsável" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {commercialProfiles.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewLeadDialogOpen(false)}>Cancelar</Button>
