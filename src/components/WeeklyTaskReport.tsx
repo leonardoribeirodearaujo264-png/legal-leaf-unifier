@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { 
   CalendarDays, 
   Download, 
@@ -13,12 +15,14 @@ import {
   Clock, 
   AlertTriangle,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  Users
 } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, isWithinInterval, parseISO, subWeeks, isBefore, startOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -51,7 +55,24 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 export const WeeklyTaskReport = ({ tasks }: WeeklyTaskReportProps) => {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [excludeCollective, setExcludeCollective] = useState(false);
+  const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const { toast } = useToast();
+
+  // Carregar colaboradores ativos do banco
+  useEffect(() => {
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('is_active', true)
+      .eq('is_suspended', false)
+      .eq('approval_status', 'approved')
+      .then(({ data }) => {
+        setActiveNames(
+          new Set((data || []).map((p: any) => (p.full_name || '').toUpperCase().trim()).filter(Boolean))
+        );
+      });
+  }, []);
 
   const selectedWeek = useMemo(() => {
     const baseDate = subWeeks(new Date(), weekOffset);
@@ -61,28 +82,45 @@ export const WeeklyTaskReport = ({ tasks }: WeeklyTaskReportProps) => {
     };
   }, [weekOffset]);
 
+  // Helper: extrai responsáveis ativos de uma tarefa
+  const getActiveResponsibles = (task: Task): string[] => {
+    const raw = task.assigned_to || '';
+    if (!raw.trim()) return [];
+    const all = raw.split(',').map((n) => n.trim()).filter(Boolean);
+    if (activeNames.size === 0) return all; // ainda carregando: mostra todos
+    return all.filter((name) => activeNames.has(name.toUpperCase()));
+  };
+
   const weeklyTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (!task.due_date) return false;
+      // Ignorar tarefas descontinuadas/excluídas
+      const status = task.status?.toLowerCase();
+      if (status === 'stale' || status === 'deleted') return false;
       try {
         const taskDate = parseISO(task.due_date);
-        return isWithinInterval(taskDate, { start: selectedWeek.start, end: selectedWeek.end });
+        if (!isWithinInterval(taskDate, { start: selectedWeek.start, end: selectedWeek.end })) {
+          return false;
+        }
       } catch {
         return false;
       }
+      // Descartar tarefa sem nenhum responsável ativo
+      const activeResp = getActiveResponsibles(task);
+      if (activeResp.length === 0) return false;
+      // Excluir compromissos coletivos (>5 responsáveis ativos) se toggle ligado
+      if (excludeCollective && activeResp.length > 5) return false;
+      return true;
     });
-  }, [tasks, selectedWeek]);
+  }, [tasks, selectedWeek, activeNames, excludeCollective]);
 
   const statsByResponsible = useMemo(() => {
     const stats: Record<string, ResponsibleStats> = {};
     const today = startOfDay(new Date());
 
     weeklyTasks.forEach((task) => {
-      // Split comma-separated assigned_to into individual names to avoid duplicates
-      const rawResponsible = task.assigned_to || 'Não atribuído';
-      const responsibles = rawResponsible.includes(',')
-        ? rawResponsible.split(',').map((name) => name.trim()).filter(Boolean)
-        : [rawResponsible];
+      const responsibles = getActiveResponsibles(task);
+      if (responsibles.length === 0) return;
 
       const isCompleted = task.status?.toLowerCase() === 'completed' || task.status?.toLowerCase() === 'concluída';
       const taskDate = task.due_date ? parseISO(task.due_date) : null;
@@ -243,10 +281,23 @@ export const WeeklyTaskReport = ({ tasks }: WeeklyTaskReportProps) => {
             </Button>
           </div>
         </div>
-        <p className="text-sm text-muted-foreground mt-2">
-          Período: {format(selectedWeek.start, "d 'de' MMMM", { locale: ptBR })} a{' '}
-          {format(selectedWeek.end, "d 'de' MMMM 'de' yyyy", { locale: ptBR })}
-        </p>
+        <div className="flex flex-wrap items-center gap-4 mt-2">
+          <p className="text-sm text-muted-foreground">
+            Período: {format(selectedWeek.start, "d 'de' MMMM", { locale: ptBR })} a{' '}
+            {format(selectedWeek.end, "d 'de' MMMM 'de' yyyy", { locale: ptBR })}
+          </p>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="exclude-collective"
+              checked={excludeCollective}
+              onCheckedChange={setExcludeCollective}
+            />
+            <Label htmlFor="exclude-collective" className="text-sm cursor-pointer flex items-center gap-1">
+              <Users className="h-3 w-3" />
+              Excluir compromissos coletivos (&gt;5 responsáveis)
+            </Label>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Resumo Geral */}

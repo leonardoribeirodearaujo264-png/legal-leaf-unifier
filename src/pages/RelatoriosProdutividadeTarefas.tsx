@@ -36,6 +36,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 
 export default function RelatoriosProdutividadeTarefas({ embedded = false }: { embedded?: boolean }) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [metadata, setMetadata] = useState<any>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | undefined>(undefined);
@@ -61,6 +62,18 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
   useEffect(() => {
     fetchTasks();
+    // Carregar colaboradores ativos
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('is_active', true)
+      .eq('is_suspended', false)
+      .eq('approval_status', 'approved')
+      .then(({ data }) => {
+        setActiveNames(
+          new Set((data || []).map((p: any) => (p.full_name || '').toUpperCase().trim()).filter(Boolean))
+        );
+      });
   }, []);
 
   const fetchAdvboxTaskTypes = async () => {
@@ -214,6 +227,17 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   // Filtrar tarefas por período, responsável, prioridade e status
   const filteredTasks = useMemo(() => {
     return visibleTasks.filter((task) => {
+      // Ignorar tarefas descontinuadas/excluídas
+      const status = task.status?.toLowerCase();
+      if (status === 'stale' || status === 'deleted') return false;
+
+      // Ignorar tarefas cujos responsáveis são todos inativos
+      if (activeNames.size > 0 && task.assigned_to) {
+        const names = task.assigned_to.split(',').map((n: string) => n.trim()).filter(Boolean);
+        const hasActive = names.some((n: string) => activeNames.has(n.toUpperCase()));
+        if (!hasActive) return false;
+      }
+
       // Filtro por responsável (só para admin)
       if (isAdmin && selectedUser !== 'all') {
         const names = task.assigned_to ? task.assigned_to.split(',').map((n: string) => n.trim()) : [];
@@ -256,13 +280,24 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
       return true;
     });
-  }, [visibleTasks, startDate, endDate, selectedUser, selectedPriority, selectedStatus, isAdmin]);
+  }, [visibleTasks, startDate, endDate, selectedUser, selectedPriority, selectedStatus, isAdmin, activeNames]);
 
   // Tarefas do período de comparação
   const comparisonTasks = useMemo(() => {
     if (!showComparison || !compareStartDate || !compareEndDate) return [];
 
     return visibleTasks.filter((task) => {
+      // Ignorar tarefas descontinuadas/excluídas
+      const status = task.status?.toLowerCase();
+      if (status === 'stale' || status === 'deleted') return false;
+
+      // Ignorar tarefas cujos responsáveis são todos inativos
+      if (activeNames.size > 0 && task.assigned_to) {
+        const names = task.assigned_to.split(',').map((n: string) => n.trim()).filter(Boolean);
+        const hasActive = names.some((n: string) => activeNames.has(n.toUpperCase()));
+        if (!hasActive) return false;
+      }
+
       // Filtro por responsável (só para admin)
       if (isAdmin && selectedUser !== 'all') {
         const names = task.assigned_to ? task.assigned_to.split(',').map((n: string) => n.trim()) : [];
@@ -305,7 +340,7 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
       return true;
     });
-  }, [visibleTasks, compareStartDate, compareEndDate, selectedUser, selectedPriority, selectedStatus, isAdmin, showComparison]);
+  }, [visibleTasks, compareStartDate, compareEndDate, selectedUser, selectedPriority, selectedStatus, isAdmin, showComparison, activeNames]);
 
   // Calcular KPIs do período principal
   const kpis = useMemo(() => {
@@ -349,9 +384,13 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
     filteredTasks.forEach((task) => {
       const rawUser = task.assigned_to || 'Não atribuído';
-      const users = rawUser.includes(',')
+      const allUsers = rawUser.includes(',')
         ? rawUser.split(',').map((n: string) => n.trim()).filter(Boolean)
         : [rawUser.trim()];
+      // Filtrar apenas usuários ativos (se já carregou)
+      const users = activeNames.size > 0
+        ? allUsers.filter((u: string) => activeNames.has(u.toUpperCase()))
+        : allUsers;
 
       const status = task.status?.toLowerCase();
       const isCompleted = status === 'completed' || status === 'concluída';
@@ -374,7 +413,7 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
     });
 
     return Array.from(userMap.values()).sort((a, b) => b.total - a.total);
-  }, [filteredTasks]);
+  }, [filteredTasks, activeNames]);
 
   // Dados para gráfico de pizza - Status
   const statusData = useMemo(() => {
