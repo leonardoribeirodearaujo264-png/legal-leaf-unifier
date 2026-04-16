@@ -437,9 +437,6 @@ export const CRMDealsKanban = () => {
     // Log in history
     await supabase.from('crm_deal_history').insert({
       deal_id: dealId,
-      field_name: 'owner_id',
-      old_value: deal.owner_id || '',
-      new_value: newOwnerId,
       changed_by: user?.id || null,
       notes: `Responsável alterado de ${oldOwnerName} para ${newOwnerName} por ${currentUserName}`,
     });
