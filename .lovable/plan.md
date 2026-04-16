@@ -1,44 +1,80 @@
 
 
-## Adicionar Emoji Picker nas Mensagens Internas e WhatsApp
+## Corrigir erro ao excluir agente de IA
 
-### Visão geral
-Instalar uma biblioteca de emoji picker e adicionar um botão de emoji ao lado dos campos de texto em ambas as áreas de mensagem.
+### Diagnóstico
 
-### Biblioteca
-Usar `emoji-mart` (v5) — picker completo, leve, com busca e categorias. Pacotes: `@emoji-mart/data` e `@emoji-mart/react`.
+Verifiquei o banco e a UI:
 
-### Alterações
+1. **Política RLS está correta** — permite UPDATE para criador OU admin. Rafael tem role `admin`, então pode excluir qualquer agente.
+2. **Trigger normal** (apenas `updated_at`).
+3. **Soft delete funciona** (marca `is_active = false`).
+4. **Logs de autenticação mostram diversos `403 invalid claim: missing sub claim`** — sessão JWT expirada/corrompida em algumas requisições.
 
-**1. Instalar dependências**
-- `@emoji-mart/data` e `@emoji-mart/react`
+### Causa raiz provável
 
-**2. Criar componente reutilizável `src/components/EmojiPicker.tsx`**
-- Botão com ícone `Smile` (lucide)
-- Ao clicar, abre um `Popover` com o picker do emoji-mart
-- Prop `onEmojiSelect(emoji: string)` para inserir no texto
-- Configurar locale pt-BR e tema automático (dark/light)
+O código atual em `IntranetAgentsTab.tsx` (`confirmDelete`) **engole o erro real** e mostra apenas "Erro ao excluir agente":
 
-**3. `src/pages/Mensagens.tsx` — Mensagens Internas**
-- Importar `EmojiPicker`
-- Adicionar ao lado dos botões existentes (entre o textarea e o botão de anexo)
-- `onEmojiSelect` insere o emoji na posição do cursor no textarea (`newMessage`)
+```ts
+if (error) { toast.error('Erro ao excluir agente'); }
+```
 
-**4. `src/components/whatsapp/MessageInput.tsx` — WhatsApp Avisos**
-- Importar `EmojiPicker`
-- Adicionar ao lado do botão de anexo
-- `onEmojiSelect` insere o emoji na posição do cursor no textarea (`text`)
+Sem o detalhe do erro, ficamos cegos. As duas causas mais prováveis são:
+- **JWT expirado** (visível nos logs) → `update` retorna erro de auth e a UI não tenta refresh
+- **Usuário não-admin tentando excluir agente de outra pessoa** → RLS bloqueia silenciosamente (UPDATE não afeta nenhuma linha, mas o Supabase pode não retornar erro — apenas 0 linhas; nesse caso a UI mostra "sucesso" enganoso)
 
-**5. `src/components/whatsapp/InternalCommentInput.tsx` — Comentários internos do WhatsApp**
-- Mesmo tratamento: adicionar o `EmojiPicker` ao lado do textarea
+### Correção
 
-### Lógica de inserção
-Inserir o emoji na posição atual do cursor (`selectionStart`), não apenas no final do texto. Após inserir, reposicionar o cursor após o emoji.
+**Arquivo: `src/components/agents/IntranetAgentsTab.tsx`**
 
-### Arquivos modificados
-- `package.json` — novas dependências
-- `src/components/EmojiPicker.tsx` — novo componente
-- `src/pages/Mensagens.tsx` — botão emoji
-- `src/components/whatsapp/MessageInput.tsx` — botão emoji
-- `src/components/whatsapp/InternalCommentInput.tsx` — botão emoji
+1. **Usar `useSessionRefresh`** (já existe no projeto) com `retryWithRefresh` para re-tentar automaticamente em caso de JWT expirado.
+2. **Logar o erro real** no console e exibir mensagem detalhada no toast.
+3. **Verificar quantas linhas foram afetadas** — usar `.select()` após o `.update()` e, se vazio, mostrar erro de permissão claro ("Você não tem permissão para excluir este agente").
+4. **Esconder o botão de excluir** corretamente quando o usuário não é o criador nem admin (usar `useUserRole` para checar role admin no front e exibir o botão também para admins).
+
+### Pseudocódigo da correção
+
+```ts
+const { isAdmin } = useUserRole();
+const { retryWithRefresh } = useSessionRefresh();
+
+const confirmDelete = async () => {
+  if (!deletingAgentId) return;
+  const result = await retryWithRefresh(() =>
+    supabase
+      .from('intranet_agents')
+      .update({ is_active: false })
+      .eq('id', deletingAgentId)
+      .select()  // retorna linhas afetadas
+  );
+  if (result.error) {
+    console.error('Delete error:', result.error);
+    toast.error(`Erro ao excluir: ${result.error.message}`);
+  } else if (!result.data || result.data.length === 0) {
+    toast.error('Você não tem permissão para excluir este agente');
+  } else {
+    toast.success('Agente excluído');
+    loadAgents();
+  }
+  setDeletingAgentId(null);
+};
+
+// Botão de excluir visível para criador OU admin
+{(user?.id === agent.created_by || isAdmin) && (
+  <Button ... onClick={() => setDeletingAgentId(agent.id)}>
+    <Trash2 />
+  </Button>
+)}
+```
+
+### Resultado
+- O erro real ficará visível (mensagem detalhada no toast e console).
+- JWT expirado será refreshed automaticamente antes de falhar.
+- Admins (Rafael) poderão excluir agentes criados por qualquer pessoa via UI.
+- Usuários sem permissão receberão mensagem clara em vez de erro genérico.
+
+### Arquivo modificado
+- `src/components/agents/IntranetAgentsTab.tsx`
+
+Sem migração de banco — as policies já estão corretas.
 
