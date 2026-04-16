@@ -115,7 +115,11 @@ export default function TarefasAdvbox() {
     const users = new Set<string>();
     visibleTasks.forEach((task) => {
       if (task.assigned_to) {
-        users.add(task.assigned_to);
+        task.assigned_to
+          .split(',')
+          .map((n: string) => n.trim())
+          .filter(Boolean)
+          .forEach((name: string) => users.add(name));
       }
     });
     return Array.from(users).sort();
