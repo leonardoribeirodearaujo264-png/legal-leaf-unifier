@@ -70,6 +70,8 @@ const dataAccessLabels: Record<string, string> = {
 
 export function IntranetAgentsTab() {
   const { user } = useAuth();
+  const { isAdmin } = useUserRole();
+  const { retryWithRefresh } = useSessionRefresh();
   const navigate = useNavigate();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,9 +96,23 @@ export function IntranetAgentsTab() {
 
   const confirmDelete = async () => {
     if (!deletingAgentId) return;
-    const { error } = await supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId);
-    if (error) { toast.error('Erro ao excluir agente'); }
-    else { toast.success('Agente excluído'); loadAgents(); }
+    const result = await retryWithRefresh(() =>
+      supabase
+        .from('intranet_agents')
+        .update({ is_active: false })
+        .eq('id', deletingAgentId)
+        .select()
+    );
+
+    if (result.error) {
+      console.error('Delete error:', result.error);
+      toast.error(`Erro ao excluir: ${result.error.message}`);
+    } else if (!result.data || result.data.length === 0) {
+      toast.error('Você não tem permissão para excluir este agente');
+    } else {
+      toast.success('Agente excluído');
+      loadAgents();
+    }
     setDeletingAgentId(null);
   };
 
