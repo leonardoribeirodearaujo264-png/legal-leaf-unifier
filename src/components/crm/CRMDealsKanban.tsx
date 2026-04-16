@@ -500,13 +500,19 @@ export const CRMDealsKanban = () => {
     return 'bg-slate-200/70 dark:bg-slate-800/70 border-slate-300 dark:border-slate-600';
   };
 
+  const normalizePhone = (val: string | null | undefined) => (val || '').replace(/\D/g, '');
+
   const getStageDeals = (stageId: string) => {
     let filtered = deals.filter(deal => {
       const matchesStage = deal.stage_id === stageId;
+      const searchLower = searchTerm.toLowerCase();
+      const searchDigits = normalizePhone(searchTerm);
       const matchesSearch = searchTerm === '' || 
-        deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        deal.contact?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        deal.product_name?.toLowerCase().includes(searchTerm.toLowerCase());
+        deal.name.toLowerCase().includes(searchLower) ||
+        deal.contact?.name?.toLowerCase().includes(searchLower) ||
+        deal.product_name?.toLowerCase().includes(searchLower) ||
+        deal.contact?.email?.toLowerCase().includes(searchLower) ||
+        (searchDigits.length > 0 && normalizePhone(deal.contact?.phone).includes(searchDigits));
       
       // Filter by owner
       const matchesOwner = filters.ownerId === 'all' || deal.owner_id === filters.ownerId;
@@ -1015,11 +1021,15 @@ export const CRMDealsKanban = () => {
       {/* List View */}
       {viewMode === 'list' && (
         <CRMDealsListView
-          deals={deals.filter(deal => {
+        deals={deals.filter(deal => {
             if (!searchTerm) return true;
-            return deal.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              deal.contact?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              deal.product_name?.toLowerCase().includes(searchTerm.toLowerCase());
+            const s = searchTerm.toLowerCase();
+            const sd = normalizePhone(searchTerm);
+            return deal.name.toLowerCase().includes(s) ||
+              deal.contact?.name?.toLowerCase().includes(s) ||
+              deal.product_name?.toLowerCase().includes(s) ||
+              deal.contact?.email?.toLowerCase().includes(s) ||
+              (sd.length > 0 && normalizePhone(deal.contact?.phone).includes(sd));
           }) as any}
           stages={stages as any}
           profiles={profiles}

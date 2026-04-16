@@ -303,12 +303,16 @@ export const CRMContactsList = () => {
     return types[type] || type;
   };
 
+  const normalizePhone = (val: string | null | undefined) => (val || '').replace(/\D/g, '');
+
   const filteredContacts = contacts.filter(contact => {
     const search = searchTerm.toLowerCase();
+    const searchDigits = normalizePhone(searchTerm);
     const matchesSearch = (
       contact.name?.toLowerCase().includes(search) ||
       contact.email?.toLowerCase().includes(search) ||
-      contact.phone?.includes(search) ||
+      (searchDigits.length > 0 && normalizePhone(contact.phone).includes(searchDigits)) ||
+      contact.phone?.includes(searchTerm) ||
       contact.company?.toLowerCase().includes(search) ||
       contact.job_title?.toLowerCase().includes(search)
     );
