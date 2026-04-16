@@ -370,6 +370,7 @@ export const CRMDealsKanban = () => {
     utmSource: 'all',
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [commercialProfiles, setCommercialProfiles] = useState<{ id: string; full_name: string }[]>([]);
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>(() => {
     return (localStorage.getItem('crm-view-mode') as 'kanban' | 'list') || 'kanban';
   });
