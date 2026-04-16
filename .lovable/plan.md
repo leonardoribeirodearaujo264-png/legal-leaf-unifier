@@ -1,80 +1,38 @@
 
 
-## Corrigir erro ao excluir agente de IA
+## Corrigir filtro de Responsável em Tarefas Advbox
 
 ### Diagnóstico
+Em `src/pages/TarefasAdvbox.tsx`, o campo `task.assigned_to` vem do ADVBox como string única com nomes concatenados por vírgula (ex: `"DANIEL MARTINS SILVA, JHONNY SILVA SOUZA, MARCOS LUIZ EGG NUNES"`).
 
-Verifiquei o banco e a UI:
+O código atual trata essa string inteira como se fosse "um único responsável":
+- **Linha 114-122**: adiciona a string completa ao `Set`, gerando opções com múltiplos nomes no dropdown
+- **Linha 139**: filtra por igualdade exata, então selecionar "Daniel" não retorna tarefas onde Daniel está junto com outras pessoas
 
-1. **Política RLS está correta** — permite UPDATE para criador OU admin. Rafael tem role `admin`, então pode excluir qualquer agente.
-2. **Trigger normal** (apenas `updated_at`).
-3. **Soft delete funciona** (marca `is_active = false`).
-4. **Logs de autenticação mostram diversos `403 invalid claim: missing sub claim`** — sessão JWT expirada/corrompida em algumas requisições.
+### Correção (apenas `src/pages/TarefasAdvbox.tsx`)
 
-### Causa raiz provável
+1. **`assignedUsers` (linha 114-122)**: dividir `task.assigned_to` por vírgula, dar `trim()` em cada nome e adicionar individualmente ao `Set`. Resultado: dropdown mostra apenas nomes únicos individuais (Daniel, Jhonny, Lucas, Marcos, etc.).
 
-O código atual em `IntranetAgentsTab.tsx` (`confirmDelete`) **engole o erro real** e mostra apenas "Erro ao excluir agente":
-
-```ts
-if (error) { toast.error('Erro ao excluir agente'); }
-```
-
-Sem o detalhe do erro, ficamos cegos. As duas causas mais prováveis são:
-- **JWT expirado** (visível nos logs) → `update` retorna erro de auth e a UI não tenta refresh
-- **Usuário não-admin tentando excluir agente de outra pessoa** → RLS bloqueia silenciosamente (UPDATE não afeta nenhuma linha, mas o Supabase pode não retornar erro — apenas 0 linhas; nesse caso a UI mostra "sucesso" enganoso)
-
-### Correção
-
-**Arquivo: `src/components/agents/IntranetAgentsTab.tsx`**
-
-1. **Usar `useSessionRefresh`** (já existe no projeto) com `retryWithRefresh` para re-tentar automaticamente em caso de JWT expirado.
-2. **Logar o erro real** no console e exibir mensagem detalhada no toast.
-3. **Verificar quantas linhas foram afetadas** — usar `.select()` após o `.update()` e, se vazio, mostrar erro de permissão claro ("Você não tem permissão para excluir este agente").
-4. **Esconder o botão de excluir** corretamente quando o usuário não é o criador nem admin (usar `useUserRole` para checar role admin no front e exibir o botão também para admins).
-
-### Pseudocódigo da correção
+2. **Filtro `assignedFilter` (linha 139)**: trocar a comparação de igualdade por uma verificação de inclusão — uma tarefa é compatível se a lista de nomes (separada por vírgula) contém o nome selecionado.
 
 ```ts
-const { isAdmin } = useUserRole();
-const { retryWithRefresh } = useSessionRefresh();
-
-const confirmDelete = async () => {
-  if (!deletingAgentId) return;
-  const result = await retryWithRefresh(() =>
-    supabase
-      .from('intranet_agents')
-      .update({ is_active: false })
-      .eq('id', deletingAgentId)
-      .select()  // retorna linhas afetadas
-  );
-  if (result.error) {
-    console.error('Delete error:', result.error);
-    toast.error(`Erro ao excluir: ${result.error.message}`);
-  } else if (!result.data || result.data.length === 0) {
-    toast.error('Você não tem permissão para excluir este agente');
-  } else {
-    toast.success('Agente excluído');
-    loadAgents();
+// Lista de opções
+visibleTasks.forEach((task) => {
+  if (task.assigned_to) {
+    task.assigned_to.split(',').map(n => n.trim()).filter(Boolean)
+      .forEach(name => users.add(name));
   }
-  setDeletingAgentId(null);
-};
+});
 
-// Botão de excluir visível para criador OU admin
-{(user?.id === agent.created_by || isAdmin) && (
-  <Button ... onClick={() => setDeletingAgentId(agent.id)}>
-    <Trash2 />
-  </Button>
-)}
+// Filtro
+if (assignedFilter !== 'all') {
+  const names = (task.assigned_to || '').split(',').map(n => n.trim());
+  if (!names.includes(assignedFilter)) return false;
+}
 ```
 
 ### Resultado
-- O erro real ficará visível (mensagem detalhada no toast e console).
-- JWT expirado será refreshed automaticamente antes de falhar.
-- Admins (Rafael) poderão excluir agentes criados por qualquer pessoa via UI.
-- Usuários sem permissão receberão mensagem clara em vez de erro genérico.
-
-### Arquivo modificado
-- `src/components/agents/IntranetAgentsTab.tsx`
-
-Sem migração de banco — as policies já estão corretas.
+- Dropdown de Responsável passa a listar apenas **nomes individuais** (sem combinações)
+- Selecionar um responsável retorna **todas** as tarefas dele, inclusive as compartilhadas com outras pessoas
+- Sem mudanças de banco, sem impacto em outras telas
 
