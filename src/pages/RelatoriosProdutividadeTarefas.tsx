@@ -36,6 +36,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'
 
 export default function RelatoriosProdutividadeTarefas({ embedded = false }: { embedded?: boolean }) {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [metadata, setMetadata] = useState<any>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | undefined>(undefined);
@@ -61,6 +62,18 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
   useEffect(() => {
     fetchTasks();
+    // Carregar colaboradores ativos
+    supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('is_active', true)
+      .eq('is_suspended', false)
+      .eq('approval_status', 'approved')
+      .then(({ data }) => {
+        setActiveNames(
+          new Set((data || []).map((p: any) => (p.full_name || '').toUpperCase().trim()).filter(Boolean))
+        );
+      });
   }, []);
 
   const fetchAdvboxTaskTypes = async () => {
