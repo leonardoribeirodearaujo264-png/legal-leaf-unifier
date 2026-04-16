@@ -115,7 +115,11 @@ export default function TarefasAdvbox() {
     const users = new Set<string>();
     visibleTasks.forEach((task) => {
       if (task.assigned_to) {
-        users.add(task.assigned_to);
+        task.assigned_to
+          .split(',')
+          .map((n: string) => n.trim())
+          .filter(Boolean)
+          .forEach((name: string) => users.add(name));
       }
     });
     return Array.from(users).sort();
@@ -136,7 +140,10 @@ export default function TarefasAdvbox() {
       if (statusFilter !== 'stale' && task.status === 'stale') return false;
 
       if (statusFilter !== 'all' && task.status !== statusFilter) return false;
-      if (assignedFilter !== 'all' && task.assigned_to !== assignedFilter) return false;
+      if (assignedFilter !== 'all') {
+        const names = (task.assigned_to || '').split(',').map((n: string) => n.trim());
+        if (!names.includes(assignedFilter)) return false;
+      }
       if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
       
       if (dueDateFilter !== 'all' && task.due_date) {
