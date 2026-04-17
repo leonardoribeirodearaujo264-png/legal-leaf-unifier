@@ -1,61 +1,79 @@
 
 
-## Por que a Letícia (admin) não conseguiu editar + tique azul não aparece
+## Loop infinito ao abrir conversa interna — diagnóstico e correção
 
-### Diagnóstico (verificado no banco e código)
+### Causa raiz (verificada no código)
 
-**1. Edição da Letícia** — Confirmei no banco:
-- Letícia (`leticiapessoa@eggnunes.com.br`) tem `role='admin'`, `position='administrativo'`, `is_active=true`, `approval_status='approved'`.
-- A política RLS da tabela `messages` para UPDATE permite admin: `sender_id = auth.uid() OR has_role(auth.uid(),'admin') OR is_socio_or_rafael(auth.uid())` ✓
-- A função `canEditMessage` na UI usa `isAdmin || isSocio` — correto.
+Em `src/hooks/useMessaging.tsx`, encontrei um **ciclo de feedback** entre o subscribe realtime, `fetchConversations` e `activeConversation`:
 
-**Causa real**: a Letícia testou ANTES da última correção entrar em produção (a alteração que liberou edição para admin foi feita no chat anterior — ela pode ter testado com a versão antiga em cache do browser, OU ainda não recarregou a página). A correção já está no código.
+**O ciclo (`useMessaging.tsx` linhas 574-674):**
 
-**Mas há dois bugs sutis que ainda podem bloquear ela:**
-- **(a)** A janela de 3h é calculada com `differenceInMinutes(new Date(), msg.created_at) > 180`. Se a Letícia tentou editar uma mensagem **antiga (>3h)**, o botão não aparece — mesmo sendo admin. Pelo plano anterior, admins só editam dentro da janela de 3h. Preciso confirmar com você: **admin deve poder editar SEM limite de tempo?**
-- **(b)** O dropdown da mensagem só renderiza o item "Editar" se `canEditMessage(msg) === true`. Se `useUserRole` ainda estiver com `loading=true` no primeiro render, `isAdmin` vem `false` e o botão fica escondido. Precisa de um guard de loading.
+1. `useEffect` que cria o canal realtime depende de `[user, activeConversation, fetchConversations]`.
+2. Sempre que o usuário **clica numa conversa** (ou abre via notificação), `activeConversation` muda → o `useEffect` **desmonta o canal antigo e cria um novo**.
+3. Dentro do handler de `INSERT` em `messages`, ele chama `fetchConversations()` (linha 625).
+4. `fetchConversations` é um `useCallback` que depende de `[user]`, mas internamente faz `setConversations(...)`.
+5. A mudança em `conversations` dispara o `useEffect` em `Mensagens.tsx` linha 125-136 (`location.state, conversations, setActiveConversation`), que **chama `setActiveConversation(conv)` novamente** porque `state.openConversation` ainda existe (ele só é limpo via `window.history.replaceState` mas o `location.state` do React Router NÃO é atualizado em tempo real).
+6. `setActiveConversation` muda → volta ao passo 2 → **loop infinito**.
 
-**2. Tique azul de "entregue" não funciona** — A heurística atual usa `usePresence` (Supabase Realtime presence channel `online-users`). Problemas:
-- Presence só rastreia usuários **com a aba aberta no momento**. Se a Letícia mandou mensagem e a outra pessoa estava com a aba fechada, nunca vira "delivered" — fica eternamente como 1 tique cinza.
-- Pior: se o destinatário abre e fecha a aba antes da Letícia olhar, ela nunca vê o estado "entregue", só pula para "lido" quando ele entra na conversa.
-- Resultado: na prática, **só funciona se ambos estiverem online ao mesmo tempo** — o que raramente acontece.
+**Confirmações adicionais que agravam:**
 
-**Solução**: implementar entrega de verdade com uma coluna `delivered_at` por destinatário, marcada quando a mensagem chega ao realtime do destinatário (ou quando ele faz fetch). Sem isso, a heurística por presença é instável.
+- **Linha 680-684**: `useEffect(() => { fetchMessages(activeConversation.id); }, [activeConversation, fetchMessages])` — toda vez que `activeConversation` muda (mesmo sendo o mesmo objeto recriado), refaz `fetchMessages`, que reseta `loadingMessages=true` → mostra "Carregando..." → resolve → e o ciclo recomeça em milissegundos. **Isso bate exatamente com o sintoma relatado**: "fica recarregando, aparece o chat por milésimos de segundos, volta a recarregar".
+- **Linha 230-240 de `fetchMessages`**: cada execução faz `upsert` em `message_deliveries`, que dispara o subscribe realtime `INSERT message_deliveries` (linha 631-645) → atualiza `setDeliveries` → re-render → reforça o ciclo.
+- **`fetchConversations` chamado a cada nova mensagem**: refaz 4 queries pesadas + 1 query de count POR conversa (loop em `for` sequencial linha 163-177). Em escritórios com muitas conversas, isso trava a UI.
 
-### Correções
+### Correção
 
-**A. Edição (UI) — `src/pages/Mensagens.tsx`**
-1. Adicionar guard de loading do `useUserRole`: enquanto `loading=true`, não esconder o botão prematuramente — esperar a role carregar antes de avaliar `canEditMessage`.
-2. Decidir: **admins podem editar sem limite de 3h?** Sugiro: **autor → 3h**, **admin/sócio → sem limite** (faz sentido para moderação). [confirmar abaixo]
+**A. Quebrar o ciclo do subscribe realtime (`useMessaging.tsx`)**
 
-**B. Tique de entrega — implementar `delivered_at` real**
+1. Remover `activeConversation` e `fetchConversations` das dependências do `useEffect` do canal realtime. Usar `useRef` para acessar o valor atual de `activeConversation` dentro do handler sem recriar o canal.
+2. Substituir `fetchConversations()` dentro do handler por uma atualização **incremental** (setConversations atualiza só `last_message`/`updated_at`/`unread_count` da conversa afetada) — sem refazer todas as queries.
+3. Resultado: o canal realtime é criado **uma única vez** por sessão e persiste entre mudanças de conversa.
 
-Criar tabela:
-```sql
-CREATE TABLE message_deliveries (
-  message_id uuid REFERENCES messages(id) ON DELETE CASCADE,
-  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
-  delivered_at timestamptz DEFAULT now(),
-  PRIMARY KEY (message_id, user_id)
-);
-ALTER TABLE message_deliveries ENABLE ROW LEVEL SECURITY;
--- Policy: usuário pode inserir/ver suas próprias entregas
+**B. Limpar `location.state` corretamente em `Mensagens.tsx` (linha 125-136)**
+
+Usar `useNavigate` do React Router para limpar o `state` de fato:
+```ts
+const navigate = useNavigate();
+useEffect(() => {
+  const state = location.state as { openConversation?: string } | null;
+  if (state?.openConversation && conversations.length > 0) {
+    const conv = conversations.find(c => c.id === state.openConversation);
+    if (conv && conv.id !== activeConversation?.id) {
+      setActiveConversation(conv);
+      setShowMobileChat(true);
+    }
+    navigate(location.pathname, { replace: true, state: null });
+  }
+}, [location.state, conversations]);
 ```
+- Adicionar guard `conv.id !== activeConversation?.id` para evitar setar a mesma conversa.
+- Trocar `window.history.replaceState` por `navigate(..., {replace, state: null})` que de fato remove o state do React Router.
 
-No frontend (`useMessaging.tsx`):
-- No subscribe realtime de `INSERT` em `messages`, todo participante (que não seja o sender) faz `INSERT` em `message_deliveries` automaticamente assim que recebe o evento — mesmo sem abrir a conversa, basta a aba estar aberta em qualquer página da intranet.
-- Adicional: ao fazer `fetchMessages`, marcar como entregues todas as mensagens que ainda não tinham `delivered_at` para o usuário atual (cobre quem estava offline e abriu depois).
-- Em `Mensagens.tsx`, `getMessageStatus` consulta `message_deliveries` em vez de `usePresence`: `delivered` = existe registro de entrega para algum outro participante; `read` = `last_read_at >= created_at`.
+**C. Estabilizar `fetchMessages` para evitar refetch desnecessário**
 
-**C. Subscription para atualizar status em tempo real**
-- Subscrever `message_deliveries` (INSERT) na conversa ativa para o tique cinza virar azul automaticamente assim que o destinatário recebe.
-- Subscrever `conversation_participants` (UPDATE em `last_read_at`) para o segundo tique azul aparecer assim que ele lê.
+No `useEffect` linha 680-684 do hook:
+- Trocar dependência de `activeConversation` para `activeConversation?.id` — assim só dispara quando o ID realmente muda, não quando o objeto é recriado pela atualização de `participants` (linha 657-665).
+
+**D. Otimizar atualização local de `last_read_at`**
+
+A subscription `UPDATE conversation_participants` recria `activeConversation` via `setActiveConversation(prev => ({...prev, participants: ...}))`. Isso muda a referência e dispara o `useEffect` de `fetchMessages` (item C resolve isso). Mas também devemos garantir que essa atualização **não passe pelo ciclo** se for o próprio usuário marcando como lido.
+
+**E. Substituir o for-loop sequencial de unread_count (linha 163-177)**
+
+Trocar por **uma única query agregada**:
+```ts
+const { data: unreadAgg } = await supabase
+  .from('messages')
+  .select('conversation_id', { count: 'exact' })
+  .in('conversation_id', conversationIds)
+  .neq('sender_id', user.id);
+// E filtrar por last_read_at no client com base em allParticipants
+```
+Reduz N+1 queries a 1, eliminando o travamento que dá impressão de loop.
 
 ### Arquivos modificados
-- `supabase/migrations/...` (nova migration) — criar `message_deliveries` + RLS + realtime
-- `src/hooks/useMessaging.tsx` — auto-insert em `message_deliveries` no realtime e no fetch; expor `deliveries` por mensagem
-- `src/pages/Mensagens.tsx` — guard de loading de role; novo `getMessageStatus` baseado em `message_deliveries`; subscription para deliveries e last_read_at
+- `src/hooks/useMessaging.tsx` — refatorar useEffect do realtime (sem dependência de activeConversation), atualização incremental de conversations, dependência por ID em fetchMessages
+- `src/pages/Mensagens.tsx` — corrigir limpeza de `location.state` com `useNavigate` e guard de ID
 
-### Pergunta antes de executar
-**Admin/sócio devem poder editar mensagens sem limite de tempo (sem janela de 3h)?** Recomendo **sim** — fica claro e consistente com o papel de moderação. Se preferir manter 3h também para admins, faço só os bugs (a) e (b) e o sistema de delivery.
+Sem migração de banco. Sem mudanças em outras telas.
 
