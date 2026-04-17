@@ -55,6 +55,8 @@ export const useMessaging = () => {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // Map: messageId -> Set of userIds that received the message
+  const [deliveries, setDeliveries] = useState<Record<string, Set<string>>>({});
 
   // Fetch all conversations for the user
   const fetchConversations = useCallback(async () => {
@@ -223,6 +225,38 @@ export const useMessaging = () => {
       }) || [];
 
       setMessages(enrichedMessages);
+
+      // Mark all incoming messages as delivered for this user
+      const incomingMessageIds = (data || [])
+        .filter(m => m.sender_id !== user.id)
+        .map(m => m.id);
+      if (incomingMessageIds.length > 0) {
+        await supabase
+          .from('message_deliveries')
+          .upsert(
+            incomingMessageIds.map(message_id => ({ message_id, user_id: user.id })),
+            { onConflict: 'message_id,user_id', ignoreDuplicates: true }
+          );
+      }
+
+      // Load existing deliveries for these messages
+      const allMessageIds = (data || []).map(m => m.id);
+      if (allMessageIds.length > 0) {
+        const { data: deliveryRows } = await supabase
+          .from('message_deliveries')
+          .select('message_id, user_id')
+          .in('message_id', allMessageIds);
+        if (deliveryRows) {
+          setDeliveries(prev => {
+            const next = { ...prev };
+            for (const row of deliveryRows) {
+              if (!next[row.message_id]) next[row.message_id] = new Set();
+              next[row.message_id].add(row.user_id);
+            }
+            return next;
+          });
+        }
+      }
 
       // Mark as read
       await supabase
@@ -551,7 +585,19 @@ export const useMessaging = () => {
         },
         async (payload) => {
           const newMessage = payload.new as Message;
-          
+
+          // Auto-mark as delivered for any incoming message (in any conversation
+          // the user participates in) — RLS will reject if not a participant.
+          if (newMessage.sender_id !== user.id) {
+            supabase
+              .from('message_deliveries')
+              .upsert(
+                { message_id: newMessage.id, user_id: user.id },
+                { onConflict: 'message_id,user_id', ignoreDuplicates: true }
+              )
+              .then(() => {});
+          }
+
           // If it's for the active conversation, add to messages
           if (activeConversation && newMessage.conversation_id === activeConversation.id) {
             const { data: senderProfile } = await supabase
@@ -579,6 +625,47 @@ export const useMessaging = () => {
           fetchConversations();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'message_deliveries'
+        },
+        (payload) => {
+          const row = payload.new as { message_id: string; user_id: string };
+          setDeliveries(prev => {
+            const next = { ...prev };
+            if (!next[row.message_id]) next[row.message_id] = new Set();
+            else next[row.message_id] = new Set(next[row.message_id]);
+            next[row.message_id].add(row.user_id);
+            return next;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversation_participants'
+        },
+        (payload) => {
+          const updated = payload.new as { conversation_id: string; user_id: string; last_read_at: string };
+          // Update participants' last_read_at in active conversation for read receipts
+          if (activeConversation && updated.conversation_id === activeConversation.id) {
+            setActiveConversation(prev => {
+              if (!prev) return prev;
+              const newParticipants = prev.participants?.map(p =>
+                p.user_id === updated.user_id
+                  ? { ...p, last_read_at: updated.last_read_at }
+                  : p
+              );
+              return { ...prev, participants: newParticipants };
+            });
+          }
+        }
+      )
       .subscribe();
 
     return () => {
@@ -603,6 +690,7 @@ export const useMessaging = () => {
     setActiveConversation,
     messages,
     loadingMessages,
+    deliveries,
     sendMessage,
     createConversation,
     fetchConversations,
