@@ -5776,6 +5776,32 @@ export type Database = {
         }
         Relationships: []
       }
+      message_deliveries: {
+        Row: {
+          delivered_at: string
+          message_id: string
+          user_id: string
+        }
+        Insert: {
+          delivered_at?: string
+          message_id: string
+          user_id: string
+        }
+        Update: {
+          delivered_at?: string
+          message_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_deliveries_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_favorites: {
         Row: {
           created_at: string | null
