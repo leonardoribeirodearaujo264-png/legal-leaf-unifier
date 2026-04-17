@@ -8,7 +8,7 @@ interface ZapiStatus {
   error: string | null;
 }
 
-export function useZapiConnection(pollIntervalMs = 60000) {
+export function useZapiConnection(pollIntervalMs = 5 * 60 * 1000) {
   const [status, setStatus] = useState<ZapiStatus>({
     connected: null,
     statusData: null,
@@ -77,9 +77,14 @@ export function useZapiConnection(pollIntervalMs = 60000) {
     checkConnection();
   }, [checkConnection]);
 
-  // Polling
+  // Polling — só quando a aba está visível para reduzir consumo de Cloud
   useEffect(() => {
-    const interval = setInterval(checkConnection, pollIntervalMs);
+    const tick = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        checkConnection();
+      }
+    };
+    const interval = setInterval(tick, pollIntervalMs);
     return () => clearInterval(interval);
   }, [checkConnection, pollIntervalMs]);
 

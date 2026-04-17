@@ -47,7 +47,7 @@ const TVMode = () => {
   const period = useMemo(() => getCommercialPeriod(now), [now.getDate(), now.getMonth(), now.getFullYear()]);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
+    const t = setInterval(() => setNow(new Date()), 5000);
     return () => clearInterval(t);
   }, []);
 

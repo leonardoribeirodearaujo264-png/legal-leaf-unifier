@@ -107,9 +107,14 @@ export const useTaskNotifications = (tasks: Task[]) => {
   }, [tasks, sendPushNotification]);
 
   useEffect(() => {
-    // Check notifications on mount and every 30 minutes
+    // Só executa se aba estiver visível e notificações concedidas
     const checkNotifications = () => {
-      if ('Notification' in window && Notification.permission === 'granted') {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
         checkAndNotify();
       }
     };
@@ -117,8 +122,8 @@ export const useTaskNotifications = (tasks: Task[]) => {
     // Initial check after a short delay
     const initialTimeout = setTimeout(checkNotifications, 5000);
 
-    // Periodic check every 30 minutes
-    const interval = setInterval(checkNotifications, 30 * 60 * 1000);
+    // Periodic check every 2 hours (reduzido de 30min para economia de Cloud)
+    const interval = setInterval(checkNotifications, 2 * 60 * 60 * 1000);
 
     return () => {
       clearTimeout(initialTimeout);
