@@ -110,6 +110,7 @@ const Mensagens = () => {
     setActiveConversation,
     messages,
     loadingMessages,
+    deliveries,
     sendMessage,
     createConversation,
     deleteConversation,
@@ -1151,11 +1152,16 @@ const Mensagens = () => {
   const getMessageStatus = (msg: Message): 'sent' | 'delivered' | 'read' => {
     if (isMessageRead(msg)) return 'read';
     if (!activeConversation?.participants) return 'sent';
-    const otherParticipants = activeConversation.participants.filter(
-      p => p.user_id !== msg.sender_id
-    );
-    // "Entregue" se algum outro participante está online no momento
-    const anyOnline = otherParticipants.some(p => isUserOnline(p.user_id));
+    const otherParticipantIds = activeConversation.participants
+      .filter(p => p.user_id !== msg.sender_id)
+      .map(p => p.user_id);
+    // "Entregue" se algum outro participante tem registro real em message_deliveries
+    const deliveredTo = deliveries[msg.id];
+    if (deliveredTo && otherParticipantIds.some(uid => deliveredTo.has(uid))) {
+      return 'delivered';
+    }
+    // Fallback: presença online (caso o registro de entrega ainda não tenha chegado)
+    const anyOnline = otherParticipantIds.some(uid => isUserOnline(uid));
     return anyOnline ? 'delivered' : 'sent';
   };
 
