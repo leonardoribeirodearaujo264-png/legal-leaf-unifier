@@ -103,6 +103,7 @@ const Mensagens = () => {
   const isAdminOrSocioRole = isAdmin || isSocioRole;
   const { isUserOnline } = usePresence();
   const location = useLocation();
+  const navigate = useNavigate();
   const {
     conversations,
     loading,
@@ -126,14 +127,15 @@ const Mensagens = () => {
     const state = location.state as { openConversation?: string } | null;
     if (state?.openConversation && conversations.length > 0) {
       const conv = conversations.find(c => c.id === state.openConversation);
-      if (conv) {
+      if (conv && conv.id !== activeConversation?.id) {
         setActiveConversation(conv);
         setShowMobileChat(true);
-        // Clear the state to prevent reopening on refresh
-        window.history.replaceState({}, document.title);
       }
+      // Clear navigation state to prevent loop
+      navigate(location.pathname, { replace: true, state: null });
     }
-  }, [location.state, conversations, setActiveConversation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, conversations]);
 
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
