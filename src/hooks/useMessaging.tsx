@@ -55,6 +55,8 @@ export const useMessaging = () => {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // Map: messageId -> Set of userIds that received the message
+  const [deliveries, setDeliveries] = useState<Record<string, Set<string>>>({});
 
   // Fetch all conversations for the user
   const fetchConversations = useCallback(async () => {
@@ -223,6 +225,38 @@ export const useMessaging = () => {
       }) || [];
 
       setMessages(enrichedMessages);
+
+      // Mark all incoming messages as delivered for this user
+      const incomingMessageIds = (data || [])
+        .filter(m => m.sender_id !== user.id)
+        .map(m => m.id);
+      if (incomingMessageIds.length > 0) {
+        await supabase
+          .from('message_deliveries')
+          .upsert(
+            incomingMessageIds.map(message_id => ({ message_id, user_id: user.id })),
+            { onConflict: 'message_id,user_id', ignoreDuplicates: true }
+          );
+      }
+
+      // Load existing deliveries for these messages
+      const allMessageIds = (data || []).map(m => m.id);
+      if (allMessageIds.length > 0) {
+        const { data: deliveryRows } = await supabase
+          .from('message_deliveries')
+          .select('message_id, user_id')
+          .in('message_id', allMessageIds);
+        if (deliveryRows) {
+          setDeliveries(prev => {
+            const next = { ...prev };
+            for (const row of deliveryRows) {
+              if (!next[row.message_id]) next[row.message_id] = new Set();
+              next[row.message_id].add(row.user_id);
+            }
+            return next;
+          });
+        }
+      }
 
       // Mark as read
       await supabase
