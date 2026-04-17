@@ -251,12 +251,12 @@ export default function RelatoriosFinanceiros() {
     }
   }, [hasFinancialAccess, isAdmin, roleLoading, permLoading]);
 
-  // Atualização automática silenciosa a cada 10 minutos
+  // Atualização automática silenciosa a cada 6 horas — só com aba visível
   useEffect(() => {
     if (!hasFinancialAccess || !isAdmin || roleLoading || permLoading) return;
     
     const intervalId = setInterval(() => {
-      // Atualiza silenciosamente sem mostrar loading
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       fetchTransactions(false);
     }, 6 * 60 * 60 * 1000); // 6 horas
     
