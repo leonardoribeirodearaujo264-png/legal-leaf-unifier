@@ -1,66 +1,61 @@
 
 
-## Corrigir edição de mensagens internas + adicionar tiques de entrega/leitura estilo WhatsApp
+## Por que a Letícia (admin) não conseguiu editar + tique azul não aparece
 
-### Diagnóstico
+### Diagnóstico (verificado no banco e código)
 
-**1. Edição:** O código atual em `Mensagens.tsx` linha 630-635 só permite o autor editar dentro de 6h. Não há permissão extra para admins. A política RLS no banco **já está correta** (`sender_id = auth.uid() OR has_role admin OR is_socio_or_rafael`), só falta refletir isso na UI.
+**1. Edição da Letícia** — Confirmei no banco:
+- Letícia (`leticiapessoa@eggnunes.com.br`) tem `role='admin'`, `position='administrativo'`, `is_active=true`, `approval_status='approved'`.
+- A política RLS da tabela `messages` para UPDATE permite admin: `sender_id = auth.uid() OR has_role(auth.uid(),'admin') OR is_socio_or_rafael(auth.uid())` ✓
+- A função `canEditMessage` na UI usa `isAdmin || isSocio` — correto.
 
-**2. Tiques de leitura:** Existe apenas 2 estados (1 cinza = não lido, 2 azuis = lido). Falta o estado intermediário "entregue" (1 azul). Hoje o sistema não rastreia entrega — só leitura via `last_read_at`.
+**Causa real**: a Letícia testou ANTES da última correção entrar em produção (a alteração que liberou edição para admin foi feita no chat anterior — ela pode ter testado com a versão antiga em cache do browser, OU ainda não recarregou a página). A correção já está no código.
 
-### Correção
+**Mas há dois bugs sutis que ainda podem bloquear ela:**
+- **(a)** A janela de 3h é calculada com `differenceInMinutes(new Date(), msg.created_at) > 180`. Se a Letícia tentou editar uma mensagem **antiga (>3h)**, o botão não aparece — mesmo sendo admin. Pelo plano anterior, admins só editam dentro da janela de 3h. Preciso confirmar com você: **admin deve poder editar SEM limite de tempo?**
+- **(b)** O dropdown da mensagem só renderiza o item "Editar" se `canEditMessage(msg) === true`. Se `useUserRole` ainda estiver com `loading=true` no primeiro render, `isAdmin` vem `false` e o botão fica escondido. Precisa de um guard de loading.
 
-**A. Edição de mensagens (`src/pages/Mensagens.tsx`)**
+**2. Tique azul de "entregue" não funciona** — A heurística atual usa `usePresence` (Supabase Realtime presence channel `online-users`). Problemas:
+- Presence só rastreia usuários **com a aba aberta no momento**. Se a Letícia mandou mensagem e a outra pessoa estava com a aba fechada, nunca vira "delivered" — fica eternamente como 1 tique cinza.
+- Pior: se o destinatário abre e fecha a aba antes da Letícia olhar, ela nunca vê o estado "entregue", só pula para "lido" quando ele entra na conversa.
+- Resultado: na prática, **só funciona se ambos estiverem online ao mesmo tempo** — o que raramente acontece.
 
-Atualizar `canEditMessage` (linha 630):
-- **Autor da mensagem:** pode editar até **3 horas** após envio
-- **Admins/sócios/Rafael:** podem editar **qualquer mensagem** até **3 horas** após envio
-- **Mensagens recebidas (não-autor, não-admin):** **não** pode editar (regra atual já correta)
+**Solução**: implementar entrega de verdade com uma coluna `delivered_at` por destinatário, marcada quando a mensagem chega ao realtime do destinatário (ou quando ele faz fetch). Sem isso, a heurística por presença é instável.
 
-```ts
-const canEditMessage = (msg: Message) => {
-  const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
-  if (minutesSinceSent > 180) return false; // 3h limit para todos
-  if (msg.sender_id === user?.id) return true; // autor
-  if (isAdmin || isSocio) return true; // admin pode editar qualquer uma dentro de 3h
-  return false;
-};
+### Correções
+
+**A. Edição (UI) — `src/pages/Mensagens.tsx`**
+1. Adicionar guard de loading do `useUserRole`: enquanto `loading=true`, não esconder o botão prematuramente — esperar a role carregar antes de avaliar `canEditMessage`.
+2. Decidir: **admins podem editar sem limite de 3h?** Sugiro: **autor → 3h**, **admin/sócio → sem limite** (faz sentido para moderação). [confirmar abaixo]
+
+**B. Tique de entrega — implementar `delivered_at` real**
+
+Criar tabela:
+```sql
+CREATE TABLE message_deliveries (
+  message_id uuid REFERENCES messages(id) ON DELETE CASCADE,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  delivered_at timestamptz DEFAULT now(),
+  PRIMARY KEY (message_id, user_id)
+);
+ALTER TABLE message_deliveries ENABLE ROW LEVEL SECURITY;
+-- Policy: usuário pode inserir/ver suas próprias entregas
 ```
 
-Adicionar `useUserRole` import + hook (já existe no projeto).
+No frontend (`useMessaging.tsx`):
+- No subscribe realtime de `INSERT` em `messages`, todo participante (que não seja o sender) faz `INSERT` em `message_deliveries` automaticamente assim que recebe o evento — mesmo sem abrir a conversa, basta a aba estar aberta em qualquer página da intranet.
+- Adicional: ao fazer `fetchMessages`, marcar como entregues todas as mensagens que ainda não tinham `delivered_at` para o usuário atual (cobre quem estava offline e abriu depois).
+- Em `Mensagens.tsx`, `getMessageStatus` consulta `message_deliveries` em vez de `usePresence`: `delivered` = existe registro de entrega para algum outro participante; `read` = `last_read_at >= created_at`.
 
-**B. Tiques de entrega + leitura (estilo WhatsApp)**
-
-Como rastrear "entregue" sem campo dedicado: usar uma proxy realista — **mensagem é "entregue" se o destinatário tem sessão/presença ativa OU já abriu a conversa pelo menos uma vez após o envio** (via `joined_at`/conexão ao realtime).
-
-Solução pragmática sem migração:
-- **1 tique cinza** (`text-muted-foreground`): mensagem enviada, ainda não confirmada entrega
-- **1 tique azul** (`text-blue-500`): destinatário está com presença ativa (online via `usePresence`) → considerada entregue
-- **2 tiques azuis**: destinatário leu (`last_read_at >= created_at`)
-
-Atualizar `isMessageRead` (linha 1148) e criar `getMessageStatus(msg)` retornando `'sent' | 'delivered' | 'read'`. Renderizar:
-```tsx
-{status === 'read' && <><Check blue/><Check blue -ml/></>}
-{status === 'delivered' && <><Check blue/><Check blue muted-opacity/></>}
-{status === 'sent' && <Check gray />}
-```
-
-Para "delivered" usar `usePresence` (já existe) verificando se algum outro participante está `online`. Em grupos, basta um participante online para marcar como entregue.
-
-**Opcional (futuro)**: adicionar coluna `delivered_at` em `messages` ou tabela `message_deliveries(message_id, user_id, delivered_at)` para rastreamento real. Por ora, a heurística por presença é suficiente e não exige migração.
-
-### Resultado
-- Autor edita sua própria mensagem em até 3h
-- Admins/Sócios/Rafael editam qualquer mensagem em até 3h  
-- Mensagens recebidas (não-admin) continuam **não-editáveis** (regra mantida)
-- 3 estados visuais de tiques: enviado (1 cinza) → entregue (1 azul) → lido (2 azuis)
-
-### Memória a salvar
-Atualizar `mem://features/internal-messaging-chat-system` com as novas regras de edição (3h para autor, 3h para admin) e o sistema de 3 tiques (sent/delivered/read).
+**C. Subscription para atualizar status em tempo real**
+- Subscrever `message_deliveries` (INSERT) na conversa ativa para o tique cinza virar azul automaticamente assim que o destinatário recebe.
+- Subscrever `conversation_participants` (UPDATE em `last_read_at`) para o segundo tique azul aparecer assim que ele lê.
 
 ### Arquivos modificados
-- `src/pages/Mensagens.tsx` — atualizar `canEditMessage`, adicionar `getMessageStatus`, renderizar 3 estados de tique
-- `mem://features/internal-messaging-chat-system` — atualizar regra
+- `supabase/migrations/...` (nova migration) — criar `message_deliveries` + RLS + realtime
+- `src/hooks/useMessaging.tsx` — auto-insert em `message_deliveries` no realtime e no fetch; expor `deliveries` por mensagem
+- `src/pages/Mensagens.tsx` — guard de loading de role; novo `getMessageStatus` baseado em `message_deliveries`; subscription para deliveries e last_read_at
 
-Sem migração de banco. Política RLS já permite admin editar.
+### Pergunta antes de executar
+**Admin/sócio devem poder editar mensagens sem limite de tempo (sem janela de 3h)?** Recomendo **sim** — fica claro e consistente com o papel de moderação. Se preferir manter 3h também para admins, faço só os bugs (a) e (b) e o sistema de delivery.
 
