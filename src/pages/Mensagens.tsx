@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { Layout } from '@/components/Layout';
 import { useMessaging, Conversation, Message } from '@/hooks/useMessaging';
 import { useAuth } from '@/hooks/useAuth';
+import { useUserRole } from '@/hooks/useUserRole';
+import { usePresence } from '@/hooks/usePresence';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -96,6 +98,9 @@ interface AttachedFile {
 
 const Mensagens = () => {
   const { user } = useAuth();
+  const { isAdmin, profile: userProfile } = useUserRole();
+  const isSocio = userProfile?.position === 'socio';
+  const { isUserOnline } = usePresence();
   const location = useLocation();
   const {
     conversations,
@@ -628,10 +633,14 @@ const Mensagens = () => {
   };
 
   const canEditMessage = (msg: Message) => {
-    // Apenas o autor pode editar suas próprias mensagens dentro de 6 horas
-    if (msg.sender_id !== user?.id) return false;
+    // Janela de 3 horas para todos
     const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
-    return minutesSinceSent <= 360;
+    if (minutesSinceSent > 180) return false;
+    // Autor pode editar a própria mensagem
+    if (msg.sender_id === user?.id) return true;
+    // Admins, sócios e Rafael podem editar qualquer mensagem dentro da janela
+    if (isAdmin || isSocio) return true;
+    return false;
   };
 
   const handleStartEdit = (msg: Message) => {
@@ -1147,17 +1156,25 @@ const Mensagens = () => {
   // Check if message was read by other participants
   const isMessageRead = (msg: Message) => {
     if (!activeConversation?.participants) return false;
-    
-    // Get other participants (not the sender)
     const otherParticipants = activeConversation.participants.filter(
       p => p.user_id !== msg.sender_id
     );
-    
-    // Check if at least one other participant has read the message
     return otherParticipants.some(p => {
       if (!p.last_read_at) return false;
       return new Date(p.last_read_at) >= new Date(msg.created_at);
     });
+  };
+
+  // WhatsApp-style status: sent (1 gray) | delivered (1 blue) | read (2 blue)
+  const getMessageStatus = (msg: Message): 'sent' | 'delivered' | 'read' => {
+    if (isMessageRead(msg)) return 'read';
+    if (!activeConversation?.participants) return 'sent';
+    const otherParticipants = activeConversation.participants.filter(
+      p => p.user_id !== msg.sender_id
+    );
+    // "Entregue" se algum outro participante está online no momento
+    const anyOnline = otherParticipants.some(p => isUserOnline(p.user_id));
+    return anyOnline ? 'delivered' : 'sent';
   };
 
   // Group management functions
@@ -1741,18 +1758,29 @@ const Mensagens = () => {
                                       {msg.is_edited && (
                                         <span className="text-[10px]">(editado)</span>
                                       )}
-                                      {isMe && (
-                                        isMessageRead(msg) ? (
-                                          <span className="ml-1 inline-flex items-center">
-                                            <Check className="h-3 w-3 text-blue-500" />
-                                            <Check className="h-3 w-3 -ml-1.5 text-blue-500" />
-                                          </span>
-                                        ) : (
-                                          <span className="ml-1 inline-flex items-center">
+                                      {isMe && (() => {
+                                        const status = getMessageStatus(msg);
+                                        if (status === 'read') {
+                                          return (
+                                            <span className="ml-1 inline-flex items-center" title="Lida">
+                                              <Check className="h-3 w-3 text-blue-500" />
+                                              <Check className="h-3 w-3 -ml-1.5 text-blue-500" />
+                                            </span>
+                                          );
+                                        }
+                                        if (status === 'delivered') {
+                                          return (
+                                            <span className="ml-1 inline-flex items-center" title="Entregue">
+                                              <Check className="h-3 w-3 text-blue-500" />
+                                            </span>
+                                          );
+                                        }
+                                        return (
+                                          <span className="ml-1 inline-flex items-center" title="Enviada">
                                             <Check className="h-3 w-3 text-muted-foreground" />
                                           </span>
-                                        )
-                                      )}
+                                        );
+                                      })()}
                                     </div>
                                   </>
                                 )}
