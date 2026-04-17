@@ -98,8 +98,9 @@ interface AttachedFile {
 
 const Mensagens = () => {
   const { user } = useAuth();
-  const { isAdmin, profile: userProfile } = useUserRole();
-  const isSocio = userProfile?.position === 'socio';
+  const { isAdmin, profile: userProfile, loading: roleLoading } = useUserRole();
+  const isSocioRole = userProfile?.position === 'socio' || userProfile?.email === 'rafael@eggnunes.com.br';
+  const isAdminOrSocioRole = isAdmin || isSocioRole;
   const { isUserOnline } = usePresence();
   const location = useLocation();
   const {
@@ -148,8 +149,9 @@ const Mensagens = () => {
   const [editingContent, setEditingContent] = useState('');
   const [deleteConversationId, setDeleteConversationId] = useState<string | null>(null);
   const [deleteMessageId, setDeleteMessageId] = useState<string | null>(null);
-  const [isSocio, setIsSocio] = useState(false);
-  const [isAdminOrSocio, setIsAdminOrSocio] = useState(false);
+  // Aliases derivados do useUserRole (evita estado duplicado)
+  const isSocio = isSocioRole;
+  const isAdminOrSocio = isAdminOrSocioRole;
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [showAIGenerator, setShowAIGenerator] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -200,30 +202,7 @@ const Mensagens = () => {
   const aiAudioChunksRef = useRef<Blob[]>([]);
   const aiRecordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Check if user is socio or admin
-  useEffect(() => {
-    const checkSocioAndAdmin = async () => {
-      if (!user) return;
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('position, email')
-        .eq('id', user.id)
-        .single();
-      
-      const socio = profileData?.position === 'socio' || profileData?.email === 'rafael@eggnunes.com.br';
-      setIsSocio(socio);
-
-      const { data: roleData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'admin')
-        .maybeSingle();
-
-      setIsAdminOrSocio(socio || !!roleData);
-    };
-    checkSocioAndAdmin();
-  }, [user]);
+  // isSocio e isAdminOrSocio agora vêm de useUserRole — sem fetch duplicado
 
   // Load templates
   useEffect(() => {
@@ -633,13 +612,16 @@ const Mensagens = () => {
   };
 
   const canEditMessage = (msg: Message) => {
-    // Janela de 3 horas para todos
-    const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
-    if (minutesSinceSent > 180) return false;
-    // Autor pode editar a própria mensagem
-    if (msg.sender_id === user?.id) return true;
-    // Admins, sócios e Rafael podem editar qualquer mensagem dentro da janela
+    // Guard: enquanto a role carrega, presume que pode editar para evitar
+    // esconder o botão prematuramente (a edição final é validada pelo RLS).
+    if (roleLoading) return true;
+    // Admins/sócios/Rafael: SEM limite de tempo (papel de moderação)
     if (isAdmin || isSocio) return true;
+    // Autor da mensagem: pode editar até 3 horas após envio
+    if (msg.sender_id === user?.id) {
+      const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
+      return minutesSinceSent <= 180;
+    }
     return false;
   };
 
