@@ -570,7 +570,19 @@ export const useMessaging = () => {
     }
   };
 
-  // Subscribe to realtime updates
+  // Refs to access latest values inside realtime handlers without recreating channel
+  const activeConversationRef = useRef<Conversation | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+
+  useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  // Subscribe to realtime updates — created ONCE per user session
   useEffect(() => {
     if (!user) return;
 
@@ -585,9 +597,17 @@ export const useMessaging = () => {
         },
         async (payload) => {
           const newMessage = payload.new as Message;
+          const currentActive = activeConversationRef.current;
 
-          // Auto-mark as delivered for any incoming message (in any conversation
-          // the user participates in) — RLS will reject if not a participant.
+          // Only process if this conversation is in our list (we're a participant)
+          const knownConv = conversationsRef.current.find(c => c.id === newMessage.conversation_id);
+          if (!knownConv) {
+            // Not in our list yet — could be a new conversation. Refresh once.
+            fetchConversations();
+            return;
+          }
+
+          // Auto-mark as delivered for any incoming message
           if (newMessage.sender_id !== user.id) {
             supabase
               .from('message_deliveries')
@@ -598,15 +618,18 @@ export const useMessaging = () => {
               .then(() => {});
           }
 
-          // If it's for the active conversation, add to messages
-          if (activeConversation && newMessage.conversation_id === activeConversation.id) {
+          // If it's for the active conversation, add to messages list
+          if (currentActive && newMessage.conversation_id === currentActive.id) {
             const { data: senderProfile } = await supabase
               .from('profiles')
               .select('id, full_name, avatar_url')
               .eq('id', newMessage.sender_id)
               .single();
 
-            setMessages(prev => [...prev, { ...newMessage, sender: senderProfile }]);
+            setMessages(prev => {
+              if (prev.some(m => m.id === newMessage.id)) return prev;
+              return [...prev, { ...newMessage, sender: senderProfile }];
+            });
 
             // Mark as read if not my message
             if (newMessage.sender_id !== user.id) {
@@ -615,14 +638,29 @@ export const useMessaging = () => {
                 .update({ last_read_at: new Date().toISOString() })
                 .eq('conversation_id', newMessage.conversation_id)
                 .eq('user_id', user.id);
-              
-              // Notify other hooks that messages were read
+
               window.dispatchEvent(new Event('messages-read'));
             }
           }
 
-          // Refresh conversations list
-          fetchConversations();
+          // Incremental update of conversations list (no full refetch)
+          setConversations(prev => {
+            const updated = prev.map(c => {
+              if (c.id !== newMessage.conversation_id) return c;
+              const isActive = currentActive?.id === c.id;
+              const isMine = newMessage.sender_id === user.id;
+              return {
+                ...c,
+                last_message: newMessage,
+                updated_at: newMessage.created_at,
+                unread_count: isActive || isMine ? 0 : (c.unread_count || 0) + 1,
+              };
+            });
+            // Re-sort by updated_at desc
+            return [...updated].sort((a, b) =>
+              new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+            );
+          });
         }
       )
       .on(
@@ -634,6 +672,8 @@ export const useMessaging = () => {
         },
         (payload) => {
           const row = payload.new as { message_id: string; user_id: string };
+          // Ignore self-deliveries to avoid unnecessary state churn
+          if (row.user_id === user.id) return;
           setDeliveries(prev => {
             const next = { ...prev };
             if (!next[row.message_id]) next[row.message_id] = new Set();
@@ -652,8 +692,10 @@ export const useMessaging = () => {
         },
         (payload) => {
           const updated = payload.new as { conversation_id: string; user_id: string; last_read_at: string };
-          // Update participants' last_read_at in active conversation for read receipts
-          if (activeConversation && updated.conversation_id === activeConversation.id) {
+          // Skip self-updates (already handled locally) to prevent re-render churn
+          if (updated.user_id === user.id) return;
+          const currentActive = activeConversationRef.current;
+          if (currentActive && updated.conversation_id === currentActive.id) {
             setActiveConversation(prev => {
               if (!prev) return prev;
               const newParticipants = prev.participants?.map(p =>
@@ -671,17 +713,21 @@ export const useMessaging = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, activeConversation, fetchConversations]);
+    // Only depend on user.id — channel is stable across conversation switches
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
 
   useEffect(() => {
-    if (activeConversation) {
+    if (activeConversation?.id) {
       fetchMessages(activeConversation.id);
     }
-  }, [activeConversation, fetchMessages]);
+    // Only refetch when the conversation ID actually changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversation?.id]);
 
   return {
     conversations,
