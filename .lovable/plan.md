@@ -1,81 +1,66 @@
 
 
-## Corrigir relatório de tarefas: atrasadas infladas + colaboradores inativos
+## Corrigir edição de mensagens internas + adicionar tiques de entrega/leitura estilo WhatsApp
 
-### Diagnóstico (após análise do código + banco)
+### Diagnóstico
 
-A tela da screenshot é o **`WeeklyTaskReport`** (aba "Relatório Semanal" em `/tarefas-advbox`). Encontrei 4 causas reais para o problema:
+**1. Edição:** O código atual em `Mensagens.tsx` linha 630-635 só permite o autor editar dentro de 6h. Não há permissão extra para admins. A política RLS no banco **já está correta** (`sender_id = auth.uid() OR has_role admin OR is_socio_or_rafael`), só falta refletir isso na UI.
 
-**1. Colaboradores inativos aparecendo (Tatiane Ferreira Passos):**
-- Ela está com `is_active = false` no banco, mas o ADVBox ainda retorna o nome dela em `assigned_users` (string concatenada, ex: `"GUILHERME, MARIANA, TATIANE"`).
-- O componente `WeeklyTaskReport` usa essa string crua sem filtrar quem ainda está ativo no escritório.
+**2. Tiques de leitura:** Existe apenas 2 estados (1 cinza = não lido, 2 azuis = lido). Falta o estado intermediário "entregue" (1 azul). Hoje o sistema não rastreia entrega — só leitura via `last_read_at`.
 
-**2. Tarefas `stale` (descontinuadas) entrando no relatório:**
-- Existem 12 tarefas com `status='stale'` no banco. O filtro principal (`/tarefas-advbox`) já oculta `stale`, mas o `WeeklyTaskReport` recebe `tasks` brutas e conta como pendentes/atrasadas.
+### Correção
 
-**3. Tarefas "coletivas" inflando estatísticas:**
-- Várias tarefas têm 10–12 responsáveis na mesma string (ex: reuniões, comunicados). Cada nome vira uma "tarefa atrasada" individual no gráfico, multiplicando artificialmente o número de atrasadas por pessoa.
+**A. Edição de mensagens (`src/pages/Mensagens.tsx`)**
 
-**4. "Atrasada" considerando hora UTC sem normalizar para fuso local:**
-- Tarefas com `due_date 2026-04-16 18:00:00+00` (15:00 BRT) que ainda não venceram em horário local podem aparecer como atrasadas dependendo do momento do dia. A regra atual `isBefore(parseISO(due_date), startOfDay(today))` é segura na maioria dos casos, mas tarefas do **próprio dia de hoje** com hora passada vão parar em "pendentes", não em "atrasadas" — confirmado OK. O ruído real vem dos itens 1–3.
-
-### Correção (apenas componente `src/components/WeeklyTaskReport.tsx`)
-
-**A. Buscar lista de colaboradores ativos do banco**
-- Adicionar `useEffect` que carrega `profiles` onde `is_active = true AND is_suspended = false AND approval_status = 'approved'`.
-- Guardar em `Set<string>` com nomes em UPPERCASE para comparação direta com `assigned_users` do ADVBox (que vem em maiúsculas).
-
-**B. Filtrar tarefas e nomes**
-1. **Ignorar tarefas com status `stale`** ou `deleted` no início do `weeklyTasks`.
-2. Ao expandir `assigned_to` em nomes individuais, **filtrar nomes que não estão no Set de ativos**.
-3. Se a tarefa não tem nenhum responsável ativo após o filtro, **descartar a tarefa** das estatísticas (não conta nem em total, nem em atrasadas).
-
-**C. Contar "atrasadas" só uma vez por tarefa no total geral**
-- O `overallStats.overdue` continua contando uma vez por tarefa (correto).
-- O `statsByResponsible` continua contando por responsável ativo (correto, pois cada um é responsável de fato).
-
-**D. Sinalizar tarefas coletivas (>5 responsáveis ativos)**
-- Adicionar uma badge visual "Compromisso coletivo" na lista de desempenho indicando quando a tarefa tem muitos responsáveis, para o usuário entender por que aparece em vários colaboradores.
-- Opcional: adicionar um toggle "Excluir compromissos coletivos (>5 responsáveis)" no cabeçalho do relatório, para limpar o ruído nas comparações individuais.
-
-**E. Aplicar mesma lógica em `RelatoriosProdutividadeTarefas.tsx`**
-- O gráfico `tasksByUser` e o ranking `oldestPendingTasks` também devem filtrar nomes inativos e ignorar `stale`.
-- Adicionar o mesmo `useEffect` para carregar colaboradores ativos.
-
-### Pseudocódigo
+Atualizar `canEditMessage` (linha 630):
+- **Autor da mensagem:** pode editar até **3 horas** após envio
+- **Admins/sócios/Rafael:** podem editar **qualquer mensagem** até **3 horas** após envio
+- **Mensagens recebidas (não-autor, não-admin):** **não** pode editar (regra atual já correta)
 
 ```ts
-// 1. Carregar ativos
-const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
-useEffect(() => {
-  supabase.from('profiles')
-    .select('full_name')
-    .eq('is_active', true).eq('is_suspended', false).eq('approval_status', 'approved')
-    .then(({ data }) => setActiveNames(new Set((data||[]).map(p => p.full_name.toUpperCase()))));
-}, []);
-
-// 2. Em weeklyTasks: filtrar stale
-.filter(t => t.status !== 'stale' && t.status !== 'deleted')
-
-// 3. Em statsByResponsible:
-const responsibles = rawResponsible.split(',').map(n => n.trim())
-  .filter(name => activeNames.has(name.toUpperCase())); // só ativos
-
-if (responsibles.length === 0) return; // tarefa sem responsável ativo
-
-// 4. Toggle opcional para excluir tarefas com >5 responsáveis
-if (excludeCollective && responsibles.length > 5) return;
+const canEditMessage = (msg: Message) => {
+  const minutesSinceSent = differenceInMinutes(new Date(), new Date(msg.created_at));
+  if (minutesSinceSent > 180) return false; // 3h limit para todos
+  if (msg.sender_id === user?.id) return true; // autor
+  if (isAdmin || isSocio) return true; // admin pode editar qualquer uma dentro de 3h
+  return false;
+};
 ```
 
-### Resultado esperado
-- **Tatiane (e qualquer colaborador inativo) some** automaticamente do relatório semanal e do dashboard de produtividade.
-- **Tarefas `stale` deixam de inflar** as contagens.
-- Toggle opcional permite ao usuário **isolar tarefas individuais** das coletivas (reuniões em massa).
-- Quando um novo colaborador for inativado no futuro, **basta marcar `is_active=false`** e ele desaparece automaticamente — não é necessário corrigir nada no ADVBox.
+Adicionar `useUserRole` import + hook (já existe no projeto).
+
+**B. Tiques de entrega + leitura (estilo WhatsApp)**
+
+Como rastrear "entregue" sem campo dedicado: usar uma proxy realista — **mensagem é "entregue" se o destinatário tem sessão/presença ativa OU já abriu a conversa pelo menos uma vez após o envio** (via `joined_at`/conexão ao realtime).
+
+Solução pragmática sem migração:
+- **1 tique cinza** (`text-muted-foreground`): mensagem enviada, ainda não confirmada entrega
+- **1 tique azul** (`text-blue-500`): destinatário está com presença ativa (online via `usePresence`) → considerada entregue
+- **2 tiques azuis**: destinatário leu (`last_read_at >= created_at`)
+
+Atualizar `isMessageRead` (linha 1148) e criar `getMessageStatus(msg)` retornando `'sent' | 'delivered' | 'read'`. Renderizar:
+```tsx
+{status === 'read' && <><Check blue/><Check blue -ml/></>}
+{status === 'delivered' && <><Check blue/><Check blue muted-opacity/></>}
+{status === 'sent' && <Check gray />}
+```
+
+Para "delivered" usar `usePresence` (já existe) verificando se algum outro participante está `online`. Em grupos, basta um participante online para marcar como entregue.
+
+**Opcional (futuro)**: adicionar coluna `delivered_at` em `messages` ou tabela `message_deliveries(message_id, user_id, delivered_at)` para rastreamento real. Por ora, a heurística por presença é suficiente e não exige migração.
+
+### Resultado
+- Autor edita sua própria mensagem em até 3h
+- Admins/Sócios/Rafael editam qualquer mensagem em até 3h  
+- Mensagens recebidas (não-admin) continuam **não-editáveis** (regra mantida)
+- 3 estados visuais de tiques: enviado (1 cinza) → entregue (1 azul) → lido (2 azuis)
+
+### Memória a salvar
+Atualizar `mem://features/internal-messaging-chat-system` com as novas regras de edição (3h para autor, 3h para admin) e o sistema de 3 tiques (sent/delivered/read).
 
 ### Arquivos modificados
-- `src/components/WeeklyTaskReport.tsx` — filtro de inativos + stale + toggle coletivo
-- `src/pages/RelatoriosProdutividadeTarefas.tsx` — filtro de inativos + stale nos gráficos `tasksByUser`, `oldestPendingTasks` e KPIs
+- `src/pages/Mensagens.tsx` — atualizar `canEditMessage`, adicionar `getMessageStatus`, renderizar 3 estados de tique
+- `mem://features/internal-messaging-chat-system` — atualizar regra
 
-Sem migração de banco. Sem alterações em outras telas.
+Sem migração de banco. Política RLS já permite admin editar.
 
