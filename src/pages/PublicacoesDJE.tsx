@@ -676,7 +676,6 @@ export default function PublicacoesDJE() {
                     />
                   </>
                 )}
-                </Select>
                 {/* Filtro de fonte removido — substituído pelas abas Comunica PJe / DataJud */}
                 {advogadosUnicos.length > 1 && (
                   <Select value={filtroAdvogado} onValueChange={setFiltroAdvogado}>
