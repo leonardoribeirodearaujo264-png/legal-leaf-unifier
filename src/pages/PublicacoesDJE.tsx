@@ -333,7 +333,11 @@ export default function PublicacoesDJE() {
     }
 
     return result;
-  }, [publicacoes, filtroTexto, filtroLeitura, filtroFonte, filtroPeriodo, filtroDataDia, filtroDataCustomInicio, filtroDataCustomFim, filtroAdvogado, ordenacao]);
+  }, [publicacoes, filtroTexto, filtroLeitura, abaAtiva, filtroPeriodo, filtroDataDia, filtroDataCustomInicio, filtroDataCustomFim, filtroAdvogado, ordenacao]);
+
+  // Contadores por fonte (totais, sem filtros client-side)
+  const countComunicaPJe = useMemo(() => publicacoes.filter(p => p.meio === 'ComunicaPJe').length, [publicacoes]);
+  const countDataJud = useMemo(() => publicacoes.filter(p => p.meio === 'DataJud').length, [publicacoes]);
 
   const toggleRead = async (pub: Publicacao) => {
     try {
