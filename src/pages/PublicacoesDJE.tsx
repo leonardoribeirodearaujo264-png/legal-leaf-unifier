@@ -676,16 +676,8 @@ export default function PublicacoesDJE() {
                     />
                   </>
                 )}
-                <Select value={filtroFonte} onValueChange={(v) => setFiltroFonte(v as any)}>
-                  <SelectTrigger className="w-[160px] h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todas">Todas as fontes</SelectItem>
-                    <SelectItem value="DataJud">DataJud</SelectItem>
-                    <SelectItem value="ComunicaPJe">Comunica PJe</SelectItem>
-                  </SelectContent>
                 </Select>
+                {/* Filtro de fonte removido — substituído pelas abas Comunica PJe / DataJud */}
                 {advogadosUnicos.length > 1 && (
                   <Select value={filtroAdvogado} onValueChange={setFiltroAdvogado}>
                     <SelectTrigger className="w-[180px] h-9">
