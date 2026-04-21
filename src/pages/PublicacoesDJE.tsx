@@ -287,10 +287,8 @@ export default function PublicacoesDJE() {
       result = result.filter(p => !p.lida);
     }
 
-    // Source filter
-    if (filtroFonte !== 'todas') {
-      result = result.filter(p => p.meio === filtroFonte);
-    }
+    // Source filter — controlled by active tab
+    result = result.filter(p => p.meio === (abaAtiva === 'comunicapje' ? 'ComunicaPJe' : 'DataJud'));
 
     // Period filter
     if (filtroPeriodo === 'dia' && filtroDataDia) {
