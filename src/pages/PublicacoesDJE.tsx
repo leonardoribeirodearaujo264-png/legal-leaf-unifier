@@ -195,6 +195,7 @@ export default function PublicacoesDJE() {
       const filters = buildFilters();
 
       if (source === 'comunicapje') {
+        setAbaAtiva('comunicapje');
         const { data, error } = await supabase.functions.invoke('pje-publicacoes', {
           body: { action: 'search-comunicapje', filters },
           region: FunctionRegion.SaEast1,
