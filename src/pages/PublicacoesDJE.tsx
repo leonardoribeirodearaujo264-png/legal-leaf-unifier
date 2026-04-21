@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { FunctionRegion } from '@supabase/supabase-js';
 import { toast } from 'sonner';
@@ -120,7 +121,7 @@ export default function PublicacoesDJE() {
   const [filtroDataCustomInicio, setFiltroDataCustomInicio] = useState('');
   const [filtroDataCustomFim, setFiltroDataCustomFim] = useState('');
   const [filtroAdvogado, setFiltroAdvogado] = useState('todos');
-  const [filtroFonte, setFiltroFonte] = useState<'todas' | 'DataJud' | 'ComunicaPJe'>('todas');
+  const [abaAtiva, setAbaAtiva] = useState<'comunicapje' | 'datajud'>('comunicapje');
   const [ordenacao, setOrdenacao] = useState<'recente' | 'antigo' | 'tribunal'>('recente');
 
   // Extract unique attorney names for filter
@@ -194,6 +195,7 @@ export default function PublicacoesDJE() {
       const filters = buildFilters();
 
       if (source === 'comunicapje') {
+        setAbaAtiva('comunicapje');
         const { data, error } = await supabase.functions.invoke('pje-publicacoes', {
           body: { action: 'search-comunicapje', filters },
           region: FunctionRegion.SaEast1,
@@ -218,6 +220,7 @@ export default function PublicacoesDJE() {
         }
         await loadLocal({}, 1);
       } else if (source === 'api') {
+        setAbaAtiva('datajud');
         const { data, error } = await supabase.functions.invoke('pje-publicacoes', {
           body: { action: 'search-api', filters },
           region: FunctionRegion.SaEast1,
@@ -286,10 +289,8 @@ export default function PublicacoesDJE() {
       result = result.filter(p => !p.lida);
     }
 
-    // Source filter
-    if (filtroFonte !== 'todas') {
-      result = result.filter(p => p.meio === filtroFonte);
-    }
+    // Source filter — controlled by active tab
+    result = result.filter(p => p.meio === (abaAtiva === 'comunicapje' ? 'ComunicaPJe' : 'DataJud'));
 
     // Period filter
     if (filtroPeriodo === 'dia' && filtroDataDia) {
@@ -334,7 +335,11 @@ export default function PublicacoesDJE() {
     }
 
     return result;
-  }, [publicacoes, filtroTexto, filtroLeitura, filtroFonte, filtroPeriodo, filtroDataDia, filtroDataCustomInicio, filtroDataCustomFim, filtroAdvogado, ordenacao]);
+  }, [publicacoes, filtroTexto, filtroLeitura, abaAtiva, filtroPeriodo, filtroDataDia, filtroDataCustomInicio, filtroDataCustomFim, filtroAdvogado, ordenacao]);
+
+  // Contadores por fonte (totais, sem filtros client-side)
+  const countComunicaPJe = useMemo(() => publicacoes.filter(p => p.meio === 'ComunicaPJe').length, [publicacoes]);
+  const countDataJud = useMemo(() => publicacoes.filter(p => p.meio === 'DataJud').length, [publicacoes]);
 
   const toggleRead = async (pub: Publicacao) => {
     try {
@@ -594,12 +599,12 @@ export default function PublicacoesDJE() {
         {/* Results */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
+            <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
               <FileText className="h-5 w-5" />
-              Resultados
+              Resultados — {abaAtiva === 'comunicapje' ? 'Comunica PJe' : 'DataJud'}
               {totalCount > 0 && (
                 <Badge variant="secondary">
-                  Exibindo {filteredPublicacoes.length} de {totalCount} publicações
+                  Exibindo {filteredPublicacoes.length} de {abaAtiva === 'comunicapje' ? countComunicaPJe : countDataJud}
                 </Badge>
               )}
               {refreshingInBackground && (
@@ -611,6 +616,21 @@ export default function PublicacoesDJE() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <Tabs value={abaAtiva} onValueChange={(v) => setAbaAtiva(v as 'comunicapje' | 'datajud')}>
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="comunicapje" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  Comunica PJe
+                  <Badge variant="secondary" className="ml-1">{countComunicaPJe}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="datajud" className="gap-2">
+                  <Globe className="h-4 w-4" />
+                  DataJud
+                  <Badge variant="secondary" className="ml-1">{countDataJud}</Badge>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             {/* Client-side filters */}
             {publicacoes.length > 0 && (
               <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/50 rounded-lg">
@@ -673,16 +693,7 @@ export default function PublicacoesDJE() {
                     />
                   </>
                 )}
-                <Select value={filtroFonte} onValueChange={(v) => setFiltroFonte(v as any)}>
-                  <SelectTrigger className="w-[160px] h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todas">Todas as fontes</SelectItem>
-                    <SelectItem value="DataJud">DataJud</SelectItem>
-                    <SelectItem value="ComunicaPJe">Comunica PJe</SelectItem>
-                  </SelectContent>
-                </Select>
+                {/* Filtro de fonte removido — substituído pelas abas Comunica PJe / DataJud */}
                 {advogadosUnicos.length > 1 && (
                   <Select value={filtroAdvogado} onValueChange={setFiltroAdvogado}>
                     <SelectTrigger className="w-[180px] h-9">
@@ -722,8 +733,12 @@ export default function PublicacoesDJE() {
             ) : filteredPublicacoes.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Search className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p>Nenhuma publicação corresponde aos filtros aplicados</p>
-                <p className="text-sm mt-1">Tente ajustar os filtros acima</p>
+                <p>
+                  Nenhuma publicação {abaAtiva === 'comunicapje' ? 'do Comunica PJe' : 'do DataJud'} encontrada.
+                </p>
+                <p className="text-sm mt-1">
+                  Clique em <strong>"{abaAtiva === 'comunicapje' ? 'Buscar no Comunica PJe' : 'Buscar no DataJud'}"</strong> acima ou ajuste os filtros.
+                </p>
               </div>
             ) : (
               <>
@@ -732,7 +747,7 @@ export default function PublicacoesDJE() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Status</TableHead>
-                        <TableHead>Data Movimentação</TableHead>
+                        <TableHead>{abaAtiva === 'comunicapje' ? 'Data da Publicação' : 'Data Movimentação'}</TableHead>
                         <TableHead>Processo</TableHead>
                         <TableHead>Cliente</TableHead>
                         <TableHead>Tribunal</TableHead>
