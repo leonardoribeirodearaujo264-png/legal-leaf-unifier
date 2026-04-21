@@ -220,6 +220,7 @@ export default function PublicacoesDJE() {
         }
         await loadLocal({}, 1);
       } else if (source === 'api') {
+        setAbaAtiva('datajud');
         const { data, error } = await supabase.functions.invoke('pje-publicacoes', {
           body: { action: 'search-api', filters },
           region: FunctionRegion.SaEast1,
