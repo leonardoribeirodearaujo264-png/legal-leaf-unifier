@@ -599,12 +599,12 @@ export default function PublicacoesDJE() {
         {/* Results */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
+            <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
               <FileText className="h-5 w-5" />
-              Resultados
+              Resultados — {abaAtiva === 'comunicapje' ? 'Comunica PJe' : 'DataJud'}
               {totalCount > 0 && (
                 <Badge variant="secondary">
-                  Exibindo {filteredPublicacoes.length} de {totalCount} publicações
+                  Exibindo {filteredPublicacoes.length} de {abaAtiva === 'comunicapje' ? countComunicaPJe : countDataJud}
                 </Badge>
               )}
               {refreshingInBackground && (
@@ -616,6 +616,21 @@ export default function PublicacoesDJE() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <Tabs value={abaAtiva} onValueChange={(v) => setAbaAtiva(v as 'comunicapje' | 'datajud')}>
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="comunicapje" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  Comunica PJe
+                  <Badge variant="secondary" className="ml-1">{countComunicaPJe}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="datajud" className="gap-2">
+                  <Globe className="h-4 w-4" />
+                  DataJud
+                  <Badge variant="secondary" className="ml-1">{countDataJud}</Badge>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
             {/* Client-side filters */}
             {publicacoes.length > 0 && (
               <div className="flex flex-wrap items-end gap-3 p-3 bg-muted/50 rounded-lg">
