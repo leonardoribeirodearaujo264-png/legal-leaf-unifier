@@ -747,7 +747,7 @@ export default function PublicacoesDJE() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Status</TableHead>
-                        <TableHead>Data Movimentação</TableHead>
+                        <TableHead>{abaAtiva === 'comunicapje' ? 'Data da Publicação' : 'Data Movimentação'}</TableHead>
                         <TableHead>Processo</TableHead>
                         <TableHead>Cliente</TableHead>
                         <TableHead>Tribunal</TableHead>
