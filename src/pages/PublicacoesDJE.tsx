@@ -733,8 +733,12 @@ export default function PublicacoesDJE() {
             ) : filteredPublicacoes.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <Search className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p>Nenhuma publicação corresponde aos filtros aplicados</p>
-                <p className="text-sm mt-1">Tente ajustar os filtros acima</p>
+                <p>
+                  Nenhuma publicação {abaAtiva === 'comunicapje' ? 'do Comunica PJe' : 'do DataJud'} encontrada.
+                </p>
+                <p className="text-sm mt-1">
+                  Clique em <strong>"{abaAtiva === 'comunicapje' ? 'Buscar no Comunica PJe' : 'Buscar no DataJud'}"</strong> acima ou ajuste os filtros.
+                </p>
               </div>
             ) : (
               <>
