@@ -121,7 +121,7 @@ export default function PublicacoesDJE() {
   const [filtroDataCustomInicio, setFiltroDataCustomInicio] = useState('');
   const [filtroDataCustomFim, setFiltroDataCustomFim] = useState('');
   const [filtroAdvogado, setFiltroAdvogado] = useState('todos');
-  const [filtroFonte, setFiltroFonte] = useState<'todas' | 'DataJud' | 'ComunicaPJe'>('todas');
+  const [abaAtiva, setAbaAtiva] = useState<'comunicapje' | 'datajud'>('comunicapje');
   const [ordenacao, setOrdenacao] = useState<'recente' | 'antigo' | 'tribunal'>('recente');
 
   // Extract unique attorney names for filter
