@@ -172,8 +172,6 @@ async function syncToWhatsApp(supabase: any, eventType: string, payload: any) {
   const mediaFilename = extractMediaFilename(payload);
   const messageType = extractMessageType(payload) || 'text';
   const isFromMe = payload.fromMe === true;
-
-  const isFromMe = payload.fromMe === true;
   const direction = isFromMe ? 'outbound' : 'inbound';
 
   // Don't save messages that have no content and no media - these are likely system events
