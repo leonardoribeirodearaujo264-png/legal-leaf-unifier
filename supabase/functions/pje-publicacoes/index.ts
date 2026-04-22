@@ -5,7 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-region, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 }
 
-const DATAJUD_API_KEY = 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=='
+// Chave pública do DataJud (CNJ) — antes estava hardcoded. Agora vem
+// de env var pra não ficar vazando via git/supabase logs e pra poder
+// rotacionar sem redeploy de código.
+const DATAJUD_API_KEY = Deno.env.get('DATAJUD_API_KEY') ?? ''
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
 function getEndpointForProcess(numProcesso: string): { sigla: string; url: string } | null {
