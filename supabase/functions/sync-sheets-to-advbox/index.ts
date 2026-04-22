@@ -459,14 +459,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verificar se é chamada do cron (com service role key)
+    // Auth obrigatória: aceita service role (cron) ou JWT de usuário autenticado.
+    // Antes: se authHeader fosse null, o código pulava a checagem e seguia.
     const authHeader = req.headers.get('Authorization');
-    const isCronCall = authHeader?.includes(SUPABASE_SERVICE_ROLE_KEY || '');
-    
-    // Se não for cron, verificar autenticação do usuário
-    if (!isCronCall && authHeader) {
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const isCronCall = authHeader === `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
+
+    if (!isCronCall) {
       const token = authHeader.replace('Bearer ', '');
-      
+
       const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
         headers: {
           'Authorization': `Bearer ${token}`,

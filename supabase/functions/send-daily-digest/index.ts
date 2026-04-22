@@ -288,6 +288,18 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Guarda service-role: sem isso qualquer um com a anon key dispara
+  // envio de email em massa pra toda a empresa.
+  const authHeader = req.headers.get("Authorization");
+  const expectedToken = `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`;
+  if (authHeader !== expectedToken) {
+    console.error("Tentativa não autorizada em send-daily-digest");
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
   try {
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",

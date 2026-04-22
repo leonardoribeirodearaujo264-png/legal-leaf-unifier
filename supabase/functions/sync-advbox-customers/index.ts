@@ -62,6 +62,17 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Guarda service-role: só pg_cron pode disparar sync pesado.
+  const authHeader = req.headers.get('Authorization');
+  const expectedToken = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
+  if (authHeader !== expectedToken) {
+    console.error('Tentativa não autorizada em sync-advbox-customers');
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized' }),
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const startTime = Date.now();
   const MAX_RUNTIME_MS = 50000;
