@@ -261,18 +261,26 @@ serve(async (req) => {
   }
 
   try {
-    // Webhook secret validation - headers only, no query params
+    // Webhook secret validation — fail-closed. Antes era opcional: se a env
+    // var não estivesse setada, o bloco inteiro era pulado e qualquer POST
+    // passava. Agora, sem segredo cadastrado, recusamos tudo com 500 pra
+    // não aceitar payload do mundo inteiro poluindo whatsapp_* tables.
     const ZAPI_WEBHOOK_SECRET = Deno.env.get('ZAPI_WEBHOOK_SECRET');
-    if (ZAPI_WEBHOOK_SECRET) {
-      const authToken = req.headers.get('X-Webhook-Secret') || 
-                        req.headers.get('x-webhook-secret');
-      if (authToken !== ZAPI_WEBHOOK_SECRET) {
-        console.error('[Z-API Webhook] Unauthorized: invalid webhook secret');
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
+    if (!ZAPI_WEBHOOK_SECRET) {
+      console.error('[Z-API Webhook] ZAPI_WEBHOOK_SECRET não configurado — rejeitando');
+      return new Response(
+        JSON.stringify({ error: 'Server misconfigured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const authToken = req.headers.get('X-Webhook-Secret') ||
+                      req.headers.get('x-webhook-secret');
+    if (authToken !== ZAPI_WEBHOOK_SECRET) {
+      console.error('[Z-API Webhook] Unauthorized: invalid webhook secret');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const supabase = createClient(
