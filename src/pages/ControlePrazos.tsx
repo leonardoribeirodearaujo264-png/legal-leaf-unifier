@@ -506,14 +506,23 @@ export default function ControlePrazos() {
         endOfDay.setHours(23, 59, 59, 999);
         if (eventoDate > endOfDay) return false;
       }
+      if (filterCliente.trim()) {
+        const q = filterCliente.toLowerCase().trim();
+        if (!(task.cliente_nome || '').toLowerCase().includes(q)) return false;
+      }
+      if (filterProcesso.trim()) {
+        const q = filterProcesso.replace(/\D/g, '');
+        const proc = (task.process_number || '').replace(/\D/g, '');
+        if (q && !proc.includes(q)) return false;
+      }
       return true;
     });
-  }, [processedTasks, filterAdvogado, filterTipoTarefa, filterStatus, filterDateFrom, filterDateTo, filterPrazoFatalFrom, filterPrazoFatalTo, filterEventoFrom, filterEventoTo]);
+  }, [processedTasks, filterAdvogado, filterTipoTarefa, filterStatus, filterDateFrom, filterDateTo, filterPrazoFatalFrom, filterPrazoFatalTo, filterEventoFrom, filterEventoTo, filterCliente, filterProcesso]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(0);
-  }, [filterAdvogado, filterTipoTarefa, filterStatus, filterDateFrom, filterDateTo, filterPrazoFatalFrom, filterPrazoFatalTo, filterEventoFrom, filterEventoTo]);
+  }, [filterAdvogado, filterTipoTarefa, filterStatus, filterDateFrom, filterDateTo, filterPrazoFatalFrom, filterPrazoFatalTo, filterEventoFrom, filterEventoTo, filterCliente, filterProcesso]);
 
   // Pagination
   const totalPages = Math.ceil(filteredTasks.length / PAGE_SIZE);
