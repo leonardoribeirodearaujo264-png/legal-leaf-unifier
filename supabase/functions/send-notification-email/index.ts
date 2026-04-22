@@ -14,6 +14,39 @@ interface EmailRequest {
   data: Record<string, any>;
 }
 
+// Escapa HTML para evitar XSS em conteúdo vindo do usuário. Templates antes
+// interpolavam ${data.X} direto no HTML, então qualquer título de tarefa,
+// comentário de aprovação ou conteúdo de comunicado com tag <script> cairia
+// na caixa de entrada dos colegas executando JS.
+function escapeHtml(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Valida URL para uso em atributo href. Só aceita http(s) absolutos ou
+// paths relativos que começam com '/'. Rejeita javascript:, data:, vbscript:
+// e afins, além de retornar '#' se a URL não for segura.
+function safeUrl(value: unknown): string {
+  if (value === null || value === undefined) return "#";
+  const raw = String(value).trim();
+  if (!raw) return "#";
+  if (raw.startsWith("/") && !raw.startsWith("//")) return escapeHtml(raw);
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return escapeHtml(parsed.toString());
+    }
+  } catch (_e) {
+    // URL inválida — cai no return abaixo
+  }
+  return "#";
+}
+
 // Templates de email
 const getEmailTemplate = (templateType: string, data: Record<string, any>): string => {
   const baseStyles = `
@@ -34,6 +67,42 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
     </style>
   `;
 
+  // Pré-escapa todos os campos que vão entrar em HTML para evitar repetição
+  // e reduzir risco de esquecer um interpolation.
+  const e = {
+    userName: escapeHtml(data.userName),
+    taskTitle: escapeHtml(data.taskTitle),
+    title: escapeHtml(data.title),
+    description: escapeHtml(data.description),
+    dueDate: escapeHtml(data.dueDate),
+    actionUrl: safeUrl(data.actionUrl),
+    approverName: escapeHtml(data.approverName),
+    requesterName: escapeHtml(data.requesterName),
+    value: escapeHtml(data.value),
+    comments: escapeHtml(data.comments),
+    reason: escapeHtml(data.reason),
+    content: escapeHtml(data.content),
+    startDate: escapeHtml(data.startDate),
+    endDate: escapeHtml(data.endDate),
+    days: escapeHtml(data.days),
+    topicTitle: escapeHtml(data.topicTitle),
+    authorName: escapeHtml(data.authorName),
+    dealName: escapeHtml(data.dealName),
+    newStatus: escapeHtml(data.newStatus),
+    contactName: escapeHtml(data.contactName),
+    reminderDate: escapeHtml(data.reminderDate),
+    notes: escapeHtml(data.notes),
+    message: escapeHtml(data.message),
+    rawCategory: typeof data.category === "string" ? data.category : "",
+  };
+
+  const categoryLabel =
+    e.rawCategory === "fix"
+      ? "correção"
+      : e.rawCategory === "improvement"
+      ? "melhoria"
+      : "funcionalidade";
+
   const templates: Record<string, string> = {
     // Tarefas
     task_assigned: `
@@ -41,14 +110,14 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>📋 Nova Tarefa Atribuída</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <p>Uma nova tarefa foi atribuída a você:</p>
           <div class="info-box">
-            <strong>${data.taskTitle}</strong><br>
-            <small>Prazo: ${data.dueDate || 'Sem prazo definido'}</small>
+            <strong>${e.taskTitle}</strong><br>
+            <small>Prazo: ${e.dueDate || 'Sem prazo definido'}</small>
           </div>
-          ${data.description ? `<p>${data.description}</p>` : ''}
-          <a href="${data.actionUrl}" class="button">Ver Tarefa</a>
+          ${e.description ? `<p>${e.description}</p>` : ''}
+          <a href="${e.actionUrl}" class="button">Ver Tarefa</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -59,13 +128,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"><h1>⏰ Tarefa Próxima do Vencimento</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="warning-box">
-            <strong>${data.taskTitle}</strong><br>
-            <small>Vence em: ${data.dueDate}</small>
+            <strong>${e.taskTitle}</strong><br>
+            <small>Vence em: ${e.dueDate}</small>
           </div>
           <p>Esta tarefa está próxima do prazo de entrega. Não se esqueça de concluí-la!</p>
-          <a href="${data.actionUrl}" class="button">Ver Tarefa</a>
+          <a href="${e.actionUrl}" class="button">Ver Tarefa</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -76,13 +145,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);"><h1>🚨 Tarefa Atrasada</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="danger-box">
-            <strong>${data.taskTitle}</strong><br>
-            <small>Venceu em: ${data.dueDate}</small>
+            <strong>${e.taskTitle}</strong><br>
+            <small>Venceu em: ${e.dueDate}</small>
           </div>
           <p>Esta tarefa está atrasada. Por favor, verifique e atualize o status.</p>
-          <a href="${data.actionUrl}" class="button">Ver Tarefa</a>
+          <a href="${e.actionUrl}" class="button">Ver Tarefa</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -94,14 +163,14 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>📝 Solicitação de Aprovação</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.approverName}</strong>,</p>
+          <p>Olá <strong>${e.approverName}</strong>,</p>
           <p>Há uma nova solicitação aguardando sua aprovação:</p>
           <div class="info-box">
-            <strong>${data.title}</strong><br>
-            <small>Solicitante: ${data.requesterName}</small><br>
-            ${data.value ? `<small>Valor: R$ ${data.value}</small>` : ''}
+            <strong>${e.title}</strong><br>
+            <small>Solicitante: ${e.requesterName}</small><br>
+            ${e.value ? `<small>Valor: R$ ${e.value}</small>` : ''}
           </div>
-          <a href="${data.actionUrl}" class="button">Revisar Solicitação</a>
+          <a href="${e.actionUrl}" class="button">Revisar Solicitação</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -112,13 +181,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);"><h1>✅ Solicitação Aprovada</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="success-box">
-            <strong>${data.title}</strong> foi aprovada!<br>
-            <small>Aprovado por: ${data.approverName}</small>
+            <strong>${e.title}</strong> foi aprovada!<br>
+            <small>Aprovado por: ${e.approverName}</small>
           </div>
-          ${data.comments ? `<p><strong>Comentários:</strong> ${data.comments}</p>` : ''}
-          <a href="${data.actionUrl}" class="button">Ver Detalhes</a>
+          ${e.comments ? `<p><strong>Comentários:</strong> ${e.comments}</p>` : ''}
+          <a href="${e.actionUrl}" class="button">Ver Detalhes</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -129,13 +198,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);"><h1>❌ Solicitação Rejeitada</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="danger-box">
-            <strong>${data.title}</strong> foi rejeitada.<br>
-            <small>Rejeitado por: ${data.approverName}</small>
+            <strong>${e.title}</strong> foi rejeitada.<br>
+            <small>Rejeitado por: ${e.approverName}</small>
           </div>
-          ${data.reason ? `<p><strong>Motivo:</strong> ${data.reason}</p>` : ''}
-          <a href="${data.actionUrl}" class="button">Ver Detalhes</a>
+          ${e.reason ? `<p><strong>Motivo:</strong> ${e.reason}</p>` : ''}
+          <a href="${e.actionUrl}" class="button">Ver Detalhes</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -147,13 +216,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"><h1>💰 Lançamento Financeiro Pendente</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="warning-box">
-            <strong>${data.description}</strong><br>
-            <small>Valor: R$ ${data.value}</small><br>
-            <small>Vencimento: ${data.dueDate}</small>
+            <strong>${e.description}</strong><br>
+            <small>Valor: R$ ${e.value}</small><br>
+            <small>Vencimento: ${e.dueDate}</small>
           </div>
-          <a href="${data.actionUrl}" class="button">Ver Lançamento</a>
+          <a href="${e.actionUrl}" class="button">Ver Lançamento</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -165,13 +234,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>📢 Novo Comunicado</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <p>Um novo comunicado foi publicado:</p>
           <div class="highlight">
-            <strong>${data.title}</strong>
+            <strong>${e.title}</strong>
           </div>
-          <p>${data.content}</p>
-          <a href="${data.actionUrl}" class="button">Ver Comunicado</a>
+          <p>${e.content}</p>
+          <a href="${e.actionUrl}" class="button">Ver Comunicado</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -183,13 +252,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);"><h1>🏖️ Férias Aprovadas</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="success-box">
             Suas férias foram aprovadas!<br>
-            <strong>Período:</strong> ${data.startDate} a ${data.endDate}<br>
-            <strong>Dias:</strong> ${data.days} dias úteis
+            <strong>Período:</strong> ${e.startDate} a ${e.endDate}<br>
+            <strong>Dias:</strong> ${e.days} dias úteis
           </div>
-          <a href="${data.actionUrl}" class="button">Ver Detalhes</a>
+          <a href="${e.actionUrl}" class="button">Ver Detalhes</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -200,13 +269,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);"><h1>🏖️ Férias Não Aprovadas</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="danger-box">
             Sua solicitação de férias não foi aprovada.<br>
-            <strong>Período solicitado:</strong> ${data.startDate} a ${data.endDate}
+            <strong>Período solicitado:</strong> ${e.startDate} a ${e.endDate}
           </div>
-          ${data.reason ? `<p><strong>Motivo:</strong> ${data.reason}</p>` : ''}
-          <a href="${data.actionUrl}" class="button">Ver Detalhes</a>
+          ${e.reason ? `<p><strong>Motivo:</strong> ${e.reason}</p>` : ''}
+          <a href="${e.actionUrl}" class="button">Ver Detalhes</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -217,14 +286,14 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>🏖️ Nova Solicitação de Férias</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.approverName}</strong>,</p>
+          <p>Olá <strong>${e.approverName}</strong>,</p>
           <p>Uma nova solicitação de férias foi recebida:</p>
           <div class="info-box">
-            <strong>Colaborador:</strong> ${data.requesterName}<br>
-            <strong>Período:</strong> ${data.startDate} a ${data.endDate}<br>
-            <strong>Dias:</strong> ${data.days} dias úteis
+            <strong>Colaborador:</strong> ${e.requesterName}<br>
+            <strong>Período:</strong> ${e.startDate} a ${e.endDate}<br>
+            <strong>Dias:</strong> ${e.days} dias úteis
           </div>
-          <a href="${data.actionUrl}" class="button">Revisar Solicitação</a>
+          <a href="${e.actionUrl}" class="button">Revisar Solicitação</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -236,7 +305,7 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #ec4899 0%, #f472b6 100%);"><h1>🎂 Feliz Aniversário!</h1></div>
         <div class="content">
-          <p style="font-size: 18px;">Olá <strong>${data.userName}</strong>,</p>
+          <p style="font-size: 18px;">Olá <strong>${e.userName}</strong>,</p>
           <p style="font-size: 16px;">Hoje é um dia muito especial! Toda a equipe do Egg Nunes Advogados Associados deseja a você um feliz aniversário!</p>
           <p>Que este novo ano de vida seja repleto de conquistas, alegrias e realizações!</p>
           <p style="font-size: 24px; text-align: center;">🎉🎈🎁</p>
@@ -251,13 +320,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>💬 Nova Resposta no Fórum</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <p>Há uma nova resposta no tópico que você está acompanhando:</p>
           <div class="info-box">
-            <strong>${data.topicTitle}</strong><br>
-            <small>Respondido por: ${data.authorName}</small>
+            <strong>${e.topicTitle}</strong><br>
+            <small>Respondido por: ${e.authorName}</small>
           </div>
-          <a href="${data.actionUrl}" class="button">Ver Resposta</a>
+          <a href="${e.actionUrl}" class="button">Ver Resposta</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -270,13 +339,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header"><h1>📊 Atualização de Negócio</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="info-box">
-            <strong>${data.dealName}</strong><br>
-            <small>Novo Status: ${data.newStatus}</small><br>
-            ${data.value ? `<small>Valor: R$ ${data.value}</small>` : ''}
+            <strong>${e.dealName}</strong><br>
+            <small>Novo Status: ${e.newStatus}</small><br>
+            ${e.value ? `<small>Valor: R$ ${e.value}</small>` : ''}
           </div>
-          <a href="${data.actionUrl}" class="button">Ver Negócio</a>
+          <a href="${e.actionUrl}" class="button">Ver Negócio</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -287,14 +356,14 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);"><h1>📞 Lembrete de Follow-up</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <div class="warning-box">
-            <strong>${data.title}</strong><br>
-            <small>Contato: ${data.contactName}</small><br>
-            <small>Data: ${data.reminderDate}</small>
+            <strong>${e.title}</strong><br>
+            <small>Contato: ${e.contactName}</small><br>
+            <small>Data: ${e.reminderDate}</small>
           </div>
-          ${data.notes ? `<p><strong>Notas:</strong> ${data.notes}</p>` : ''}
-          <a href="${data.actionUrl}" class="button">Ver Follow-up</a>
+          ${e.notes ? `<p><strong>Notas:</strong> ${e.notes}</p>` : ''}
+          <a href="${e.actionUrl}" class="button">Ver Follow-up</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -304,11 +373,11 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
     generic: `
       ${baseStyles}
       <div class="container">
-        <div class="header"><h1>${data.title || 'Notificação'}</h1></div>
+        <div class="header"><h1>${e.title || 'Notificação'}</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
-          <p>${data.message}</p>
-          ${data.actionUrl ? `<a href="${data.actionUrl}" class="button">Ver Mais</a>` : ''}
+          <p>Olá <strong>${e.userName}</strong>,</p>
+          <p>${e.message}</p>
+          ${data.actionUrl ? `<a href="${e.actionUrl}" class="button">Ver Mais</a>` : ''}
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -319,13 +388,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);"><h1>🔄 Atualização da Intranet</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
-          <p>A intranet recebeu uma nova ${data.category === 'fix' ? 'correção' : data.category === 'improvement' ? 'melhoria' : 'funcionalidade'}:</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
+          <p>A intranet recebeu uma nova ${categoryLabel}:</p>
           <div class="info-box">
-            <strong>${data.title}</strong><br>
-            <p>${data.description || ''}</p>
+            <strong>${e.title}</strong><br>
+            <p>${e.description || ''}</p>
           </div>
-          ${data.actionUrl ? `<a href="${data.actionUrl}" class="button">Ver Mais</a>` : ''}
+          ${data.actionUrl ? `<a href="${e.actionUrl}" class="button">Ver Mais</a>` : ''}
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -337,13 +406,13 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
       <div class="container">
         <div class="header" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);"><h1>🚨 Comunicado Urgente</h1></div>
         <div class="content">
-          <p>Olá <strong>${data.userName}</strong>,</p>
+          <p>Olá <strong>${e.userName}</strong>,</p>
           <p>Um comunicado urgente foi publicado:</p>
           <div class="highlight">
-            <strong>${data.title}</strong>
+            <strong>${e.title}</strong>
           </div>
-          <p>${data.content}</p>
-          <a href="${data.actionUrl}" class="button">Ver Comunicado</a>
+          <p>${e.content}</p>
+          <a href="${e.actionUrl}" class="button">Ver Comunicado</a>
         </div>
         <div class="footer">Egg Nunes Advogados Associados - Sistema de Gestão Interna</div>
       </div>
@@ -356,7 +425,7 @@ const getEmailTemplate = (templateType: string, data: Record<string, any>): stri
 // Função para enviar email via API do Resend
 async function sendEmailViaResend(to: string, subject: string, html: string): Promise<{ id?: string; error?: string }> {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  
+
   if (!RESEND_API_KEY) {
     throw new Error("RESEND_API_KEY não configurada");
   }
@@ -442,14 +511,14 @@ const handler = async (req: Request): Promise<Response> => {
               .eq("user_id", toUserId)
               .eq("role", "admin")
               .maybeSingle();
-            
+
             if (!roleData) {
               const { data: permData } = await supabaseClient
                 .from("admin_permissions")
                 .select("perm_financial")
                 .eq("admin_user_id", toUserId)
                 .maybeSingle();
-              
+
               if (!permData || !permData.perm_financial || permData.perm_financial === 'none') {
                 console.log(`[send-notification-email] User ${toUserId} not authorized for financial emails - skipping`);
                 return new Response(
