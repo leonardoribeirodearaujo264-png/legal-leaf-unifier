@@ -802,117 +802,138 @@ export default function ControlePrazos() {
               <Filter className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">Filtros</span>
             </div>
-             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <Select value={filterAdvogado} onValueChange={setFilterAdvogado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Advogado" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os advogados</SelectItem>
-                  {advogados.map(adv => (
-                    <SelectItem key={adv} value={adv}>{adv}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+             <div className="space-y-3">
+              {/* Linha 1: Selects + textos */}
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                <Select value={filterAdvogado} onValueChange={setFilterAdvogado}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Advogado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os advogados</SelectItem>
+                    {advogados.map(adv => (
+                      <SelectItem key={adv} value={adv}>{adv}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-              <Select value={filterTipoTarefa} onValueChange={setFilterTipoTarefa}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tipo de Tarefa" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os tipos</SelectItem>
-                  {tiposTarefa.map(tipo => (
-                    <SelectItem key={tipo} value={tipo}>{tipo}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <Select value={filterTipoTarefa} onValueChange={setFilterTipoTarefa}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tipo de Tarefa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os tipos</SelectItem>
+                    {tiposTarefa.map(tipo => (
+                      <SelectItem key={tipo} value={tipo}>{tipo}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os status</SelectItem>
-                  <SelectItem value="pendente">Pendente</SelectItem>
-                  <SelectItem value="vencido">⚠ Vencido</SelectItem>
-                  <SelectItem value="verificado">Verificado</SelectItem>
-                  <SelectItem value="com_pendencia">Com Pendência</SelectItem>
-                </SelectContent>
-              </Select>
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os status</SelectItem>
+                    <SelectItem value="pendente">Pendente</SelectItem>
+                    <SelectItem value="vencido">⚠ Vencido</SelectItem>
+                    <SelectItem value="verificado">Verificado</SelectItem>
+                    <SelectItem value="com_pendencia">Com Pendência</SelectItem>
+                  </SelectContent>
+                </Select>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterDateFrom && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterDateFrom ? format(filterDateFrom, 'dd/MM/yyyy') : 'Publicação início'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterDateFrom} onSelect={setFilterDateFrom} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+                <Input
+                  placeholder="Cliente"
+                  value={filterCliente}
+                  onChange={(e) => setFilterCliente(e.target.value)}
+                />
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterDateTo && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterDateTo ? format(filterDateTo, 'dd/MM/yyyy') : 'Publicação fim'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterDateTo} onSelect={setFilterDateTo} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+                <Input
+                  placeholder="Nº Processo"
+                  value={filterProcesso}
+                  onChange={(e) => setFilterProcesso(e.target.value)}
+                />
+              </div>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterPrazoFatalFrom && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterPrazoFatalFrom ? format(filterPrazoFatalFrom, 'dd/MM/yyyy') : 'Prazo Fatal início'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterPrazoFatalFrom} onSelect={setFilterPrazoFatalFrom} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+              {/* Linha 2: Publicação + Prazo Interno */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterDateFrom && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterDateFrom ? format(filterDateFrom, 'dd/MM/yyyy') : 'Publicação — de'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterDateFrom} onSelect={setFilterDateFrom} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterPrazoFatalTo && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterPrazoFatalTo ? format(filterPrazoFatalTo, 'dd/MM/yyyy') : 'Prazo Fatal fim'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterPrazoFatalTo} onSelect={setFilterPrazoFatalTo} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterDateTo && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterDateTo ? format(filterDateTo, 'dd/MM/yyyy') : 'Publicação — até'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterDateTo} onSelect={setFilterDateTo} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterEventoFrom && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterEventoFrom ? format(filterEventoFrom, 'dd/MM/yyyy') : 'Evento início'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterEventoFrom} onSelect={setFilterEventoFrom} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterEventoFrom && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterEventoFrom ? format(filterEventoFrom, 'dd/MM/yyyy') : 'Prazo Interno — de'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterEventoFrom} onSelect={setFilterEventoFrom} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className={cn("justify-start text-left font-normal", !filterEventoTo && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {filterEventoTo ? format(filterEventoTo, 'dd/MM/yyyy') : 'Evento fim'}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={filterEventoTo} onSelect={setFilterEventoTo} locale={ptBR} className="p-3 pointer-events-auto" />
-                </PopoverContent>
-              </Popover>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterEventoTo && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterEventoTo ? format(filterEventoTo, 'dd/MM/yyyy') : 'Prazo Interno — até'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterEventoTo} onSelect={setFilterEventoTo} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Linha 3: Prazo Fatal */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterPrazoFatalFrom && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterPrazoFatalFrom ? format(filterPrazoFatalFrom, 'dd/MM/yyyy') : 'Prazo Fatal — de'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterPrazoFatalFrom} onSelect={setFilterPrazoFatalFrom} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className={cn("justify-start text-left font-normal", !filterPrazoFatalTo && "text-muted-foreground")}>
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {filterPrazoFatalTo ? format(filterPrazoFatalTo, 'dd/MM/yyyy') : 'Prazo Fatal — até'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar mode="single" selected={filterPrazoFatalTo} onSelect={setFilterPrazoFatalTo} locale={ptBR} className="p-3 pointer-events-auto" />
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
-            {(filterAdvogado !== 'all' || filterStatus !== 'all' || filterTipoTarefa !== 'all' || filterDateFrom || filterDateTo || filterPrazoFatalFrom || filterPrazoFatalTo || filterEventoFrom || filterEventoTo) && (
+            {(filterAdvogado !== 'all' || filterStatus !== 'all' || filterTipoTarefa !== 'all' || filterDateFrom || filterDateTo || filterPrazoFatalFrom || filterPrazoFatalTo || filterEventoFrom || filterEventoTo || filterCliente || filterProcesso) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -927,6 +948,8 @@ export default function ControlePrazos() {
                   setFilterPrazoFatalTo(undefined);
                   setFilterEventoFrom(undefined);
                   setFilterEventoTo(undefined);
+                  setFilterCliente('');
+                  setFilterProcesso('');
                 }}
               >
                 Limpar filtros
