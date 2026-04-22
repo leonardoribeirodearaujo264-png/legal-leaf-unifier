@@ -164,11 +164,23 @@ serve(async (req) => {
     // === SETUP WEBHOOKS ===
     if (action === 'setup-webhooks') {
       const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-      const webhookUrl = `${SUPABASE_URL}/functions/v1/zapi-webhook`;
-      console.log(`[Z-API] Setting up webhooks with URL: ${webhookUrl}`);
+      const ZAPI_WEBHOOK_SECRET = Deno.env.get('ZAPI_WEBHOOK_SECRET') ?? '';
+      if (!ZAPI_WEBHOOK_SECRET) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'ZAPI_WEBHOOK_SECRET não configurado. Cadastre o secret antes de registrar os webhooks.',
+        }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      // Z-API não suporta header customizado — passamos o secret via query param.
+      // O zapi-webhook valida tanto query (?secret=) quanto header X-Webhook-Secret.
+      const webhookUrl = `${SUPABASE_URL}/functions/v1/zapi-webhook?secret=${encodeURIComponent(ZAPI_WEBHOOK_SECRET)}`;
+      console.log(`[Z-API] Setting up webhooks pointing to: ${SUPABASE_URL}/functions/v1/zapi-webhook (secret via query)`);
 
+      // ReceivedCallback já vai com notifySentByMe: true para incluir mensagens
+      // disparadas pela própria instância (ex.: ZapSign, lembretes Asaas, envios manuais).
+      // Sem isso só chegariam mensagens recebidas de clientes.
       const webhookConfigs = [
-        { endpoint: '/update-webhook-received', body: { value: webhookUrl }, name: 'ReceivedCallback' },
+        { endpoint: '/update-webhook-received', body: { value: webhookUrl, notifySentByMe: true }, name: 'ReceivedCallback' },
         { endpoint: '/update-webhook-delivery', body: { value: webhookUrl }, name: 'DeliveryCallback' },
         { endpoint: '/update-webhook-message-status', body: { value: webhookUrl }, name: 'MessageStatusCallback' },
         { endpoint: '/update-webhook-chat-presence', body: { value: webhookUrl }, name: 'ChatPresenceCallback' },
@@ -176,31 +188,38 @@ serve(async (req) => {
         { endpoint: '/update-webhook-connected', body: { value: webhookUrl }, name: 'ConnectedCallback' },
       ];
 
-      const results: { name: string; success: boolean; error?: string }[] = [];
+      const results: { name: string; success: boolean; status?: number; error?: string }[] = [];
       for (const config of webhookConfigs) {
         try {
-          const resp = await fetch(`${getBaseUrl()}${config.endpoint}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify(config.body) });
+          const resp = await fetch(`${getBaseUrl()}${config.endpoint}`, {
+            method: 'PUT',
+            headers: getHeaders(),
+            body: JSON.stringify(config.body),
+          });
           const respText = await resp.text();
-          results.push({ name: config.name, success: resp.ok, error: resp.ok ? undefined : respText });
+          if (resp.ok) {
+            console.log(`[Z-API] ✓ ${config.name} registered (HTTP ${resp.status})`);
+            results.push({ name: config.name, success: true, status: resp.status });
+          } else {
+            console.error(`[Z-API] ✗ ${config.name} failed (HTTP ${resp.status}): ${respText}`);
+            results.push({ name: config.name, success: false, status: resp.status, error: respText });
+          }
         } catch (err) {
-          results.push({ name: config.name, success: false, error: err instanceof Error ? err.message : String(err) });
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[Z-API] ✗ ${config.name} threw exception:`, errMsg);
+          results.push({ name: config.name, success: false, error: errMsg });
         }
       }
 
-      // Enable notifySentByMe
-      try {
-        const resp = await fetch(`${getBaseUrl()}/update-webhook-received`, {
-          method: 'PUT', headers: getHeaders(), body: JSON.stringify({ value: webhookUrl, notifySentByMe: true }),
-        });
-        results.push({ name: 'notifySentByMe', success: resp.ok });
-      } catch (err) {
-        results.push({ name: 'notifySentByMe', success: false, error: err instanceof Error ? err.message : String(err) });
-      }
-
+      const failed = results.filter(r => !r.success);
+      const allOk = failed.length === 0;
       return new Response(JSON.stringify({
-        success: results.every(r => r.success),
-        message: `${results.filter(r => r.success).length}/${results.length} webhooks configurados.`,
-        webhookUrl, results,
+        success: allOk,
+        message: allOk
+          ? `${results.length}/${results.length} webhooks configurados com sucesso.`
+          : `${results.length - failed.length}/${results.length} configurados. Falharam: ${failed.map(f => f.name).join(', ')}`,
+        webhookUrl: `${SUPABASE_URL}/functions/v1/zapi-webhook`,
+        results,
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 

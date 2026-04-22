@@ -146,11 +146,24 @@ async function syncToWhatsApp(supabase: any, eventType: string, payload: any) {
       const messageId = payload.id?._serialized || payload.id?.id || payload.id;
       const status = payload.status;
       if (messageId && status) {
+        // Mapeamento completo dos status que a Z-API envia.
+        // RECEIVED e READ_BY_ME estavam faltando — sem eles os tiques azuis
+        // (CheckCheck text-blue-500) nunca renderizam para mensagens enviadas
+        // por nós e lidas pelo cliente.
         const statusMap: Record<string, string> = {
-          'SENT': 'sent', 'DELIVERY_ACK': 'delivered', 'READ': 'read', 'PLAYED': 'read',
-          'sent': 'sent', 'delivered': 'delivered', 'read': 'read',
+          'SENT': 'sent',
+          'RECEIVED': 'delivered',
+          'DELIVERY_ACK': 'delivered',
+          'READ': 'read',
+          'READ_BY_ME': 'read',
+          'PLAYED': 'read',
+          'sent': 'sent',
+          'received': 'delivered',
+          'delivered': 'delivered',
+          'read': 'read',
+          'played': 'read',
         };
-        const mappedStatus = statusMap[status] || status;
+        const mappedStatus = statusMap[status] || statusMap[String(status).toUpperCase()] || status;
         await supabase.from('whatsapp_messages')
           .update({ status: mappedStatus })
           .eq('zapi_message_id', messageId);
