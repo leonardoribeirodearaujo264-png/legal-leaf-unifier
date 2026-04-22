@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { saveOutboundToWhatsApp } from "../_shared/whatsapp-sync.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,7 +102,13 @@ async function sendCollectionMessageViaZAPI(phone: string, customerName: string,
     throw new Error('Erro de comunicação com serviço de mensagens');
   }
 
-  return { zaapId: data.zaapId || data.messageId, success: true };
+  return { zaapId: data.zaapId || data.messageId, success: true, sentMessage: collectionMessage };
+}
+
+interface ZapiSendResult {
+  zaapId?: string;
+  success: boolean;
+  sentMessage?: string;
 }
 
 serve(async (req) => {
@@ -215,6 +222,16 @@ serve(async (req) => {
       status: 'sent',
       zapi_message_id: zapiResponse.zaapId || null,
       sent_by: user.id,
+    });
+
+    // Mirror into WhatsApp Avisos panel
+    await saveOutboundToWhatsApp(supabase, {
+      phone: customerPhone,
+      messageText: zapiResponse.sentMessage || `Cobrança - ${customerName}`,
+      zaapId: zapiResponse.zaapId || null,
+      sentBy: user.id,
+      contactName: customerName,
+      messageType: 'text',
     });
 
     return new Response(

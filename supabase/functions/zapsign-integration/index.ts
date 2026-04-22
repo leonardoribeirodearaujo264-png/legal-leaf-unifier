@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { saveOutboundToWhatsApp } from "../_shared/whatsapp-sync.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -663,6 +664,15 @@ serve(async (req) => {
             });
 
             console.log(`[Z-API] ✓ ZapSign notification sent successfully to ${body.clientName}`);
+
+            // Mirror into the WhatsApp Avisos panel so the message is visible there
+            await saveOutboundToWhatsApp(supabase, {
+              phone: zapiPhone,
+              messageText: whatsappMessage,
+              zaapId: zapiData.zaapId || zapiData.messageId || null,
+              contactName: body.clientName,
+              messageType: 'text',
+            });
           } else {
             console.error(`[Z-API] ✗ Failed to send ZapSign notification: ${zapiResponseText}`);
 
