@@ -1,3 +1,5 @@
+import { requireUser } from "../_shared/auth.ts";
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -17,6 +19,10 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Valida JWT de usuário — rejeita calls com apenas anon key
+  const authRes = await requireUser(req, corsHeaders);
+  if (authRes instanceof Response) return authRes;
 
   try {
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');

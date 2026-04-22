@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,6 +10,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const authRes = await requireUser(req, corsHeaders);
+  if (authRes instanceof Response) return authRes;
 
   try {
     const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');

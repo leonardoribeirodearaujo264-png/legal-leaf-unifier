@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import JSZip from "https://esm.sh/jszip@3.10.1";
+import { requireUser } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -37,6 +38,9 @@ async function extractTextFromDocx(base64: string): Promise<string> {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const authRes = await requireUser(req, corsHeaders);
+  if (authRes instanceof Response) return authRes;
 
   try {
     const { file_base64, file_name } = await req.json();
