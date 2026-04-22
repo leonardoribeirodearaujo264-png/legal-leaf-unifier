@@ -12,11 +12,43 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { agentId, messages, attachments } = await req.json();
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Auth obrigatória: sem isso, qualquer caller com a anon key
+    // exfiltra CRM (contacts, deals, profiles) via service role abaixo.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Não autorizado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Não autorizado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Só usuários aprovados podem usar os agentes (evita que alguém
+    // cadastrado mas não aprovado exfiltre dados via esse endpoint).
+    const { data: approved, error: approvedError } = await supabase.rpc(
+      "is_approved",
+      { _user_id: user.id }
+    );
+    if (approvedError || !approved) {
+      return new Response(JSON.stringify({ error: "Acesso negado" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { agentId, messages, attachments } = await req.json();
 
     const { data: agent, error: agentError } = await supabase
       .from("intranet_agents")

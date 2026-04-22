@@ -142,7 +142,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.check-portuguese]
-verify_jwt = false
+verify_jwt = true
 
 [functions.pje-publicacoes]
 verify_jwt = false
@@ -169,7 +169,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.chat-with-agent]
-verify_jwt = false
+verify_jwt = true
 
 [functions.whatsapp-webhook]
 verify_jwt = false
@@ -191,7 +191,7 @@ verify_jwt = false
 
 
 [functions.notify-internal-message]
-verify_jwt = false
+verify_jwt = true
 
 [functions.instagram-insights]
 verify_jwt = true

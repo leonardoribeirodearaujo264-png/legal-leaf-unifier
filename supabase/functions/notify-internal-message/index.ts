@@ -129,6 +129,29 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const supabaseAdmin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Auth obrigatória: previne spoof de remetente e spam de push.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Não autorizado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Não autorizado" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { messageId, conversationId, senderId, content } = await req.json();
     if (!messageId || !conversationId || !senderId) {
       return new Response(JSON.stringify({ error: "missing params" }), {
@@ -137,10 +160,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // senderId precisa ser quem está autenticado — senão o usuário
+    // consegue se passar por outra pessoa disparando push em nome dela.
+    if (senderId !== user.id) {
+      return new Response(JSON.stringify({ error: "senderId não confere com usuário autenticado" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Get sender name
     const { data: senderProfile } = await supabaseAdmin
