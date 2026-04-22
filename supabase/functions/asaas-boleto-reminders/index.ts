@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { saveOutboundToWhatsApp } from '../_shared/whatsapp-sync.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -356,6 +357,15 @@ Deno.serve(async (req) => {
             message_type: 'lembrete_boleto',
             status: 'sent',
             zapi_message_id: result.zaapId || null,
+          });
+
+          // Mirror into WhatsApp Avisos panel
+          await saveOutboundToWhatsApp(supabase, {
+            phone: payment.customerPhone,
+            messageText: message + FOOTER_AVISO,
+            zaapId: result.zaapId || null,
+            contactName: customerName,
+            messageType: 'text',
           });
 
           sent++;
