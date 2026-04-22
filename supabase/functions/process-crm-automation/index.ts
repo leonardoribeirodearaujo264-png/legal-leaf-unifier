@@ -78,7 +78,24 @@ Deno.serve(async (req) => {
                     body: JSON.stringify({ phone: phone.replace(/\D/g, ''), message }),
                   }
                 );
-                actionResult = { whatsapp_sent: zapiRes.ok, phone };
+                let zaapId: string | null = null;
+                try {
+                  const zapiBody = await zapiRes.json();
+                  zaapId = zapiBody?.zaapId || zapiBody?.messageId || null;
+                } catch { /* ignore parse error */ }
+                actionResult = { whatsapp_sent: zapiRes.ok, phone, zaap_id: zaapId };
+
+                // Mirror into WhatsApp Avisos panel
+                if (zapiRes.ok) {
+                  await saveOutboundToWhatsApp(supabase, {
+                    phone,
+                    messageText: message,
+                    zaapId,
+                    sentBy: claimsData.claims.sub,
+                    contactName: entity_data?.name || null,
+                    messageType: 'text',
+                  });
+                }
               } else {
                 actionResult = { whatsapp_sent: false, reason: 'Z-API not configured' };
               }
