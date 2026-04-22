@@ -271,8 +271,14 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
-    const authToken = req.headers.get('X-Webhook-Secret') ||
-                      req.headers.get('x-webhook-secret');
+    // Z-API não suporta header customizado no webhook, então aceitamos o
+    // secret também via query param (?secret=...). O header continua sendo
+    // aceito como fallback para compatibilidade com testes manuais.
+    const url = new URL(req.url);
+    const querySecret = url.searchParams.get('secret');
+    const headerSecret = req.headers.get('X-Webhook-Secret') ||
+                         req.headers.get('x-webhook-secret');
+    const authToken = querySecret || headerSecret;
     if (authToken !== ZAPI_WEBHOOK_SECRET) {
       console.error('[Z-API Webhook] Unauthorized: invalid webhook secret');
       return new Response(
