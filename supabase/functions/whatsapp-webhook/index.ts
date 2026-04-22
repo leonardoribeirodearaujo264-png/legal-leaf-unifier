@@ -13,6 +13,35 @@ const PHONE_PRODUCT_MAP: Record<string, string> = {
   '5511998802573': 'Imobiliário',
 };
 
+// Validação HMAC do webhook da Meta. O POST da WhatsApp Cloud API vem
+// assinado com HMAC SHA-256 usando o App Secret no header
+// X-Hub-Signature-256. Sem isso, qualquer um pode POSTar payloads falsos
+// e alimentar o CRM com dados inventados.
+async function verifyMetaSignature(rawBody: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
+  if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+  const expected = signatureHeader.slice('sha256='.length);
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(appSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(rawBody));
+  const computed = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  // Comparação constant-time pra evitar timing attack
+  if (computed.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) {
+    diff |= computed.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -39,7 +68,30 @@ serve(async (req) => {
 
     // ── POST: Incoming messages ──
     if (req.method === 'POST') {
-      const body = await req.json();
+      // Precisamos do body como string crua para calcular o HMAC. Por isso
+      // fazemos req.text() e depois JSON.parse em vez de req.json() direto.
+      const rawBody = await req.text();
+
+      const appSecret = Deno.env.get('WHATSAPP_APP_SECRET');
+      if (!appSecret) {
+        console.error('WHATSAPP_APP_SECRET não configurado — rejeitando webhook fail-closed');
+        return new Response(JSON.stringify({ error: 'Server misconfigured' }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const signatureHeader = req.headers.get('x-hub-signature-256') || req.headers.get('X-Hub-Signature-256');
+      const valid = await verifyMetaSignature(rawBody, signatureHeader, appSecret);
+      if (!valid) {
+        console.error('Assinatura HMAC inválida no webhook do WhatsApp');
+        return new Response(JSON.stringify({ error: 'Invalid signature' }), {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const body = JSON.parse(rawBody);
       console.log('WhatsApp webhook payload:', JSON.stringify(body).slice(0, 500));
 
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;

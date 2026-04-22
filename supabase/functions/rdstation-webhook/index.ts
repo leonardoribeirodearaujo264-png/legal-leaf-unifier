@@ -18,26 +18,32 @@ serve(async (req) => {
     const advboxToken = Deno.env.get('ADVBOX_API_TOKEN');
     const webhookSecret = Deno.env.get('RD_STATION_WEBHOOK_SECRET');
 
-    // Validate webhook secret if configured - headers only, no query params
-    if (webhookSecret) {
-      const receivedSecret = req.headers.get('X-RD-Webhook-Secret') || 
-                             req.headers.get('x-rd-webhook-secret') ||
-                             req.headers.get('Authorization')?.replace('Bearer ', '');
-      
-      if (receivedSecret !== webhookSecret) {
-        console.error('Invalid webhook secret received');
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized - Invalid webhook secret' }),
-          { 
-            status: 401,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          }
-        );
-      }
-      console.log('Webhook secret validated successfully');
-    } else {
-      console.warn('RD_STATION_WEBHOOK_SECRET not configured - webhook validation disabled');
+    // Fail-closed: se o secret não está configurado, rejeita em vez
+    // de deixar passar. Antes o webhook ficava aberto quando a env
+    // var estava ausente.
+    if (!webhookSecret) {
+      console.error('RD_STATION_WEBHOOK_SECRET não configurado — rejeitando webhook');
+      return new Response(
+        JSON.stringify({ error: 'Server misconfigured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
+
+    const receivedSecret = req.headers.get('X-RD-Webhook-Secret') ||
+                           req.headers.get('x-rd-webhook-secret') ||
+                           req.headers.get('Authorization')?.replace('Bearer ', '');
+
+    if (receivedSecret !== webhookSecret) {
+      console.error('Invalid webhook secret received');
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized - Invalid webhook secret' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        }
+      );
+    }
+    console.log('Webhook secret validated successfully');
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 

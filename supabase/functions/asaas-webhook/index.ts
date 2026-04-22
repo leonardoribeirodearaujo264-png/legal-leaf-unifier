@@ -98,8 +98,19 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const ASAAS_WEBHOOK_TOKEN = Deno.env.get('ASAAS_WEBHOOK_TOKEN');
 
+    // Fail-closed: se o token não está configurado, rejeita em vez de
+    // deixar passar. Antes o webhook aceitava tudo quando a env var
+    // estava ausente.
+    if (!ASAAS_WEBHOOK_TOKEN) {
+      console.error('ASAAS_WEBHOOK_TOKEN não configurado — rejeitando webhook');
+      return new Response(
+        JSON.stringify({ error: 'Server misconfigured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     const authToken = req.headers.get('asaas-access-token');
-    if (ASAAS_WEBHOOK_TOKEN && authToken !== ASAAS_WEBHOOK_TOKEN) {
+    if (authToken !== ASAAS_WEBHOOK_TOKEN) {
       console.error('Token de webhook inválido');
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
