@@ -346,6 +346,9 @@ export default function DistribuicaoTarefas() {
             <p className="text-muted-foreground text-sm mt-1">
               Ranking de carga de trabalho por colaborador
             </p>
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              Última sincronização ADVBox: {formatLastSync(lastSyncAt)}
+            </p>
           </div>
 
           <Tabs value={timeFilter} onValueChange={(v) => setTimeFilter(v as TimeFilter)}>
