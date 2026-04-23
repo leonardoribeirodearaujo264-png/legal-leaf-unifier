@@ -1,77 +1,36 @@
 
 
-## Ajuste dos filtros do Controle de Prazos
+## Corrigir scroll do popup "Criar Tarefa" em Distribuição de Tarefas
 
 ### Problema
 
-Os filtros atuais têm **labels confusos** que não correspondem às colunas da tabela:
+No popup que abre ao clicar em "+ Criar Tarefa" no ranking de colaboradores (`/distribuicao-tarefas`), o conteúdo é cortado e **não rola**. Você consegue ver até "Participantes" e o resto do formulário (Categoria, Prazo, Botão Salvar) fica inacessível.
 
-- "**Evento início**" / "**Evento fim**" — não existe coluna "Evento" na tabela. Esses filtros, no código, filtram por `prazo_interno`. O label está errado.
-- "**Prazo Fatal início**" / "**Prazo Fatal fim**" — o nome sugere duas datas distintas ("início" e "fim" do prazo), mas na verdade é **um intervalo de busca** (de qual data até qual data) sobre a única coluna `Prazo Fatal`. Confunde porque parece haver dois prazos fatais.
-- Faltam filtros úteis: **Cliente** e **Nº Processo**.
+### Causa
 
-### Correção proposta
+No arquivo `src/pages/DistribuicaoTarefas.tsx` (linhas 443-483), o `DialogContent` tem `max-h-[90vh]` mas **sem `overflow-y-auto`**, e o `ScrollArea` interno está envolvendo só uma parte do formulário sem altura calculada corretamente. Resultado: o conteúdo que ultrapassa 90vh simplesmente fica escondido.
 
-**1. Renomear os filtros existentes** (sem mudar a lógica — apenas o texto):
+A versão que funciona em outros lugares (ex: `TaskCreationDialog.tsx` usado em Movimentações) usa `max-w-2xl max-h-[90vh] overflow-y-auto` direto no `DialogContent`, sem `ScrollArea` interno — mais simples e sempre funciona.
 
-| Hoje (confuso) | Vai virar (claro) |
-|---|---|
-| "Publicação início" / "Publicação fim" | "Publicação — de" / "Publicação — até" |
-| "Prazo Fatal início" / "Prazo Fatal fim" | "Prazo Fatal — de" / "Prazo Fatal — até" |
-| "Evento início" / "Evento fim" | "Prazo Interno — de" / "Prazo Interno — até" |
+### Correção
 
-Isso deixa explícito que cada par é **um intervalo (de/até)** sobre uma das três datas que **realmente existem** na tabela: Data Publicação, Prazo Interno, Prazo Fatal.
+**Arquivo:** `src/pages/DistribuicaoTarefas.tsx` (apenas linhas 444 e 458/480)
 
-**2. Adicionar dois novos filtros que faltavam:**
+1. Trocar `<DialogContent className="max-w-2xl max-h-[90vh]">` por `<DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">` — o próprio dialog passa a rolar.
+2. Remover o wrapper `<ScrollArea className="max-h-[60vh]">…</ScrollArea>` em volta do `<TaskCreationForm>`. O componente fica como filho direto do `<div className="space-y-4">`.
+3. Remover o import não usado de `ScrollArea` se ele não for mais usado em nenhum outro lugar do arquivo (verifico antes de remover).
 
-- **Cliente** — campo de texto livre (busca parcial, case-insensitive) sobre `task.cliente_nome`.
-- **Nº Processo** — campo de texto livre (busca parcial) sobre `task.process_number`.
+### Por que essa abordagem
 
-Esses dois entram como `Input` simples (não Select), porque a quantidade de clientes/processos é grande demais para dropdown.
+- É **idêntica** ao padrão já usado no `TaskCreationDialog.tsx` (que funciona corretamente em Movimentações ADVBox e em Controle de Prazos).
+- O Radix `DialogContent` com `overflow-y-auto` rola nativamente sem precisar de `ScrollArea` aninhado — `ScrollArea` aninhado dentro de Dialog é problemático porque depende de altura definida do pai, o que conflita com o `max-h` do dialog.
+- Mantém o `max-h-[90vh]` para o popup nunca ultrapassar a tela.
 
-**3. Reorganizar o layout do bloco Filtros** para acomodar os novos campos de forma legível:
+### Não muda
 
-```text
-Linha 1:  [Advogado ▾] [Tipo de Tarefa ▾] [Status ▾] [Cliente (texto)] [Nº Processo (texto)]
-Linha 2:  [Publicação de] [Publicação até] [Prazo Interno de] [Prazo Interno até]
-Linha 3:  [Prazo Fatal de] [Prazo Fatal até]                                     [Limpar filtros]
-```
+- Lógica de criação de tarefa (handleCreateTask), busca de tipos/usuários, validações — nada.
+- Outros popups (`TaskCreationDialog`, `TaskCreationForm`) — não tocados.
+- Banco, RLS, edge functions — não tocados.
 
-Grid responsivo: `grid-cols-1 md:grid-cols-3 lg:grid-cols-5` para a linha de selects, e `md:grid-cols-4` para as linhas de datas.
-
-**4. Lógica dos novos filtros (Cliente / Nº Processo)**
-
-Adicionar dentro do `useMemo` `filteredTasks` (logo após o filtro de status):
-
-```ts
-if (filterCliente.trim()) {
-  const q = filterCliente.toLowerCase().trim();
-  if (!(task.cliente_nome || '').toLowerCase().includes(q)) return false;
-}
-if (filterProcesso.trim()) {
-  const q = filterProcesso.replace(/\D/g, ''); // ignora pontuação
-  const proc = (task.process_number || '').replace(/\D/g, '');
-  if (!proc.includes(q)) return false;
-}
-```
-
-E incluir os dois novos states no `useEffect` que reseta a paginação e no botão "Limpar filtros".
-
-### Detalhes técnicos
-
-**Arquivo modificado:**
-- `src/pages/ControlePrazos.tsx` — apenas:
-  - Adicionar 2 novos `useState`: `filterCliente`, `filterProcesso` (string vazia inicial).
-  - Adicionar 2 condições no `filteredTasks` `useMemo`.
-  - Adicionar 2 `<Input>` no JSX do bloco de filtros.
-  - Renomear os 6 placeholders dos botões de data.
-  - Reorganizar o `grid` do bloco de filtros para 3 linhas lógicas.
-  - Incluir os 2 novos states na lista de dependências do `useEffect` de reset de página, no `useMemo` `filteredTasks`, na condição que mostra "Limpar filtros" e na função do botão "Limpar filtros".
-
-**Não muda:**
-- Nenhuma lógica de negócio (vencido, verificação, sync ADVBox, exportação Excel/PDF).
-- Banco de dados, RLS, edge functions — nada é tocado.
-- Colunas da tabela — continuam as mesmas (Cliente, Nº Processo, Tarefa, Advogado, Data Publicação, Prazo Interno, Prazo Fatal, Status).
-
-**Risco:** zero. São mudanças de UI puramente locais e aditivas — os filtros existentes continuam funcionando exatamente igual, só com label mais claro.
+**Risco:** zero. Mudança puramente de CSS/estrutura DOM em um único bloco JSX.
 
