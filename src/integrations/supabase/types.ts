@@ -673,6 +673,7 @@ export type Database = {
           id: string
           last_error: string | null
           last_offset: number | null
+          reconciled_count: number | null
           started_at: string | null
           status: string
           sync_type: string
@@ -686,6 +687,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_offset?: number | null
+          reconciled_count?: number | null
           started_at?: string | null
           status?: string
           sync_type?: string
@@ -699,6 +701,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           last_offset?: number | null
+          reconciled_count?: number | null
           started_at?: string | null
           status?: string
           sync_type?: string

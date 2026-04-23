@@ -38,13 +38,41 @@ export default function DistribuicaoTarefas() {
   const [loadingTaskTypes, setLoadingTaskTypes] = useState(false);
   const [loadingAdvboxUsers, setLoadingAdvboxUsers] = useState(false);
   const [activeProfileNames, setActiveProfileNames] = useState<string[]>([]);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const { toast } = useToast();
   const { isAdmin, loading: roleLoading } = useUserRole();
 
   useEffect(() => {
     fetchTasks();
     fetchActiveProfiles();
+    fetchLastSync();
   }, []);
+
+  const fetchLastSync = async () => {
+    try {
+      const { data } = await supabase
+        .from('advbox_tasks_sync_status')
+        .select('completed_at')
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (data?.completed_at) setLastSyncAt(data.completed_at);
+    } catch (e) {
+      console.error('Error fetching last sync:', e);
+    }
+  };
+
+  const formatLastSync = (iso: string | null): string => {
+    if (!iso) return 'nunca';
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'agora há pouco';
+    if (mins < 60) return `há ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `há ${hours}h`;
+    return `há ${Math.floor(hours / 24)}d`;
+  };
 
   const fetchActiveProfiles = async () => {
     try {
@@ -317,6 +345,9 @@ export default function DistribuicaoTarefas() {
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
               Ranking de carga de trabalho por colaborador
+            </p>
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              Última sincronização ADVBox: {formatLastSync(lastSyncAt)}
             </p>
           </div>
 

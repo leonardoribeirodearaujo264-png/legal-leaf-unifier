@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
         status: 'running',
         started_at: new Date().toISOString(),
       })
-      .select('id')
+      .select('id, started_at')
       .single();
 
     if (syncError) {
@@ -222,6 +222,61 @@ Deno.serve(async (req) => {
         console.log(`Upserted ${upsertedCount}/${allTasks.length} tasks`);
       }
 
+      // ─── Reconciliation: mark ghost tasks (vanished from API) as completed ─────
+      // Safeguards: only run on full sync that received >=80% of expected tasks
+      let reconciledCount = 0;
+      const reconciliationThreshold = totalCount > 0 ? totalCount * 0.8 : 0;
+      const canReconcile =
+        syncType === 'full' &&
+        allTasks.length >= reconciliationThreshold &&
+        allTasks.length > 0;
+
+      if (canReconcile && syncRecord?.started_at) {
+        try {
+          const seenIds = allTasks.map(t => t.id).filter(Boolean);
+          console.log(`Running reconciliation: ${seenIds.length} seen IDs, started_at=${syncRecord.started_at}`);
+
+          // Fetch tasks that should have been touched but weren't (in batches to avoid huge NOT IN)
+          const { data: ghostTasks, error: ghostErr } = await supabase
+            .from('advbox_tasks')
+            .select('id, advbox_id')
+            .in('status', ['pending', 'in_progress', 'pendente'])
+            .lt('synced_at', syncRecord.started_at);
+
+          if (ghostErr) {
+            console.error('Ghost query error:', ghostErr);
+          } else if (ghostTasks && ghostTasks.length > 0) {
+            const seenSet = new Set(seenIds);
+            const toReconcile = ghostTasks.filter(g => !seenSet.has(g.advbox_id));
+            console.log(`Found ${toReconcile.length} ghost tasks to reconcile`);
+
+            // Update in chunks of 500
+            const chunkSize = 500;
+            for (let i = 0; i < toReconcile.length; i += chunkSize) {
+              const chunk = toReconcile.slice(i, i + chunkSize).map(t => t.id);
+              const { error: updErr } = await supabase
+                .from('advbox_tasks')
+                .update({
+                  status: 'completed',
+                  synced_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                })
+                .in('id', chunk);
+              if (updErr) {
+                console.error(`Reconciliation chunk error at ${i}:`, updErr);
+              } else {
+                reconciledCount += chunk.length;
+              }
+            }
+            console.log(`Reconciled ${reconciledCount} ghost tasks`);
+          }
+        } catch (reconErr) {
+          console.error('Reconciliation failed:', reconErr);
+        }
+      } else {
+        console.log(`Reconciliation skipped: syncType=${syncType}, fetched=${allTasks.length}, threshold=${reconciliationThreshold}`);
+      }
+
       // Update sync status to completed
       if (syncId) {
         await supabase
@@ -230,12 +285,13 @@ Deno.serve(async (req) => {
             status: 'completed',
             total_synced: upsertedCount,
             total_count: totalCount,
+            reconciled_count: reconciledCount,
             completed_at: new Date().toISOString(),
           })
           .eq('id', syncId);
       }
 
-      console.log(`Sync completed: ${upsertedCount} tasks upserted`);
+      console.log(`Sync completed: ${upsertedCount} upserted, ${reconciledCount} reconciled`);
 
       return new Response(
         JSON.stringify({
@@ -243,6 +299,7 @@ Deno.serve(async (req) => {
           total_fetched: allTasks.length,
           total_upserted: upsertedCount,
           total_count: totalCount,
+          reconciled: reconciledCount,
           iterations,
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
