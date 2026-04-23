@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
         status: 'running',
         started_at: new Date().toISOString(),
       })
-      .select('id')
+      .select('id, started_at')
       .single();
 
     if (syncError) {
