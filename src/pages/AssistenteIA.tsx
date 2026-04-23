@@ -610,14 +610,21 @@ const AssistenteIA = () => {
   ) => {
     const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
     const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    
+
+    // Get the user's JWT — required by edge function's requireUser() check.
+    // The anon key alone is rejected as "Não autorizado".
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('Sessão expirada. Faça login novamente.');
+
     abortControllerRef.current = new AbortController();
 
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${token}`,
+        'apikey': SUPABASE_KEY,
       },
       body: JSON.stringify({
         messages: messagesToSend,
