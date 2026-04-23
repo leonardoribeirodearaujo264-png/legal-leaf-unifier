@@ -3,7 +3,7 @@ import { Layout } from '@/components/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -441,7 +441,7 @@ export default function DistribuicaoTarefas() {
 
         {/* Task Creation Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh]">
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Criar Tarefa para {selectedCollaborator}</DialogTitle>
             </DialogHeader>
@@ -455,29 +455,27 @@ export default function DistribuicaoTarefas() {
                   placeholder="0000000-00.0000.0.00.0000"
                 />
               </div>
-              <ScrollArea className="max-h-[60vh]">
-                <TaskCreationForm
-                  initialData={{
-                    lawsuitId: 0,
-                    processNumber: processNumber,
-                    title: '',
-                    description: '',
-                    prefillResponsibleId: prefillUserId,
-                  }}
-                  taskTypes={advboxTaskTypes}
-                  advboxUsers={advboxUsers}
-                  loadingTaskTypes={loadingTaskTypes}
-                  loadingUsers={loadingAdvboxUsers}
-                  onFetchTaskTypes={fetchAdvboxTaskTypes}
-                  onFetchUsers={fetchAdvboxUsers}
-                  onSubmit={handleCreateTask}
-                  onCancel={() => {
-                    setDialogOpen(false);
-                    setProcessNumber('');
-                  }}
-                  isSubmitting={isCreatingTask}
-                />
-              </ScrollArea>
+              <TaskCreationForm
+                initialData={{
+                  lawsuitId: 0,
+                  processNumber: processNumber,
+                  title: '',
+                  description: '',
+                  prefillResponsibleId: prefillUserId,
+                }}
+                taskTypes={advboxTaskTypes}
+                advboxUsers={advboxUsers}
+                loadingTaskTypes={loadingTaskTypes}
+                loadingUsers={loadingAdvboxUsers}
+                onFetchTaskTypes={fetchAdvboxTaskTypes}
+                onFetchUsers={fetchAdvboxUsers}
+                onSubmit={handleCreateTask}
+                onCancel={() => {
+                  setDialogOpen(false);
+                  setProcessNumber('');
+                }}
+                isSubmitting={isCreatingTask}
+              />
             </div>
           </DialogContent>
         </Dialog>
