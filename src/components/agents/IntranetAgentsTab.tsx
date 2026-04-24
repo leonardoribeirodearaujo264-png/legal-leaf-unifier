@@ -96,13 +96,13 @@ export function IntranetAgentsTab() {
 
   const confirmDelete = async () => {
     if (!deletingAgentId) return;
-    // Soft delete: marca is_active = false. Não usamos .select() porque a policy
-    // de SELECT exige is_active = true, então a linha desaparece no mesmo instante
-    // do update e o retorno vazio era interpretado erroneamente como falta de permissão.
+    // Hard delete: a policy de UPDATE herda o WITH CHECK da SELECT (is_active = true),
+    // o que bloqueia soft delete (is_active = false) com "row violates RLS policy".
+    // A policy de DELETE já é restrita a criador/admin, e as FKs filhas usam ON DELETE CASCADE.
     const result = await retryWithRefresh(() =>
       supabase
         .from('intranet_agents')
-        .update({ is_active: false })
+        .delete()
         .eq('id', deletingAgentId)
     );
 
