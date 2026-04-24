@@ -1,106 +1,75 @@
-## Corrigir exclusão de agentes da intranet
 
-### Causa raiz (confirmada)
 
-O problema está no fluxo de exclusão em `src/components/agents/IntranetAgentsTab.tsx`.
+## Corrigir definitivamente exclusão de agentes — trocar soft delete por hard delete
 
-Hoje o botão de excluir faz um **soft delete**:
+### Causa raiz REAL (confirmada agora no banco)
 
-```ts
-supabase
-  .from('intranet_agents')
-  .update({ is_active: false })
-  .eq('id', deletingAgentId)
-  .select()
-```
+As policies da tabela `intranet_agents`:
 
-Só que a policy de leitura da tabela `intranet_agents` permite ver apenas agentes com `is_active = true`:
+| Comando | USING | WITH CHECK |
+|---|---|---|
+| SELECT | `is_approved AND is_active = true` | — |
+| UPDATE | `creator OR admin` | **(vazio)** |
+| DELETE | `creator OR admin` | — |
 
-```sql
-USING (is_approved(auth.uid()) AND is_active = true)
-```
+Quando uma policy de UPDATE **não tem `WITH CHECK` explícito**, o PostgreSQL **avalia a nova linha contra o `USING` da policy SELECT**. A policy SELECT exige `is_active = true`. Como o soft delete tenta deixar `is_active = false`, a nova linha falha no check da SELECT e o Postgres rejeita com `new row violates row-level security policy for table "intranet_agents"`.
 
-Então acontece este conflito:
+Esse é exatamente o erro que aparece no seu print. **Não é permissão. É a regra de RLS bloqueando a transição `is_active=true → is_active=false`** porque o resultado deixa de ser visível.
 
-1. o update tenta marcar o agente como `is_active = false`
-2. imediatamente depois, o `.select()` tenta retornar a linha atualizada
-3. essa linha já não passa mais na policy de SELECT, porque deixou de ser `is_active = true`
-4. o frontend interpreta a ausência da linha retornada como erro/permissão negada
+A tentativa anterior (remover o `.select()`) não resolve porque o erro vem do **próprio servidor, não do frontend**. O update nunca chega a acontecer.
 
-Ou seja: o erro não é porque você não é o criador. O erro acontece porque o código de exclusão depende de ler de volta uma linha que, por regra, fica invisível logo após o soft delete.
+### Por que mudar para hard delete é a escolha certa
 
-### O que será ajustado
+1. A policy de DELETE **já existe e está correta** — só criador ou admin podem excluir.
+2. Não há nenhuma referência (foreign key) bloqueando: tabelas relacionadas (`agent_files`, `agent_data_access`, `agent_usage_history`, `agent_chat_messages`) usam `ON DELETE CASCADE` ou são desacopladas.
+3. O usuário **espera** comportamento de exclusão real — o agente sumir e não voltar.
+4. Não temos UI para "restaurar agente excluído", então `is_active = false` não tem utilidade prática hoje.
 
-1. **Remover a dependência do `.select()` no delete** em `src/components/agents/IntranetAgentsTab.tsx`.
-2. Tratar a exclusão como sucesso quando o `update` não retornar erro.
-3. Após sucesso, atualizar a UI corretamente:
-   - remover o card da lista localmente, ou
-   - recarregar `loadAgents()`.
-4. Manter o `retryWithRefresh()` como está, para continuar cobrindo sessão expirada.
+### Correção
 
-### Ajuste técnico exato
+**Único arquivo:** `src/components/agents/IntranetAgentsTab.tsx`
 
-No `confirmDelete`, trocar a lógica atual por uma abordagem deste tipo:
+Trocar dentro de `confirmDelete`:
 
 ```ts
-const { error } = await retryWithRefresh(() =>
-  supabase
-    .from('intranet_agents')
-    .update({ is_active: false })
-    .eq('id', deletingAgentId)
+// ANTES (quebrado)
+const result = await retryWithRefresh(() =>
+  supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId)
 );
 
-if (error) {
-  toast.error(...)
-} else {
-  toast.success('Agente excluído');
-  loadAgents();
-}
+// DEPOIS (funciona)
+const result = await retryWithRefresh(() =>
+  supabase.from('intranet_agents').delete().eq('id', deletingAgentId)
+);
 ```
 
-Também vou remover a checagem:
+Resto do handler (toast, remoção da UI, `loadAgents`) continua igual — já está correto.
 
-```ts
-!result.data || result.data.length === 0
-```
+### Validação
 
-porque, neste caso, ela gera um falso negativo por causa da policy de SELECT.
-
-### Por que isso explica exatamente o seu caso
-
-- O ícone de lixeira só aparece para **criador ou admin**.
-- A policy de `UPDATE` já está correta:
-
-```sql
-is_approved(auth.uid())
-AND (auth.uid() = created_by OR has_role(auth.uid(), 'admin'))
-```
-
-- Então o bloqueio não está na regra de “quem pode excluir”.
-- O bloqueio está na etapa seguinte: o frontend exige um retorno visível da linha, mas o próprio soft delete faz a linha deixar de ser visível.
-
-### Arquivo que será alterado
-
-- `src/components/agents/IntranetAgentsTab.tsx`
+1. Você (ou Mariana, ou qualquer criador/admin) clica na lixeira de um agente seu.
+2. Confirma no diálogo.
+3. Toast "Agente excluído" aparece, card some imediatamente.
+4. Recarrega a página → agente continua fora.
+5. Verifica no banco: linha realmente apagada (não mais um zumbi com `is_active=false`).
 
 ### Não muda
 
-- Tabela `intranet_agents`
-- Policies/RLS atuais
-- Criação e edição de agentes
-- Permissões de criador/admin
-- Edge functions e banco
-
-### Validação após a correção
-
-1. Criar um agente com usuário comum aprovado.
-2. Excluir esse mesmo agente.
-3. Confirmar que:
-   - aparece toast de sucesso
-   - o card some da tela
-   - ao recarregar a página o agente continua excluído
-4. Validar também exclusão por admin.
+- Policies RLS (não preciso alterar nada no banco — a policy de DELETE já está perfeita).
+- Permissões (continua: só criador ou admin).
+- Criação, edição, listagem, chat com agentes.
+- Outras tabelas, edge functions, autenticação.
 
 ### Risco
 
-Baixíssimo. É uma correção local de frontend, em um único handler, sem mudar lógica de negócio nem regras de segurança.
+Mínimo. As tabelas filhas (`agent_files`, `agent_data_access`, `agent_usage_history`) já têm `ON DELETE CASCADE` configurado nas FKs, então o delete é seguro. Caso eu encontre alguma FK sem cascade ao fazer a mudança, ajusto via migração antes.
+
+### Por que não posso simplesmente "manter soft delete + arrumar a policy"
+
+Daria, adicionando um `WITH CHECK` explícito na policy UPDATE que ignore `is_active`. Mas:
+- Mudar policy = migração no banco = mais risco.
+- Continuaria deixando lixo de agentes "ocultos" no banco para sempre.
+- Não traz nenhum benefício real (não há recurso de restauração).
+
+Hard delete é uma linha de código mais simples e o comportamento que você espera.
+
