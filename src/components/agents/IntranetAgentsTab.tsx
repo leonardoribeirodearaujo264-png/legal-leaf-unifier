@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useSessionRefresh } from '@/hooks/useSessionRefresh';
 import { toast } from 'sonner';
-import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database } from 'lucide-react';
+import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database, User } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -28,6 +28,7 @@ interface Agent {
   function_role?: string;
   card_color?: string;
   data_access?: string[];
+  creator_name?: string;
 }
 
 const modelLabels: Record<string, string> = {
@@ -89,8 +90,29 @@ export function IntranetAgentsTab() {
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
-    if (error) { console.error('Error loading agents:', error); toast.error('Erro ao carregar agentes'); }
-    else { setAgents(data || []); }
+    if (error) {
+      console.error('Error loading agents:', error);
+      toast.error('Erro ao carregar agentes');
+      setLoading(false);
+      return;
+    }
+
+    const agentsList = data || [];
+    const creatorIds = Array.from(new Set(agentsList.map(a => a.created_by).filter(Boolean)));
+
+    let creatorMap: Record<string, string> = {};
+    if (creatorIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles_safe')
+        .select('id, full_name')
+        .in('id', creatorIds);
+      creatorMap = (profiles || []).reduce((acc, p) => {
+        if (p.id && p.full_name) acc[p.id] = p.full_name;
+        return acc;
+      }, {} as Record<string, string>);
+    }
+
+    setAgents(agentsList.map(a => ({ ...a, creator_name: creatorMap[a.created_by] || 'Usuário' })));
     setLoading(false);
   };
 
@@ -191,6 +213,11 @@ export function IntranetAgentsTab() {
                       )}
                     </div>
                   )}
+
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                    <User className="h-3 w-3" />
+                    <span className="truncate">Criado por {agent.creator_name}</span>
+                  </div>
 
                   <div className="flex items-center justify-between mt-3">
                     <Badge variant="outline" className={`text-xs ${modelColors[agent.model] || 'bg-muted text-muted-foreground'}`}>
