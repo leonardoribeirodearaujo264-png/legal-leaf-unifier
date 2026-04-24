@@ -96,20 +96,22 @@ export function IntranetAgentsTab() {
 
   const confirmDelete = async () => {
     if (!deletingAgentId) return;
+    // Soft delete: marca is_active = false. Não usamos .select() porque a policy
+    // de SELECT exige is_active = true, então a linha desaparece no mesmo instante
+    // do update e o retorno vazio era interpretado erroneamente como falta de permissão.
     const result = await retryWithRefresh(() =>
       supabase
         .from('intranet_agents')
         .update({ is_active: false })
         .eq('id', deletingAgentId)
-        .select()
     );
 
     if (result.error) {
       console.error('Delete error:', result.error);
       toast.error(`Erro ao excluir: ${result.error.message}`);
-    } else if (!result.data || result.data.length === 0) {
-      toast.error('Você não tem permissão para excluir este agente');
     } else {
+      // Atualiza UI localmente (some imediatamente) + recarrega para garantir consistência
+      setAgents(prev => prev.filter(a => a.id !== deletingAgentId));
       toast.success('Agente excluído');
       loadAgents();
     }
