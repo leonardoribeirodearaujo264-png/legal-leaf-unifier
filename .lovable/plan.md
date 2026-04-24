@@ -1,60 +1,106 @@
-
-
-## Corrigir "Não autorizado" no Assistente de IA
+## Corrigir exclusão de agentes da intranet
 
 ### Causa raiz (confirmada)
 
-No commit `aee4b36` adicionei `requireUser()` em 18 edge functions de IA. Esse helper chama `supabase.auth.getUser(token)` para validar que o token é de um **usuário real** (não a anon key pública).
+O problema está no fluxo de exclusão em `src/components/agents/IntranetAgentsTab.tsx`.
 
-O `Assistente IA` (`/assistente-ia`) usa **streaming**, e streaming é a única chamada de IA do projeto que **não** usa `supabase.functions.invoke()` — usa `fetch()` direto, em `src/pages/AssistenteIA.tsx` linha 616-630. O Authorization header está enviando a `VITE_SUPABASE_PUBLISHABLE_KEY` (anon key) em vez do JWT do usuário logado:
-
-```ts
-'Authorization': `Bearer ${SUPABASE_KEY}`,  // ← anon key, não JWT
-```
-
-A anon key não corresponde a nenhum usuário, então `getUser()` falha e retorna 401 "Não autorizado". Isso quebra **toda** mensagem do Assistente IA (com ou sem anexo) para todos os colaboradores. Anexo dá o mesmo erro porque vai pelo mesmo `streamChat`.
-
-Demais funções de IA chamadas no projeto (`voice-to-text`, `suggest-petition`, `chat-with-agent` etc.) já usam `supabase.functions.invoke()`, que injeta o JWT do usuário automaticamente, então funcionam.
-
-### Correção
-
-**Único arquivo:** `src/pages/AssistenteIA.tsx` (função `streamChat`, ~linha 604-630)
-
-Trocar o header `Authorization` para enviar o JWT do usuário, obtido via `supabase.auth.getSession()`:
+Hoje o botão de excluir faz um **soft delete**:
 
 ```ts
-const { data: { session } } = await supabase.auth.getSession();
-const token = session?.access_token;
-if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
-const resp = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,        // JWT do usuário
-    'apikey': SUPABASE_KEY,                    // anon key como apikey (necessária pelo gateway)
-  },
-  body: JSON.stringify({ ... }),
-  signal: abortControllerRef.current.signal
-});
+supabase
+  .from('intranet_agents')
+  .update({ is_active: false })
+  .eq('id', deletingAgentId)
+  .select()
 ```
 
-Isso é exatamente o que `supabase.functions.invoke()` faz por baixo dos panos. Com o JWT real, `requireUser()` na edge function valida o usuário e libera o acesso para qualquer colaborador autenticado e aprovado.
+Só que a policy de leitura da tabela `intranet_agents` permite ver apenas agentes com `is_active = true`:
 
-### Validação após o deploy
+```sql
+USING (is_approved(auth.uid()) AND is_active = true)
+```
 
-1. Mariana (ou qualquer colaborador aprovado) abre `/assistente-ia`, manda uma mensagem simples → resposta volta normal.
-2. Anexa um PDF/imagem + manda mensagem → resposta volta normal.
-3. Continua funcionando para todos os modelos (Gemini, GPT, Claude, Perplexity, Manus) — todos passam pelo mesmo `streamChat`.
+Então acontece este conflito:
+
+1. o update tenta marcar o agente como `is_active = false`
+2. imediatamente depois, o `.select()` tenta retornar a linha atualizada
+3. essa linha já não passa mais na policy de SELECT, porque deixou de ser `is_active = true`
+4. o frontend interpreta a ausência da linha retornada como erro/permissão negada
+
+Ou seja: o erro não é porque você não é o criador. O erro acontece porque o código de exclusão depende de ler de volta uma linha que, por regra, fica invisível logo após o soft delete.
+
+### O que será ajustado
+
+1. **Remover a dependência do `.select()` no delete** em `src/components/agents/IntranetAgentsTab.tsx`.
+2. Tratar a exclusão como sucesso quando o `update` não retornar erro.
+3. Após sucesso, atualizar a UI corretamente:
+   - remover o card da lista localmente, ou
+   - recarregar `loadAgents()`.
+4. Manter o `retryWithRefresh()` como está, para continuar cobrindo sessão expirada.
+
+### Ajuste técnico exato
+
+No `confirmDelete`, trocar a lógica atual por uma abordagem deste tipo:
+
+```ts
+const { error } = await retryWithRefresh(() =>
+  supabase
+    .from('intranet_agents')
+    .update({ is_active: false })
+    .eq('id', deletingAgentId)
+);
+
+if (error) {
+  toast.error(...)
+} else {
+  toast.success('Agente excluído');
+  loadAgents();
+}
+```
+
+Também vou remover a checagem:
+
+```ts
+!result.data || result.data.length === 0
+```
+
+porque, neste caso, ela gera um falso negativo por causa da policy de SELECT.
+
+### Por que isso explica exatamente o seu caso
+
+- O ícone de lixeira só aparece para **criador ou admin**.
+- A policy de `UPDATE` já está correta:
+
+```sql
+is_approved(auth.uid())
+AND (auth.uid() = created_by OR has_role(auth.uid(), 'admin'))
+```
+
+- Então o bloqueio não está na regra de “quem pode excluir”.
+- O bloqueio está na etapa seguinte: o frontend exige um retorno visível da linha, mas o próprio soft delete faz a linha deixar de ser visível.
+
+### Arquivo que será alterado
+
+- `src/components/agents/IntranetAgentsTab.tsx`
 
 ### Não muda
 
-- Edge function `ai-assistant` continua exigindo JWT válido (segurança intacta — o finding `unauth_ai_functions` que acabamos de fechar **continua resolvido**).
-- Modo non-streaming (`supabase.functions.invoke('ai-assistant', ...)` usado em `ContractGenerator` e `ProcuracaoGenerator`) já funciona — não toca.
-- Outras funções de IA (`voice-to-text`, `suggest-task` etc.) — não toca.
-- Banco, RLS, helper `_shared/auth.ts` — não toca.
+- Tabela `intranet_agents`
+- Policies/RLS atuais
+- Criação e edição de agentes
+- Permissões de criador/admin
+- Edge functions e banco
+
+### Validação após a correção
+
+1. Criar um agente com usuário comum aprovado.
+2. Excluir esse mesmo agente.
+3. Confirmar que:
+   - aparece toast de sucesso
+   - o card some da tela
+   - ao recarregar a página o agente continua excluído
+4. Validar também exclusão por admin.
 
 ### Risco
 
-Zero. É **literalmente** trocar uma string no header. O padrão usado depois é o mesmo que o resto do app já faz via `functions.invoke()`. Se o usuário não tiver sessão ativa (token expirado), em vez de cair com "Não autorizado" da edge function, mostramos uma mensagem clara pedindo para refazer login — comportamento melhor que o atual.
-
+Baixíssimo. É uma correção local de frontend, em um único handler, sem mudar lógica de negócio nem regras de segurança.
