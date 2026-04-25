@@ -594,6 +594,7 @@ async function processTransactionsBatch(
       categoria_id: categoriaId,
       conta_origem_id: contaOrigemId,
       advbox_account_id: bankId,
+      needs_review: contaOrigemId === null,
       valor: newAmount,
       descricao: descricaoReal,
       data_lancamento: tx.date_due?.split('T')[0] || new Date().toISOString().split('T')[0],
@@ -608,6 +609,7 @@ async function processTransactionsBatch(
         tx.category ? `Categoria ADVBox: ${tx.category}` : null,
         tx.identification ? `Identificação: ${tx.identification}` : null,
         `Tipo determinado: ${tipoFinal} (baseado na categoria)`,
+        contaOrigemId === null ? `⚠️ ÓRFÃO: nenhuma conta ativa casa com este bank_name. Atribua manualmente em /financeiro/admin > Diagnóstico ADVBOX.` : null,
         `Importado do ADVBox em ${new Date().toLocaleString('pt-BR')}`
       ].filter(Boolean).join('\n'),
       advbox_transaction_id: advboxId,
