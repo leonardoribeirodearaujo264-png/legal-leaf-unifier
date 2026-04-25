@@ -490,22 +490,8 @@ export function FinanceiroExecutivoDashboard() {
         onSaved={() => triggerRefresh()}
       />
 
-      {/* BUG #1: Alerta de contas sem saldo inicial */}
-      {contasSemSaldoCount > 0 && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Saldo total pode estar incompleto</AlertTitle>
-          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>
-              {contasSemSaldoCount} conta(s) sem saldo inicial configurado. O Saldo Total em Caixa não inclui essas contas corretamente.
-            </span>
-            <Button size="sm" variant="outline" onClick={() => setShowConfigSaldo(true)}>
-              <Settings className="h-3.5 w-3.5 mr-1.5" />
-              Configurar agora
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Alerta removido — fin_contas.saldo_atual agora é a fonte única da verdade
+           (fin_calc_saldo_atual). Toda conta ativa entra no Saldo Total. */}
 
       {/* Filtros */}
       <div className="flex items-center justify-between flex-wrap gap-4">
