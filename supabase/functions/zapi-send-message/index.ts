@@ -329,7 +329,7 @@ serve(async (req) => {
         }
       };
 
-      EdgeRuntime.waitUntil(processBulk());
+      (globalThis as any).EdgeRuntime?.waitUntil(processBulk());
       return new Response(JSON.stringify({
         success: true,
         message: `Envio de ${messagesList.length} mensagens iniciado com intervalo de 3 minutos.`,

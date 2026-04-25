@@ -316,7 +316,7 @@ serve(async (req) => {
       documentType: body.documentType,
       documentName: body.documentName,
       clientName: body.clientName,
-      witnesses: body.witnesses?.map(w => w.name),
+      witnesses: body.witnesses?.map((w: any) => w.name),
     });
 
     if (!body.pdfBase64 || !body.clientName || !body.documentName) {
