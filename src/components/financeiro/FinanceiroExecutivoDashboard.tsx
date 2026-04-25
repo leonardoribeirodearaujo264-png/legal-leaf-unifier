@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
+import { ConfigurarSaldoInicialDialog } from './ConfigurarSaldoInicialDialog';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -20,7 +22,8 @@ import {
   ArrowDown,
   Minus,
   CreditCard,
-  Info
+  Info,
+  Settings
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -31,6 +34,7 @@ import {
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ContaSaldo {
+  id?: string;
   nome: string;
   saldo: number;
   cor: string;
@@ -41,9 +45,13 @@ interface ContaSaldo {
 interface DashboardData {
   totalReceitas: number;
   totalDespesas: number;
+  receitaPrevista: number;
+  despesaPrevista: number;
   lucro: number;
   margemLucro: number;
   contasSaldo: ContaSaldo[];
+  contasSemSaldo: ContaSaldo[];
+  lancamentosExcluidos: number;
   despesasReembolsar: number;
   receitasPorCategoria: { nome: string; valor: number; cor: string }[];
   despesasPorCategoria: { nome: string; valor: number; cor: string }[];
@@ -90,10 +98,13 @@ export function FinanceiroExecutivoDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  
+  const [showConfigSaldo, setShowConfigSaldo] = useState(false);
+
   const [data, setData] = useState<DashboardData>({
     totalReceitas: 0,
     totalDespesas: 0,
+    receitaPrevista: 0,
+    despesaPrevista: 0,
     lucro: 0,
     margemLucro: 0,
     contasSaldo: [],
