@@ -40,6 +40,7 @@ export function FinanceiroContasAdmin() {
   const [formNumeroConta, setFormNumeroConta] = useState('');
   const [formSaldoInicial, setFormSaldoInicial] = useState('0');
   const [formCor, setFormCor] = useState('#3B82F6');
+  const [formAdvboxId, setFormAdvboxId] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
