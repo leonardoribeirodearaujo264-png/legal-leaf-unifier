@@ -128,6 +128,7 @@ export function getMenuGroups(
       icon: Scale,
       items: [
         { icon: Briefcase, path: '/processos', label: 'Processos Dashboard', searchDescription: 'Dashboard de processos jurídicos' },
+        { icon: BarChart3, path: '/business-intelligence', label: 'Business Intelligence', searchDescription: 'BI espelho do ADVBox managementV2 com produtividade, estoque, tempo, custos e safra' },
         { icon: CheckSquare, path: '/tarefas-advbox', label: 'Tarefas Advbox', searchDescription: 'Gestão de tarefas do Advbox', badgeCount: criticalTasksCount },
         { icon: Users, path: '/distribuicao-tarefas', label: 'Distribuição de Tarefas', searchDescription: 'Distribuir tarefas entre equipe', condition: isSocio || isAdmin },
         { icon: ClipboardList, path: '/controle-prazos', label: 'Controle de Prazos', searchDescription: 'Monitorar prazos processuais', condition: isSocio || isAdmin },
