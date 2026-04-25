@@ -30,7 +30,52 @@ interface AdvboxTransaction {
   lawsuit_title?: string;
   bank_account?: string;
   bank_account_id?: number | string;
+  bank_id?: number | string;
+  account_id?: number | string;
+  debit_bank?: { id?: number | string; name?: string } | string;
+  credit_bank?: { id?: number | string; name?: string } | string;
   notes?: string;
+}
+
+interface ContaInfo {
+  id: string;
+  nome: string;
+  advbox_account_id: number | null;
+}
+
+/**
+ * Extrai o ID e nome da conta bancária do payload do ADVBox.
+ * O ADVBox pode mandar como `bank_account_id`, `bank_id`, `account_id`, ou objeto `debit_bank`/`credit_bank`.
+ */
+function extractBankInfo(tx: AdvboxTransaction): { bankId: number | null; bankName: string | null } {
+  let bankId: number | null = null;
+  let bankName: string | null = null;
+
+  // Primeiro: tentar IDs diretos
+  const idCandidates = [tx.bank_account_id, tx.bank_id, tx.account_id];
+  for (const c of idCandidates) {
+    if (c !== undefined && c !== null && c !== '') {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) { bankId = n; break; }
+    }
+  }
+
+  // Tentar objeto debit_bank/credit_bank
+  if (typeof tx.debit_bank === 'object' && tx.debit_bank) {
+    if (!bankId && tx.debit_bank.id) {
+      const n = Number(tx.debit_bank.id);
+      if (Number.isFinite(n) && n > 0) bankId = n;
+    }
+    if (tx.debit_bank.name) bankName = tx.debit_bank.name;
+  } else if (typeof tx.debit_bank === 'string') {
+    bankName = tx.debit_bank;
+  }
+  if (!bankName && typeof tx.credit_bank === 'object' && tx.credit_bank?.name) {
+    bankName = tx.credit_bank.name;
+  }
+  if (!bankName && tx.bank_account) bankName = tx.bank_account;
+
+  return { bankId, bankName };
 }
 
 interface ExistingRecord {
