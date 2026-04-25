@@ -297,7 +297,7 @@ async function syncDeals(rdToken: string, sb: any) {
 async function syncActivities(rdToken: string, sb: any) {
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
   const { data: recentDeals } = await sb.from('crm_deals').select('id, rd_station_id, contact_id').or(`created_at.gte.${cutoff.toISOString()},closed_at.gte.${cutoff.toISOString()}`).order('created_at', { ascending: false }).limit(200);
-  const dealMap = new Map((recentDeals || []).map((d: any) => [d.rd_station_id, { id: d.id, contact_id: d.contact_id }]));
+  const dealMap = new Map<string, any>((recentDeals || []).map((d: any) => [d.rd_station_id, { id: d.id, contact_id: d.contact_id }]));
   const allContacts = await fetchAllFromTable(sb, 'crm_contacts', 'id, rd_station_id, name');
   const cById = new Map(allContacts.map((c: any) => [c.rd_station_id, c.id]));
   const cByName = new Map(allContacts.map((c: any) => [c.name?.toLowerCase()?.trim(), c.id]));
@@ -357,7 +357,7 @@ async function fetchContactActivities(rdToken: string, sb: any, data: any) {
   const { contact_id, deal_rd_station_ids } = data;
   if (!contact_id && (!deal_rd_station_ids?.length)) return { activities: [] };
   const { data: profiles } = await sb.from('profiles').select('id, email, full_name');
-  const emailMap = new Map(profiles?.map((p: any) => [p.email?.toLowerCase(), { id: p.id, full_name: p.full_name }]) || []);
+  const emailMap = new Map<string, any>(profiles?.map((p: any) => [p.email?.toLowerCase(), { id: p.id, full_name: p.full_name }]) || []);
   let allTasks: any[] = [];
   if (deal_rd_station_ids?.length) {
     for (const did of deal_rd_station_ids) {

@@ -57,9 +57,10 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('[crm-auto-sync] Erro inesperado:', error.message);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error('[crm-auto-sync] Erro inesperado:', msg);
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: msg }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

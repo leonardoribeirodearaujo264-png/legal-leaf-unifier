@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
         });
 
         // Save to WhatsApp Avisos so it appears in the chat interface
-        await saveToWhatsAppAvisos(supabase, customer.phone!, result.message, result.zaapId, user.id, customer.name);
+        await saveToWhatsAppAvisos(supabase, customer.phone!, result.message, result.zaapId, user?.id ?? null, customer.name);
 
         return { success: true };
       } catch (error: unknown) {
@@ -341,7 +341,7 @@ Deno.serve(async (req) => {
       })();
 
       try {
-        (EdgeRuntime as any).waitUntil(bgPromise);
+        (globalThis as any).EdgeRuntime?.waitUntil(bgPromise);
       } catch {
         bgPromise.catch(e => console.error('Background send error:', e));
       }
