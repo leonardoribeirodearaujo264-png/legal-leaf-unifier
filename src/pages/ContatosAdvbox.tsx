@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag, Megaphone, Settings, CheckCircle2 } from 'lucide-react';
+import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag, Megaphone, Settings, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAccessTracking } from '@/hooks/useAccessTracking';
 import { useAuth } from '@/hooks/useAuth';
