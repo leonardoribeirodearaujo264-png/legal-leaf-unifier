@@ -125,26 +125,46 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
   const fetchTasks = async (forceRefresh = false) => {
     setLoading(true);
+    setLoadError(null);
+
+    // Timeout defensivo de 30s. Se a query exceder, abortamos e mostramos UI de erro
+    // em vez de deixar o "Carregando relatório..." girando indefinidamente.
+    const TIMEOUT_MS = 30_000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
     try {
       if (forceRefresh) {
-        // Trigger sync first
+        // Dispara sync incremental antes da leitura local
         await supabase.functions.invoke('sync-advbox-tasks', {
           body: { sync_type: 'full' },
         });
       }
 
-      // Fetch ALL tasks from database using pagination to bypass 1000 row limit
+      // OTIMIZAÇÃO: filtra por período no servidor (range startDate→endDate em due_date OR completed_at)
+      // em vez de baixar TODAS as ~13k tasks. Reduz payload e usa o índice idx_advbox_tasks_status_due_date.
+      // Também remove o campo `description` do SELECT (campo grande, não é usado nos cálculos do relatório).
       const allDbTasks: any[] = [];
       const batchSize = 1000;
       let offset = 0;
       let hasMore = true;
+      // Margem de segurança: incluímos um buffer de 365 dias para trás para capturar
+      // tarefas em atraso ainda relevantes que tenham due_date antes do startDate selecionado.
+      const periodStart = new Date(startDate);
+      periodStart.setDate(periodStart.getDate() - 365);
+      const periodStartIso = periodStart.toISOString().slice(0, 10);
+      const periodEndIso = endDate;
 
       while (hasMore) {
+        if (controller.signal.aborted) throw new Error('TIMEOUT');
         const { data: batch, error: batchError } = await supabase
           .from('advbox_tasks')
-          .select('advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, points, synced_at')
+          .select('advbox_id, title, due_date, completed_at, status, assigned_users, process_number, points, synced_at')
+          .or(`due_date.gte.${periodStartIso},completed_at.gte.${periodStartIso}`)
+          .lte('due_date', periodEndIso)
           .order('due_date', { ascending: false })
-          .range(offset, offset + batchSize - 1);
+          .range(offset, offset + batchSize - 1)
+          .abortSignal(controller.signal);
 
         if (batchError) throw batchError;
 
@@ -159,30 +179,30 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
       const dbTasks = allDbTasks;
 
-      // Fetch priorities
+      // Busca prioridades e indexa em Map (O(1) lookup) em vez de Array.find() (O(N) por task).
+      // Antes: 13k tasks × 13k priorities = ~170M comparações no JS (segundos travando a UI).
       const { data: priorities } = await supabase
         .from('task_priorities')
         .select('task_id, priority');
+      const priorityMap = new Map<string, string>();
+      (priorities || []).forEach((p: any) => priorityMap.set(String(p.task_id), p.priority));
 
-      const tasksData: Task[] = (dbTasks || []).map((t: any) => {
-        const priorityData = priorities?.find((p) => p.task_id === String(t.advbox_id));
-        return {
-          id: String(t.advbox_id),
-          title: t.title || 'Sem título',
-          description: t.description || '',
-          due_date: t.due_date,
-          status: t.status || 'pending',
-          assigned_to: t.assigned_users || '',
-          completed_at: t.completed_at,
-          priority: priorityData?.priority as 'alta' | 'media' | 'baixa' | undefined,
-        };
-      });
-      
+      const tasksData: Task[] = dbTasks.map((t: any) => ({
+        id: String(t.advbox_id),
+        title: t.title || 'Sem título',
+        description: '', // não usado no relatório; mantemos campo para compatibilidade do tipo
+        due_date: t.due_date,
+        status: t.status || 'pending',
+        assigned_to: t.assigned_users || '',
+        completed_at: t.completed_at,
+        priority: priorityMap.get(String(t.advbox_id)) as 'alta' | 'media' | 'baixa' | undefined,
+      }));
+
       setTasks(tasksData);
       setMetadata({ fromCache: false });
 
-      if (dbTasks && dbTasks.length > 0) {
-        const mostRecent = dbTasks.reduce((max: any, t: any) => 
+      if (dbTasks.length > 0) {
+        const mostRecent = dbTasks.reduce((max: any, t: any) =>
           !max || (t.synced_at && t.synced_at > max) ? t.synced_at : max, null);
         if (mostRecent) setLastUpdate(new Date(mostRecent));
       }
@@ -193,15 +213,21 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
           description: 'As tarefas foram recarregadas.',
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching tasks:', error);
+      const isTimeout = error?.message === 'TIMEOUT' || error?.name === 'AbortError';
+      const msg = isTimeout
+        ? 'A consulta demorou mais de 30 segundos. Tente novamente ou ajuste o período de análise.'
+        : 'Não foi possível carregar as tarefas. Verifique sua conexão e tente novamente.';
+      setLoadError(msg);
       setTasks([]);
       toast({
-        title: 'Erro ao carregar tarefas',
-        description: 'Não foi possível carregar as tarefas.',
+        title: isTimeout ? 'Tempo esgotado' : 'Erro ao carregar tarefas',
+        description: msg,
         variant: 'destructive',
       });
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
