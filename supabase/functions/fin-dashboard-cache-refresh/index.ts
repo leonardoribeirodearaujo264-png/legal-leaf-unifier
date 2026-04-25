@@ -93,32 +93,35 @@ async function calculateDashboardData(supabase: any, periodo: string) {
     .select('*')
     .eq('ativa', true);
 
-  // Fetch lançamentos do período
+  // Fetch lançamentos do período (inclui pendentes/atrasados para Realizado vs Previsto)
   const { data: lancamentos } = await supabase
     .from('fin_lancamentos')
     .select('*, categoria:fin_categorias(nome, cor)')
     .gte('data_vencimento', formatDate(dataInicio))
     .lte('data_vencimento', formatDate(dataFim))
-    .eq('status', 'pago')
+    .in('status', ['pago', 'pendente', 'atrasado'])
     .is('deleted_at', null);
 
   // Lançamentos mês atual
   const { data: lancMesAtual } = await supabase
     .from('fin_lancamentos')
-    .select('tipo, valor, descricao')
+    .select('tipo, valor, descricao, status')
     .gte('data_vencimento', formatDate(mesAtualInicio))
     .lte('data_vencimento', formatDate(mesAtualFim))
-    .eq('status', 'pago')
+    .in('status', ['pago', 'pendente', 'atrasado'])
     .is('deleted_at', null);
 
   // Lançamentos mês anterior
   const { data: lancMesAnterior } = await supabase
     .from('fin_lancamentos')
-    .select('tipo, valor, descricao')
+    .select('tipo, valor, descricao, status')
     .gte('data_vencimento', formatDate(mesAnteriorInicio))
     .lte('data_vencimento', formatDate(mesAnteriorFim))
-    .eq('status', 'pago')
+    .in('status', ['pago', 'pendente', 'atrasado'])
     .is('deleted_at', null);
+
+  // Total bruto antes do filtro de internos (para tooltip de exclusão)
+  const totalLancBruto = (lancamentos || []).length;
 
   // Despesas a reembolsar
   const { data: reembolsos } = await supabase
@@ -136,21 +139,32 @@ async function calculateDashboardData(supabase: any, periodo: string) {
   const lancamentosFiltered = filterOperacional(lancamentos);
   const lancMesAtualFiltered = filterOperacional(lancMesAtual);
   const lancMesAnteriorFiltered = filterOperacional(lancMesAnterior);
+  const lancamentosExcluidos = totalLancBruto - lancamentosFiltered.length;
 
-  const totalReceitas = lancamentosFiltered.filter((l: any) => l.tipo === 'receita')
+  const isPago = (l: any) => l.status === 'pago';
+  const isPrevisto = (l: any) => l.status === 'pendente' || l.status === 'atrasado';
+
+  // Realizado (apenas pagos) — usado nos cards "Receitas" / "Despesas"
+  const totalReceitas = lancamentosFiltered.filter((l: any) => l.tipo === 'receita' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
-  const totalDespesas = lancamentosFiltered.filter((l: any) => l.tipo === 'despesa')
+  const totalDespesas = lancamentosFiltered.filter((l: any) => l.tipo === 'despesa' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
+  // Previsto (pendentes + atrasados)
+  const receitaPrevista = lancamentosFiltered.filter((l: any) => l.tipo === 'receita' && isPrevisto(l))
+    .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
+  const despesaPrevista = lancamentosFiltered.filter((l: any) => l.tipo === 'despesa' && isPrevisto(l))
+    .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
+
   const lucro = totalReceitas - totalDespesas;
   const margemLucro = totalReceitas > 0 ? (lucro / totalReceitas) * 100 : 0;
 
-  const receitasMesAtual = lancMesAtualFiltered.filter((l: any) => l.tipo === 'receita')
+  const receitasMesAtual = lancMesAtualFiltered.filter((l: any) => l.tipo === 'receita' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
-  const despesasMesAtual = lancMesAtualFiltered.filter((l: any) => l.tipo === 'despesa')
+  const despesasMesAtual = lancMesAtualFiltered.filter((l: any) => l.tipo === 'despesa' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
-  const receitasMesAnterior = lancMesAnteriorFiltered.filter((l: any) => l.tipo === 'receita')
+  const receitasMesAnterior = lancMesAnteriorFiltered.filter((l: any) => l.tipo === 'receita' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
-  const despesasMesAnterior = lancMesAnteriorFiltered.filter((l: any) => l.tipo === 'despesa')
+  const despesasMesAnterior = lancMesAnteriorFiltered.filter((l: any) => l.tipo === 'despesa' && isPago(l))
     .reduce((acc: number, l: any) => acc + Number(l.valor), 0);
 
   const variacaoReceitas = receitasMesAnterior > 0
@@ -162,12 +176,13 @@ async function calculateDashboardData(supabase: any, periodo: string) {
   const variacaoLucro = lucroMesAnterior !== 0
     ? ((lucroMesAtual - lucroMesAnterior) / Math.abs(lucroMesAnterior)) * 100 : 0;
 
-  // Saldo por conta
+  // Saldo por conta — TODAS as contas ativas (bug #1)
   let contasSaldo = (contas || []).map((c: any) => {
     const isAsaas = c.nome?.toLowerCase().includes('asaas') || c.tipo === 'pagamentos';
     const saldoInicial = Number(c.saldo_inicial) || 0;
     const saldoConfigurado = isAsaas || saldoInicial !== 0;
     return {
+      id: c.id,
       nome: c.nome,
       saldo: Number(c.saldo_atual) || 0,
       cor: c.cor || '#3B82F6',
@@ -175,6 +190,9 @@ async function calculateDashboardData(supabase: any, periodo: string) {
       saldoConfigurado
     };
   });
+
+  // Lista para alerta de configuração
+  const contasSemSaldo = contasSaldo.filter((c: any) => !c.saldoConfigurado);
 
   const despesasReembolsar = (reembolsos || []).reduce((acc: number, r: any) => acc + Number(r.valor), 0);
 
@@ -287,9 +305,13 @@ async function calculateDashboardData(supabase: any, periodo: string) {
   return {
     totalReceitas,
     totalDespesas,
+    receitaPrevista,
+    despesaPrevista,
     lucro,
     margemLucro,
     contasSaldo,
+    contasSemSaldo,
+    lancamentosExcluidos,
     despesasReembolsar,
     receitasPorCategoria,
     despesasPorCategoria,
