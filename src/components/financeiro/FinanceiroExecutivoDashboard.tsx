@@ -416,43 +416,27 @@ export function FinanceiroExecutivoDashboard() {
     }
   };
 
-  // Load from cache on mount / period change
+  // Load directly from fin_lancamentos + fin_contas. Cache fin_dashboard_cache
+  // is bypassed (fonte stale = -R$35M bug).
   useEffect(() => {
-    loadFromCache();
+    fetchDataDirectly();
+    setLastUpdated(new Date().toISOString());
   }, [periodo]);
 
-  // Subscribe to Realtime updates on cache table
+  // Realtime: refetch when fin_contas changes (saldo recalc)
   useEffect(() => {
     const channel = supabase
-      .channel('fin-dashboard-cache-realtime')
+      .channel('fin-contas-realtime')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'fin_dashboard_cache',
-          filter: 'id=eq.singleton'
-        },
-        (payload: any) => {
-          console.log('Cache financeiro atualizado via Realtime');
-          const newData = payload.new;
-          if (newData?.dashboard_data) {
-            const allData = newData.dashboard_data as Record<string, any>;
-            const periodoData = allData[periodo];
-            if (periodoData) {
-              setData(periodoData as DashboardData);
-              setLastUpdated(newData.updated_at);
-              setLoading(false);
-              setRefreshing(false);
-            }
-          }
+        { event: '*', schema: 'public', table: 'fin_contas' },
+        () => {
+          fetchDataDirectly();
+          setLastUpdated(new Date().toISOString());
         }
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [periodo]);
 
   const formatCurrency = (value: number) => {
