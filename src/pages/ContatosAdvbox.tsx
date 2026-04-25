@@ -1129,6 +1129,10 @@ export default function ContatosAdvbox() {
                           placeholder="Preencher quando localizado"
                           className="h-8 text-sm mt-1"
                         />
+                        <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                          <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>O ChatGuru não disponibiliza um perfil "Setor Comercial". Sem ID válido, esta etapa é pulada — apenas o vendedor do rodízio e o Marcos são marcados como responsáveis.</span>
+                        </div>
                       </div>
                     </div>
                   </div>
