@@ -123,7 +123,8 @@ export function FinanceiroContasAdmin() {
         agencia: formAgencia.trim() || null,
         numero_conta: formNumeroConta.trim() || null,
         saldo_inicial: parseFloat(formSaldoInicial) || 0,
-        cor: formCor
+        cor: formCor,
+        advbox_account_id: formAdvboxId.trim() ? parseInt(formAdvboxId.trim(), 10) : null,
       };
 
       if (editingConta) {
