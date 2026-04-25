@@ -1030,6 +1030,7 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         } catch (error) {
+          console.error('[Resync Mov] error:', error instanceof Error ? error.message : String(error));
           if (cached) {
             const items = extractItems(cached.data);
             const totalCount = extractTotalCount(cached.data, items.length);
