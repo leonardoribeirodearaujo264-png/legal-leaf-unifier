@@ -4382,6 +4382,7 @@ export type Database = {
       fin_lancamentos: {
         Row: {
           a_reembolsar: boolean | null
+          advbox_account_id: number | null
           advbox_transaction_id: string | null
           anexo_url: string | null
           categoria_id: string | null
@@ -4427,6 +4428,7 @@ export type Database = {
         }
         Insert: {
           a_reembolsar?: boolean | null
+          advbox_account_id?: number | null
           advbox_transaction_id?: string | null
           anexo_url?: string | null
           categoria_id?: string | null
@@ -4472,6 +4474,7 @@ export type Database = {
         }
         Update: {
           a_reembolsar?: boolean | null
+          advbox_account_id?: number | null
           advbox_transaction_id?: string | null
           anexo_url?: string | null
           categoria_id?: string | null
@@ -10217,6 +10220,7 @@ export type Database = {
       }
     }
     Functions: {
+      fin_normalize_bank_name: { Args: { p_name: string }; Returns: string }
       get_adiantamentos_pendentes: {
         Args: { p_colaborador_id: string }
         Returns: {
