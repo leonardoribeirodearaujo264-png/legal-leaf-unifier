@@ -602,25 +602,9 @@ async function processTransactionsBatch(
       categoriaId = defaultCat?.id || null;
     }
 
-    // Find bank account - ONLY if ADVBox provides bank_account info
-    let contaOrigemId: string | null = null;
-    if (tx.bank_account && tx.bank_account.trim() !== '') {
-      // Try to match by name (case insensitive)
-      const bankAccountLower = tx.bank_account.toLowerCase().trim();
-      for (const [nome, id] of contasMap.entries()) {
-        if (nome.toLowerCase().includes(bankAccountLower) || bankAccountLower.includes(nome.toLowerCase())) {
-          contaOrigemId = id;
-          break;
-        }
-      }
-      if (!contaOrigemId) {
-        console.log(`Conta bancária do ADVBox não mapeada: "${tx.bank_account}"`);
-      }
-    }
-    // If ADVBox doesn't provide bank_account, contaOrigemId stays null
-
-    // Determine status based on date_payment (if has payment date, it's paid)
-    const isPaid = !!(tx.date_payment && tx.date_payment.trim() !== '');
+    // ============ RESOLVER CONTA via advbox_account_id (com fallback + auto-create) ============
+    const { bankId, bankName } = extractBankInfo(tx);
+    const contaOrigemId = await resolveContaId(supabase, contasInfo, bankId, bankName, systemUserId);
 
     // Campo description do ADVBox tem a descrição real do lançamento
     // Campo name do ADVBox tem o nome do cliente/pessoa
@@ -633,17 +617,18 @@ async function processTransactionsBatch(
     const lancamentoData = {
       tipo: tipoFinal,
       categoria_id: categoriaId,
-      conta_origem_id: contaOrigemId, // Can be null if ADVBox doesn't provide bank_account
-      valor: Math.abs(amount),
+      conta_origem_id: contaOrigemId,
+      advbox_account_id: bankId,
+      valor: newAmount,
       descricao: descricaoReal,
       data_lancamento: tx.date_due?.split('T')[0] || new Date().toISOString().split('T')[0],
       data_vencimento: tx.date_due?.split('T')[0] || null,
-      data_pagamento: tx.date_payment?.split('T')[0] || null,
-      status: isPaid ? 'pago' : 'pendente',
+      data_pagamento: newPaymentDate,
+      status: newStatus,
       origem: 'advbox',
       observacoes: [
         tx.lawsuit_title ? `Processo: ${tx.lawsuit_title}` : null,
-        tx.bank_account ? `Conta ADVBox: ${tx.bank_account}` : null,
+        bankName ? `Conta ADVBox: ${bankName}${bankId ? ` (id=${bankId})` : ''}` : null,
         tx.notes ? `Notas: ${tx.notes}` : null,
         tx.category ? `Categoria ADVBox: ${tx.category}` : null,
         tx.identification ? `Identificação: ${tx.identification}` : null,
@@ -652,7 +637,7 @@ async function processTransactionsBatch(
       ].filter(Boolean).join('\n'),
       advbox_transaction_id: advboxId,
       created_by: systemUserId,
-      cliente_nome: nomeCliente, // Armazenar nome do cliente em campo separado
+      cliente_nome: nomeCliente,
     };
 
     const { data: insertedData, error: insertError } = await supabase
