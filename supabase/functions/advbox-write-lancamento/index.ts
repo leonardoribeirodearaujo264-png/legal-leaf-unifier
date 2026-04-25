@@ -104,6 +104,17 @@ Deno.serve(async (req: Request) => {
         return json({ error: 'Conta Asaas nao encontrada para teste' }, 404);
       }
 
+      // Fallback: se não veio user na auth, buscar Rafael (criador) para satisfazer NOT NULL
+      let createdByForTest = triggeredBy;
+      if (!createdByForTest) {
+        const { data: rafael } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', 'rafael@eggnunes.com.br')
+          .maybeSingle();
+        createdByForTest = rafael?.id ?? null;
+      }
+
       const today = new Date().toISOString().slice(0, 10);
       const { data: testLanc, error: insertErr } = await supabase
         .from('fin_lancamentos')
@@ -116,7 +127,7 @@ Deno.serve(async (req: Request) => {
           status: 'pago',
           conta_origem_id: contaAsaas.id,
           observacoes: 'Lancamento de teste do writeback bidirecional',
-          created_by: triggeredBy,
+          created_by: createdByForTest,
         })
         .select('id')
         .single();
