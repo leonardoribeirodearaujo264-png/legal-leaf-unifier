@@ -508,6 +508,25 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
       }));
   }, [filteredTasks]);
 
+  // Estado de erro tem prioridade sobre loading: assim, se a query falhar/timeoutar
+  // o usuário vê uma UI acionável em vez do "Carregando relatório..." girando para sempre.
+  if (loadError && !loading) {
+    const errorContent = (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 px-4 text-center">
+        <AlertCircle className="h-12 w-12 text-destructive" />
+        <div>
+          <h2 className="text-lg font-semibold">Não foi possível carregar o relatório</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">{loadError}</p>
+        </div>
+        <Button onClick={() => fetchTasks(false)} variant="default">
+          Tentar novamente
+        </Button>
+      </div>
+    );
+    if (embedded) return errorContent;
+    return <Layout>{errorContent}</Layout>;
+  }
+
   if (loading) {
     const loadingContent = (
       <div className="flex items-center justify-center min-h-[400px]">
