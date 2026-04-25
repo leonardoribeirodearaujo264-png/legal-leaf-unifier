@@ -24,7 +24,7 @@ import { TaskCreationForm } from '@/components/TaskCreationForm';
 import { useTaskNotifications } from '@/hooks/useTaskNotifications';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { format, isToday, isThisWeek, isThisMonth, isBefore, startOfDay } from 'date-fns';
+import { format, isToday, isThisWeek, isThisMonth, isBefore, isAfter, isEqual, startOfDay, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { AdvboxCacheAlert } from '@/components/AdvboxCacheAlert';
 import { AdvboxDataStatus } from '@/components/AdvboxDataStatus';
@@ -34,6 +34,9 @@ import { TaskAttachments } from '@/components/TaskAttachments';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TaskStatusHistory } from '@/components/TaskStatusHistory';
 import RelatoriosProdutividadeTarefas from './RelatoriosProdutividadeTarefas';
+import { isOverdueTask, normalizeStatus, STATUS_DESCRIPTIONS, STATUS_LABELS } from '@/lib/taskStatus';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Info } from 'lucide-react';
 
 interface Task {
   id: string;
@@ -80,6 +83,10 @@ export default function TarefasAdvbox() {
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [dueDateFilter, setDueDateFilter] = useState<string>('all');
+  // Filtros de data extras (bug #3) — 'specific' usa specificDate; 'range' usa rangeStartDate + rangeEndDate
+  const [specificDate, setSpecificDate] = useState<string>('');
+  const [rangeStartDate, setRangeStartDate] = useState<string>('');
+  const [rangeEndDate, setRangeEndDate] = useState<string>('');
   const [priorityDialogOpen, setPriorityDialogOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -137,37 +144,65 @@ export default function TarefasAdvbox() {
       }
 
       // Hide stale tasks by default unless explicitly filtered
-      if (statusFilter !== 'stale' && task.status === 'stale') return false;
+      // Usa normalizeStatus pra capturar variações ("stale" / "obsoleta" / "deleted").
+      const normalized = normalizeStatus(task.status);
+      if (statusFilter !== 'stale' && normalized === 'stale') return false;
 
-      if (statusFilter !== 'all' && task.status !== statusFilter) return false;
+      if (statusFilter !== 'all') {
+        // Comparação canônica — não compara strings cruas
+        if (normalized !== statusFilter) return false;
+      }
       if (assignedFilter !== 'all') {
         const names = (task.assigned_to || '').split(',').map((n: string) => n.trim());
         if (!names.includes(assignedFilter)) return false;
       }
       if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
-      
-      if (dueDateFilter !== 'all' && task.due_date) {
-        const dueDate = new Date(task.due_date);
-        const today = startOfDay(new Date());
-        
-        switch (dueDateFilter) {
-          case 'overdue':
-            if (!isBefore(dueDate, today)) return false;
-            break;
-          case 'today':
-            if (!isToday(dueDate)) return false;
-            break;
-          case 'week':
-            if (!isThisWeek(dueDate, { weekStartsOn: 0 })) return false;
-            break;
-          case 'month':
-            if (!isThisMonth(dueDate)) return false;
-            break;
+
+      // BUG #4 FIX: filtro 'overdue' agora usa isOverdueTask, que checa
+      // status (não pega concluída/obsoleta) ALÉM da data.
+      // BUG #3: novos filtros 'specific' (dia exato) e 'range' (período).
+      if (dueDateFilter !== 'all') {
+        if (dueDateFilter === 'overdue') {
+          if (!isOverdueTask(task)) return false;
+        } else {
+          // Demais filtros precisam de due_date
+          if (!task.due_date) return false;
+          const dueDate = new Date(task.due_date);
+
+          switch (dueDateFilter) {
+            case 'today':
+              if (!isToday(dueDate)) return false;
+              break;
+            case 'week':
+              if (!isThisWeek(dueDate, { weekStartsOn: 0 })) return false;
+              break;
+            case 'month':
+              if (!isThisMonth(dueDate)) return false;
+              break;
+            case 'specific': {
+              if (!specificDate) return false;
+              const target = parseISO(specificDate);
+              const dueDay = startOfDay(dueDate);
+              if (!isEqual(dueDay, startOfDay(target))) return false;
+              break;
+            }
+            case 'range': {
+              if (!rangeStartDate && !rangeEndDate) return false;
+              const dueDay = startOfDay(dueDate);
+              if (rangeStartDate) {
+                const start = startOfDay(parseISO(rangeStartDate));
+                if (isBefore(dueDay, start)) return false;
+              }
+              if (rangeEndDate) {
+                const end = startOfDay(parseISO(rangeEndDate));
+                if (isAfter(dueDay, end)) return false;
+              }
+              break;
+            }
+          }
         }
-      } else if (dueDateFilter !== 'all' && !task.due_date) {
-        return false;
       }
-      
+
       return true;
     });
 
@@ -179,7 +214,7 @@ export default function TarefasAdvbox() {
     });
 
     return filtered;
-  }, [visibleTasks, statusFilter, assignedFilter, priorityFilter, dueDateFilter, showDeletionAlerts]);
+  }, [visibleTasks, statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
 
   // Pagination
   const totalPages = Math.ceil(filteredTasks.length / ITEMS_PER_PAGE);
@@ -191,7 +226,7 @@ export default function TarefasAdvbox() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, showDeletionAlerts]);
+  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
 
   // TODAS AS FUNÇÕES DEVEM SER DEFINIDAS ANTES DOS RETURNS CONDICIONAIS
   const fetchUsers = async () => {
@@ -579,18 +614,16 @@ export default function TarefasAdvbox() {
     setDetailsOpen(true);
   };
 
+  // BUG #2/#7 FIX: ícone e variante derivam da chave canônica via
+  // normalizeStatus, então não importa se o ADVBOX devolve "completed",
+  // "concluída" ou "Concluído" — todos viram a mesma chave.
   const getStatusIcon = (status?: string) => {
-    const normalized = status?.toLowerCase() ?? '';
-    switch (normalized) {
+    switch (normalizeStatus(status)) {
       case 'completed':
-      case 'concluída':
         return <CheckCircle2 className="h-4 w-4" />;
       case 'pending':
-      case 'pendente':
         return <Clock className="h-4 w-4" />;
       case 'in_progress':
-      case 'em andamento':
-        return <AlertCircle className="h-4 w-4" />;
       case 'stale':
         return <AlertCircle className="h-4 w-4" />;
       default:
@@ -599,13 +632,10 @@ export default function TarefasAdvbox() {
   };
 
   const getStatusVariant = (status?: string): "default" | "secondary" | "destructive" => {
-    const normalized = status?.toLowerCase() ?? '';
-    switch (normalized) {
+    switch (normalizeStatus(status)) {
       case 'completed':
-      case 'concluída':
         return 'default';
       case 'in_progress':
-      case 'em andamento':
         return 'secondary';
       default:
         return 'secondary';
@@ -833,7 +863,25 @@ export default function TarefasAdvbox() {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
-                    <Label htmlFor="status-filter">Status</Label>
+                    {/* BUG #2 FIX: tooltip explica o que é cada status */}
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor="status-filter">Status</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <ul className="text-xs space-y-1">
+                              <li><strong>Pendente:</strong> {STATUS_DESCRIPTIONS.pending}</li>
+                              <li><strong>Em Andamento:</strong> {STATUS_DESCRIPTIONS.in_progress}</li>
+                              <li><strong>Concluída:</strong> {STATUS_DESCRIPTIONS.completed}</li>
+                              <li><strong>Obsoleta:</strong> {STATUS_DESCRIPTIONS.stale}</li>
+                            </ul>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                       <SelectTrigger id="status-filter">
                         <SelectValue placeholder="Filtrar por status" />
@@ -864,7 +912,21 @@ export default function TarefasAdvbox() {
                   </div>
 
                   <div>
-                    <Label htmlFor="due-date-filter">Vencimento</Label>
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor="due-date-filter">Vencimento</Label>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="text-xs">
+                              <strong>Atrasadas</strong> mostra apenas tarefas pendentes ou em andamento com vencimento anterior a hoje. Tarefas concluídas ou obsoletas nunca aparecem aqui, mesmo se a data estiver no passado.
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
                     <Select value={dueDateFilter} onValueChange={setDueDateFilter}>
                       <SelectTrigger id="due-date-filter">
                         <SelectValue placeholder="Filtrar por vencimento" />
@@ -875,8 +937,38 @@ export default function TarefasAdvbox() {
                         <SelectItem value="today">Vence Hoje</SelectItem>
                         <SelectItem value="week">Esta Semana</SelectItem>
                         <SelectItem value="month">Este Mês</SelectItem>
+                        <SelectItem value="specific">Dia específico…</SelectItem>
+                        <SelectItem value="range">Intervalo personalizado…</SelectItem>
                       </SelectContent>
                     </Select>
+                    {/* BUG #3 FIX: pickers extras quando o usuário escolhe 'specific' ou 'range' */}
+                    {dueDateFilter === 'specific' && (
+                      <Input
+                        type="date"
+                        className="mt-2"
+                        value={specificDate}
+                        onChange={(e) => setSpecificDate(e.target.value)}
+                        aria-label="Data específica"
+                      />
+                    )}
+                    {dueDateFilter === 'range' && (
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <Input
+                          type="date"
+                          value={rangeStartDate}
+                          onChange={(e) => setRangeStartDate(e.target.value)}
+                          aria-label="Data inicial do intervalo"
+                          placeholder="De"
+                        />
+                        <Input
+                          type="date"
+                          value={rangeEndDate}
+                          onChange={(e) => setRangeEndDate(e.target.value)}
+                          aria-label="Data final do intervalo"
+                          placeholder="Até"
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {isAdmin && (
@@ -963,7 +1055,7 @@ export default function TarefasAdvbox() {
                               className="flex items-center gap-1"
                             >
                               {getStatusIcon(task.status)}
-                              {task.status}
+                              {STATUS_LABELS[normalizeStatus(task.status)]}
                             </Badge>
                             {isAdmin && (
                               <Button

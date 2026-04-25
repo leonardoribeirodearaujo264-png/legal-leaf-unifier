@@ -19,6 +19,15 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { TaskCreationForm } from '@/components/TaskCreationForm';
+import {
+  isCompletedTask,
+  isPendingTask,
+  isInProgressTask,
+  isStaleTask,
+  isOverdueTask,
+  STATUS_COLORS,
+  STATUS_LABELS,
+} from '@/lib/taskStatus';
 
 interface Task {
   id: string;
@@ -225,11 +234,13 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   }, [visibleTasks]);
 
   // Filtrar tarefas por período, responsável, prioridade e status
+  // BUG #7 FIX: usa helpers canônicos do taskStatus.ts em vez de comparar
+  // strings cruas em cada lugar. Isso garante que a base de cálculo da lista
+  // bata com a base dos gráficos.
   const filteredTasks = useMemo(() => {
     return visibleTasks.filter((task) => {
       // Ignorar tarefas descontinuadas/excluídas
-      const status = task.status?.toLowerCase();
-      if (status === 'stale' || status === 'deleted') return false;
+      if (isStaleTask(task)) return false;
 
       // Ignorar tarefas cujos responsáveis são todos inativos
       if (activeNames.size > 0 && task.assigned_to) {
@@ -249,18 +260,11 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
         return false;
       }
 
-      // Filtro por status
+      // Filtro por status — comparação canônica
       if (selectedStatus !== 'all') {
-        const taskStatus = task.status?.toLowerCase();
-        if (selectedStatus === 'completed' && taskStatus !== 'completed' && taskStatus !== 'concluída') {
-          return false;
-        }
-        if (selectedStatus === 'pending' && taskStatus !== 'pending' && taskStatus !== 'pendente') {
-          return false;
-        }
-        if (selectedStatus === 'in_progress' && taskStatus !== 'in_progress' && taskStatus !== 'em andamento') {
-          return false;
-        }
+        if (selectedStatus === 'completed' && !isCompletedTask(task)) return false;
+        if (selectedStatus === 'pending' && !isPendingTask(task)) return false;
+        if (selectedStatus === 'in_progress' && !isInProgressTask(task)) return false;
       }
 
       // Filtro por período (usando due_date como referência)
@@ -269,7 +273,7 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
           const taskDate = parseISO(task.due_date);
           const start = parseISO(startDate);
           const end = parseISO(endDate);
-          
+
           if (!isWithinInterval(taskDate, { start, end })) {
             return false;
           }
@@ -283,13 +287,14 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   }, [visibleTasks, startDate, endDate, selectedUser, selectedPriority, selectedStatus, isAdmin, activeNames]);
 
   // Tarefas do período de comparação
+  // BUG #7 FIX: usa helpers canônicos de taskStatus.ts para casar a base de
+  // cálculo da comparação com a base do período principal.
   const comparisonTasks = useMemo(() => {
     if (!showComparison || !compareStartDate || !compareEndDate) return [];
 
     return visibleTasks.filter((task) => {
       // Ignorar tarefas descontinuadas/excluídas
-      const status = task.status?.toLowerCase();
-      if (status === 'stale' || status === 'deleted') return false;
+      if (isStaleTask(task)) return false;
 
       // Ignorar tarefas cujos responsáveis são todos inativos
       if (activeNames.size > 0 && task.assigned_to) {
@@ -309,18 +314,11 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
         return false;
       }
 
-      // Filtro por status
+      // Filtro por status — comparação canônica
       if (selectedStatus !== 'all') {
-        const taskStatus = task.status?.toLowerCase();
-        if (selectedStatus === 'completed' && taskStatus !== 'completed' && taskStatus !== 'concluída') {
-          return false;
-        }
-        if (selectedStatus === 'pending' && taskStatus !== 'pending' && taskStatus !== 'pendente') {
-          return false;
-        }
-        if (selectedStatus === 'in_progress' && taskStatus !== 'in_progress' && taskStatus !== 'em andamento') {
-          return false;
-        }
+        if (selectedStatus === 'completed' && !isCompletedTask(task)) return false;
+        if (selectedStatus === 'pending' && !isPendingTask(task)) return false;
+        if (selectedStatus === 'in_progress' && !isInProgressTask(task)) return false;
       }
 
       // Filtro por período de comparação
@@ -329,7 +327,7 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
           const taskDate = parseISO(task.due_date);
           const start = parseISO(compareStartDate);
           const end = parseISO(compareEndDate);
-          
+
           if (!isWithinInterval(taskDate, { start, end })) {
             return false;
           }
@@ -343,17 +341,13 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   }, [visibleTasks, compareStartDate, compareEndDate, selectedUser, selectedPriority, selectedStatus, isAdmin, showComparison, activeNames]);
 
   // Calcular KPIs do período principal
+  // BUG #7 FIX: KPIs e gráficos compartilham a mesma definição de status via
+  // helpers, evitando que "Mariana 9/93/97" no card divirja do gráfico.
   const kpis = useMemo(() => {
     const total = filteredTasks.length;
-    const completed = filteredTasks.filter(
-      (t) => t.status?.toLowerCase() === 'completed' || t.status?.toLowerCase() === 'concluída'
-    ).length;
-    const pending = filteredTasks.filter(
-      (t) => t.status?.toLowerCase() === 'pending' || t.status?.toLowerCase() === 'pendente'
-    ).length;
-    const inProgress = filteredTasks.filter(
-      (t) => t.status?.toLowerCase() === 'in_progress' || t.status?.toLowerCase() === 'em andamento'
-    ).length;
+    const completed = filteredTasks.filter((t) => isCompletedTask(t)).length;
+    const pending = filteredTasks.filter((t) => isPendingTask(t)).length;
+    const inProgress = filteredTasks.filter((t) => isInProgressTask(t)).length;
     const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : '0';
 
     return { total, completed, pending, inProgress, completionRate };
@@ -364,23 +358,25 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
     if (!showComparison || comparisonTasks.length === 0) return null;
 
     const total = comparisonTasks.length;
-    const completed = comparisonTasks.filter(
-      (t) => t.status?.toLowerCase() === 'completed' || t.status?.toLowerCase() === 'concluída'
-    ).length;
-    const pending = comparisonTasks.filter(
-      (t) => t.status?.toLowerCase() === 'pending' || t.status?.toLowerCase() === 'pendente'
-    ).length;
-    const inProgress = comparisonTasks.filter(
-      (t) => t.status?.toLowerCase() === 'in_progress' || t.status?.toLowerCase() === 'em andamento'
-    ).length;
+    const completed = comparisonTasks.filter((t) => isCompletedTask(t)).length;
+    const pending = comparisonTasks.filter((t) => isPendingTask(t)).length;
+    const inProgress = comparisonTasks.filter((t) => isInProgressTask(t)).length;
     const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : '0';
 
     return { total, completed, pending, inProgress, completionRate };
   }, [comparisonTasks, showComparison]);
 
   // Dados para gráfico de barras - Tarefas por responsável (split comma-separated)
+  // BUG #6 FIX: agora rastreia 3 categorias (concluídas, em andamento, pendentes)
+  // pra casar com os KPIs. Antes só tinha 2, gerando "categoria fantasma" no
+  // gráfico que não fechava com o card.
+  // BUG #7 FIX: usa isCompletedTask/isInProgressTask/isPendingTask em vez de
+  // comparar string de status, garantindo que a soma das categorias seja o total.
   const tasksByUser = useMemo(() => {
-    const userMap = new Map<string, { name: string; total: number; concluídas: number; pendentes: number }>();
+    const userMap = new Map<
+      string,
+      { name: string; total: number; concluídas: number; emAndamento: number; pendentes: number }
+    >();
 
     filteredTasks.forEach((task) => {
       const rawUser = task.assigned_to || 'Não atribuído';
@@ -392,21 +388,25 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
         ? allUsers.filter((u: string) => activeNames.has(u.toUpperCase()))
         : allUsers;
 
-      const status = task.status?.toLowerCase();
-      const isCompleted = status === 'completed' || status === 'concluída';
-      const isPending = status === 'pending' || status === 'pendente';
-
       users.forEach((user: string) => {
         if (!userMap.has(user)) {
-          userMap.set(user, { name: user, total: 0, concluídas: 0, pendentes: 0 });
+          userMap.set(user, {
+            name: user,
+            total: 0,
+            concluídas: 0,
+            emAndamento: 0,
+            pendentes: 0,
+          });
         }
 
         const userData = userMap.get(user)!;
         userData.total++;
 
-        if (isCompleted) {
+        if (isCompletedTask(task)) {
           userData.concluídas++;
-        } else if (isPending) {
+        } else if (isInProgressTask(task)) {
+          userData.emAndamento++;
+        } else if (isPendingTask(task)) {
           userData.pendentes++;
         }
       });
@@ -416,15 +416,26 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   }, [filteredTasks, activeNames]);
 
   // Dados para gráfico de pizza - Status
+  // BUG #6/#7 FIX: usa as mesmas 3 categorias canônicas (Concluída / Em
+  // Andamento / Pendente) que o BarChart e os KPIs. Antes podia mostrar
+  // "completed" e "concluída" como fatias separadas só por causa de string
+  // vinda do ADVBOX em PT/EN.
   const statusData = useMemo(() => {
-    const statusMap = new Map<string, number>();
+    let completed = 0;
+    let inProgress = 0;
+    let pending = 0;
 
     filteredTasks.forEach((task) => {
-      const status = task.status || 'Indefinido';
-      statusMap.set(status, (statusMap.get(status) || 0) + 1);
+      if (isCompletedTask(task)) completed++;
+      else if (isInProgressTask(task)) inProgress++;
+      else if (isPendingTask(task)) pending++;
     });
 
-    return Array.from(statusMap.entries()).map(([name, value]) => ({ name, value }));
+    return [
+      { name: STATUS_LABELS.completed, value: completed, fill: STATUS_COLORS.completed },
+      { name: STATUS_LABELS.in_progress, value: inProgress, fill: STATUS_COLORS.in_progress },
+      { name: STATUS_LABELS.pending, value: pending, fill: STATUS_COLORS.pending },
+    ].filter((slice) => slice.value > 0);
   }, [filteredTasks]);
 
   // Dados para gráfico de pizza - Prioridades
@@ -443,9 +454,12 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   }, [filteredTasks]);
 
   // Tarefas mais antigas pendentes
+  // BUG #7 FIX: usa isPendingTask para casar exatamente com a categoria
+  // "Pendente" do gráfico/KPI; evita pegar "em andamento" ou tarefas com
+  // completed_at preenchido que ainda não atualizou o status.
   const oldestPendingTasks = useMemo(() => {
     return filteredTasks
-      .filter((t) => t.status?.toLowerCase() === 'pending' || t.status?.toLowerCase() === 'pendente')
+      .filter((t) => isPendingTask(t))
       .filter((t) => t.due_date)
       .sort((a, b) => {
         const dateA = parseISO(a.due_date);
@@ -809,28 +823,58 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
         {/* Gráficos */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Gráfico de Barras - Tarefas por Responsável */}
+          {/*
+            BUG #5 FIX: layout horizontal (vertical no Recharts) — todos os
+            nomes ficam visíveis sem corte. Antes os rótulos -45° cortavam
+            Mariana, Carolina, Nagila, Cariston, Gabriel, Guilherme, Lucas.
+            BUG #6 FIX: três barras (Concluída / Em Andamento / Pendente),
+            mesmas categorias e cores dos KPIs (STATUS_COLORS).
+          */}
           <Card>
             <CardHeader>
               <CardTitle>Tarefas por Responsável</CardTitle>
-              <CardDescription>Distribuição de tarefas concluídas e pendentes</CardDescription>
+              <CardDescription>
+                Distribuição de tarefas {STATUS_LABELS.completed.toLowerCase()},
+                {' '}{STATUS_LABELS.in_progress.toLowerCase()} e
+                {' '}{STATUS_LABELS.pending.toLowerCase()}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={400}>
-                <BarChart data={tasksByUser} margin={{ bottom: 20 }}>
+              <ResponsiveContainer
+                width="100%"
+                height={Math.max(400, tasksByUser.length * 36 + 80)}
+              >
+                <BarChart
+                  data={tasksByUser}
+                  layout="vertical"
+                  margin={{ top: 10, right: 24, left: 24, bottom: 20 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end" 
-                    height={140} 
+                  <XAxis type="number" allowDecimals={false} />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={160}
                     interval={0}
-                    tick={{ fontSize: 10 }}
+                    tick={{ fontSize: 12 }}
                   />
-                  <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="concluídas" fill="#10b981" />
-                  <Bar dataKey="pendentes" fill="#eab308" />
+                  <Bar
+                    dataKey="concluídas"
+                    name={STATUS_LABELS.completed}
+                    fill={STATUS_COLORS.completed}
+                  />
+                  <Bar
+                    dataKey="emAndamento"
+                    name={STATUS_LABELS.in_progress}
+                    fill={STATUS_COLORS.in_progress}
+                  />
+                  <Bar
+                    dataKey="pendentes"
+                    name={STATUS_LABELS.pending}
+                    fill={STATUS_COLORS.pending}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -856,7 +900,10 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
                     dataKey="value"
                   >
                     {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.fill || COLORS[index % COLORS.length]}
+                      />
                     ))}
                   </Pie>
                   <Tooltip />
