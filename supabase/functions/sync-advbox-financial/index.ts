@@ -347,12 +347,74 @@ async function fetchTransactionsBatch(
   };
 }
 
+async function resolveContaId(
+  supabase: SupabaseClient,
+  contasInfo: ContaInfo[],
+  bankId: number | null,
+  bankName: string | null,
+  systemUserId: string,
+): Promise<string | null> {
+  // 1. Match exato por advbox_account_id
+  if (bankId) {
+    const found = contasInfo.find(c => c.advbox_account_id === bankId);
+    if (found) return found.id;
+  }
+
+  // 2. Fallback: nome normalizado
+  let normalizedName: string | null = null;
+  if (bankName && bankName.trim()) {
+    const { data: normData } = await supabase.rpc('fin_normalize_bank_name', { p_name: bankName });
+    normalizedName = (normData as string | null) || null;
+    if (normalizedName) {
+      for (const c of contasInfo) {
+        const { data: cn } = await supabase.rpc('fin_normalize_bank_name', { p_name: c.nome });
+        if (cn === normalizedName) {
+          // Se achou por nome e tem bankId, atualizar advbox_account_id
+          if (bankId && c.advbox_account_id !== bankId) {
+            await supabase.from('fin_contas').update({ advbox_account_id: bankId } as never).eq('id', c.id);
+            c.advbox_account_id = bankId;
+          }
+          return c.id;
+        }
+      }
+    }
+  }
+
+  // 3. Auto-criar conta se temos pelo menos um identificador
+  if (bankId || (bankName && bankName.trim())) {
+    const newName = (bankName?.trim()) || `ADVBox #${bankId}`;
+    const { data: newConta, error: createErr } = await supabase
+      .from('fin_contas')
+      .insert({
+        nome: newName,
+        tipo: 'conta_corrente',
+        advbox_account_id: bankId,
+        saldo_inicial: 0,
+        saldo_atual: 0,
+        ativa: true,
+        created_by: systemUserId,
+      } as never)
+      .select('id, nome, advbox_account_id')
+      .single();
+
+    if (!createErr && newConta) {
+      const created = newConta as { id: string; nome: string; advbox_account_id: number | null };
+      contasInfo.push({ id: created.id, nome: created.nome, advbox_account_id: created.advbox_account_id });
+      console.log(`[auto-create] Conta criada: ${created.nome} (advbox_id=${bankId})`);
+      return created.id;
+    } else {
+      console.error('[auto-create] Erro ao criar conta:', createErr?.message);
+    }
+  }
+
+  return null;
+}
+
 async function processTransactionsBatch(
   supabase: SupabaseClient,
   transactions: AdvboxTransaction[],
-  categoriaMap: Map<string, { id: string; tipo: string }>,
   categorias: Categoria[] | null,
-  contasMap: Map<string, string>,
+  contasInfo: ContaInfo[],
   systemUserId: string
 ): Promise<{ created: number; updated: number; skipped: number }> {
   let created = 0;
@@ -394,10 +456,8 @@ async function processTransactionsBatch(
       continue;
     }
 
-    // NOVO: Ignorar transferências entre contas (não afetam resultado financeiro)
+    // Ignorar transferências entre contas
     if (isInternalTransfer(tx.category || '')) {
-      console.log(`Ignorando transferência interna: ${tx.category} - ${tx.description}`);
-      // Ainda salvar na tabela de sync para auditoria, mas não criar lançamento
       if (!existingSyncSet.has(advboxId)) {
         await supabase.from('advbox_financial_sync').upsert({
           advbox_transaction_id: advboxId,
@@ -410,15 +470,20 @@ async function processTransactionsBatch(
       continue;
     }
 
+    // ============ STATUS UNIFICADO ============
+    // status='pago' se: tem date_payment OU paid===true OU status='paid'/'pago'
+    const advStatus = String(tx.status || '').toLowerCase();
+    const isPaid = !!(tx.date_payment && tx.date_payment.trim() !== '')
+      || tx.paid === true
+      || advStatus === 'paid'
+      || advStatus === 'pago';
+    const newStatus = isPaid ? 'pago' : 'pendente';
+    const newPaymentDate = tx.date_payment?.split('T')[0] || null;
+    const newAmount = Math.abs(Number(tx.amount) || 0);
+
     // Check if already exists in fin_lancamentos
     const existing = existingMap.get(advboxId);
     if (existing) {
-      // CORREÇÃO: Comparar e atualizar campos se houve mudança no ADVBox
-      const newPaymentDate = tx.date_payment?.split('T')[0] || null;
-      const isPaidNow = !!(tx.date_payment && tx.date_payment.trim() !== '');
-      const newStatus = isPaidNow ? 'pago' : 'pendente';
-      const newAmount = Math.abs(Number(tx.amount) || 0);
-
       // Buscar dados atuais do registro local para comparar
       const { data: currentRecord } = await supabase
         .from('fin_lancamentos')
@@ -447,7 +512,6 @@ async function processTransactionsBatch(
           console.error(`Update error for ${advboxId}:`, updateError.message);
           skipped++;
         } else {
-          console.log(`Updated ${advboxId}: status=${newStatus}, pagamento=${newPaymentDate}, valor=${newAmount}`);
           updated++;
         }
       } else {
