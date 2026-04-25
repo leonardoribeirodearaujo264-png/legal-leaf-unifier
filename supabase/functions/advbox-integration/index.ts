@@ -923,6 +923,7 @@ Deno.serve(async (req) => {
         }
         
         try {
+          console.log('[Resync Mov] start', { dateStart, dateEnd, forceRefresh });
           // Build endpoint with optional date filters (API v1.2.0)
           let movEndpoint = '/last_movements?limit=100&offset=0';
           if (dateStart) movEndpoint += `&date_start=${dateStart}`;
@@ -932,9 +933,32 @@ Deno.serve(async (req) => {
           const firstItems = firstPage.data || [];
           const totalCount = firstPage.totalCount || firstItems.length;
           
-          console.log(`movements-full: totalCount=${totalCount}, first page=${firstItems.length}`);
+          console.log(`[Resync Mov] totalCount=${totalCount}, first page=${firstItems.length}`);
           
           let allItems = [...firstItems];
+
+          // Helper para mapear/persistir progressivamente no DB cache
+          // (evita perder o trabalho se a função for derrubada por timeout)
+          const persistProgress = async (label: string) => {
+            try {
+              const mapped = allItems.map((m: any) => ({
+                lawsuit_id: m.lawsuit_id, date: m.date, title: m.title,
+                header: m.header, process_number: m.process_number,
+                protocol_number: m.protocol_number, customers: m.customers,
+              }));
+              await saveDashboardCacheToDb({
+                total_movements: allItems.length,
+                movements_data: mapped,
+              });
+              console.log(`[Resync Mov] DB Cache updated: movements=${allItems.length} (${label})`);
+            } catch (e) {
+              console.warn(`[Resync Mov] DB Cache update failed (${label}):`, e);
+            }
+          };
+
+          // Persiste imediatamente após a primeira página — assim /processos
+          // já vê pelo menos os primeiros 100 enquanto o resto carrega.
+          await persistProgress('first-page');
           
           if (firstItems.length >= 100 && allItems.length < totalCount) {
             // Calcular todas as páginas restantes
@@ -943,8 +967,9 @@ Deno.serve(async (req) => {
               remainingPages.push(offset);
             }
             
-            // Buscar em lotes paralelos de 5
-            const BATCH_SIZE = 3; // Reduced from 5 to comply with 30 GETs/min limit
+            // Buscar em lotes paralelos de 3 (respeita 30 GETs/min)
+            const BATCH_SIZE = 3;
+            let batchesSincePersist = 0;
             for (let i = 0; i < remainingPages.length; i += BATCH_SIZE) {
               const batch = remainingPages.slice(i, i + BATCH_SIZE);
               
@@ -955,7 +980,7 @@ Deno.serve(async (req) => {
                 return makeAdvboxRequest({ endpoint: batchEndpoint })
                   .then(res => res.data || [])
                   .catch(err => {
-                    console.warn(`Failed to fetch movements offset=${offset}:`, err.message);
+                    console.warn(`[Resync Mov] Failed offset=${offset}:`, err.message);
                     return [];
                   });
               });
@@ -965,31 +990,31 @@ Deno.serve(async (req) => {
                 allItems = allItems.concat(items);
               }
               
-              console.log(`movements-full: loaded ${allItems.length}/${totalCount} (batch ${Math.floor(i/BATCH_SIZE)+1})`);
+              const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+              console.log(`[Resync Mov] fetched batch ${batchNum} totaling ${allItems.length}/${totalCount} movements`);
               
-              // Small delay between batches to avoid rate limiting
+              // Persistir a cada 5 batches (~1500 movs) para não perder o progresso
+              batchesSincePersist++;
+              if (batchesSincePersist >= 5) {
+                await persistProgress(`batch-${batchNum}`);
+                batchesSincePersist = 0;
+              }
+              
               if (i + BATCH_SIZE < remainingPages.length) {
                 await sleep(1000);
               }
             }
           }
           
-          console.log(`movements-full: COMPLETE - ${allItems.length} items loaded`);
+          console.log(`[Resync Mov] COMPLETE - ${allItems.length} items loaded`);
           
           cache.set(cacheKey, { 
             data: { items: allItems, totalCount },
             timestamp: now,
           });
           
-          // Salvar movimentações no cache persistente do banco (non-blocking)
-          saveDashboardCacheToDb({
-            total_movements: totalCount,
-            movements_data: allItems.map((m: any) => ({
-              lawsuit_id: m.lawsuit_id, date: m.date, title: m.title,
-              header: m.header, process_number: m.process_number,
-              protocol_number: m.protocol_number, customers: m.customers,
-            })),
-          }).catch(() => {});
+          // Persistência final garantida (await + total real)
+          await persistProgress('final');
           
           return new Response(JSON.stringify({
             data: allItems,
@@ -1005,6 +1030,7 @@ Deno.serve(async (req) => {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         } catch (error) {
+          console.error('[Resync Mov] error:', error instanceof Error ? error.message : String(error));
           if (cached) {
             const items = extractItems(cached.data);
             const totalCount = extractTotalCount(cached.data, items.length);
