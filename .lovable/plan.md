@@ -1,75 +1,90 @@
+# Corrigir automação "Nova Demanda" — ChatGuru + observabilidade
 
+> Estou em modo plano (read-only). Aprovando, entro em modo de execução e aplico tudo de uma vez.
 
-## Corrigir definitivamente exclusão de agentes — trocar soft delete por hard delete
+## Diagnóstico já feito
 
-### Causa raiz REAL (confirmada agora no banco)
+- **CRM e rodízio funcionam** corretamente (~100% de sucesso).
+- **ChatGuru falha em ~87% das demandas** (campo `chatguru_note_id` fica `NULL`).
+- **Causas:**
+  1. Telefone enviado sem normalização BR robusta (DDD/9º dígito) → ChatGuru rejeita.
+  2. Edge function não verifica se o chat existe no ChatGuru antes de mandar nota.
+  3. `setor_comercial_chatguru_id` está vazio no `comercial_config` (e o usuário confirmou que **não existe** esse usuário no ChatGuru).
+  4. Erros são engolidos silenciosamente — nem usuário nem banco veem o problema.
 
-As policies da tabela `intranet_agents`:
+## Mudanças (3 arquivos, sem migração de schema)
 
-| Comando | USING | WITH CHECK |
-|---|---|---|
-| SELECT | `is_approved AND is_active = true` | — |
-| UPDATE | `creator OR admin` | **(vazio)** |
-| DELETE | `creator OR admin` | — |
+### 1) `supabase/functions/create-commercial-demand/index.ts` — reescrita
 
-Quando uma policy de UPDATE **não tem `WITH CHECK` explícito**, o PostgreSQL **avalia a nova linha contra o `USING` da policy SELECT**. A policy SELECT exige `is_active = true`. Como o soft delete tenta deixar `is_active = false`, a nova linha falha no check da SELECT e o Postgres rejeita com `new row violates row-level security policy for table "intranet_agents"`.
+- **`normalizePhoneBR(raw)`**: remove máscara, valida DDD (11–99), garante prefixo 55, aceita 8 ou 9 dígitos. Retorna `null` se inválido.
+- **Verificação de chat antes de qualquer ação**: chama `chat_check`. Se não existir, tenta `chat_add` com nome do cliente.
+- **Status estruturado** acumulado durante a execução:
+  ```json
+  {
+    "phone_normalized": "5531988208999",
+    "chat_check": { "ok": true, "raw": {...} },
+    "chat_create": { "skipped": true },
+    "note_add": { "ok": true, "id": "..." },
+    "status_open": { "ok": true },
+    "assignments": [
+      { "role": "vendedor", "ok": true },
+      { "role": "marcos", "ok": true }
+    ],
+    "setor_comercial": { "skipped": true, "reason": "ID não configurado" }
+  }
+  ```
+- **Detecção de sucesso real do ChatGuru** via `result === "OK"` ou `id`/`note_id` na resposta (a heurística atual aceitava qualquer 200, mascarando falhas).
+- **Logs em `integration_sync_log`** (tabela já existe) com payload e response brutos para todas as falhas.
+- **Resposta enriquecida** ao frontend: além de `success`, devolve `steps_summary` (lista pronta para renderizar checklist) e `chatguru_status` (debug detalhado).
+- **Setor Comercial**: como o ID não existe no ChatGuru, esta etapa é registrada como `skipped` com `reason` explícito — sem contar como erro.
+- Marcos continua sendo atribuído (ID `63ff69df1c00b36c82814a99` já configurado).
 
-Esse é exatamente o erro que aparece no seu print. **Não é permissão. É a regra de RLS bloqueando a transição `is_active=true → is_active=false`** porque o resultado deixa de ser visível.
+### 2) `src/pages/ContatosAdvbox.tsx` — toast detalhado
 
-A tentativa anterior (remover o `.select()`) não resolve porque o erro vem do **próprio servidor, não do frontend**. O update nunca chega a acontecer.
+Substituir o toast genérico por um checklist baseado em `data.steps_summary`:
 
-### Por que mudar para hard delete é a escolha certa
-
-1. A policy de DELETE **já existe e está correta** — só criador ou admin podem excluir.
-2. Não há nenhuma referência (foreign key) bloqueando: tabelas relacionadas (`agent_files`, `agent_data_access`, `agent_usage_history`, `agent_chat_messages`) usam `ON DELETE CASCADE` ou são desacopladas.
-3. O usuário **espera** comportamento de exclusão real — o agente sumir e não voltar.
-4. Não temos UI para "restaurar agente excluído", então `is_active = false` não tem utilidade prática hoje.
-
-### Correção
-
-**Único arquivo:** `src/components/agents/IntranetAgentsTab.tsx`
-
-Trocar dentro de `confirmDelete`:
-
-```ts
-// ANTES (quebrado)
-const result = await retryWithRefresh(() =>
-  supabase.from('intranet_agents').update({ is_active: false }).eq('id', deletingAgentId)
-);
-
-// DEPOIS (funciona)
-const result = await retryWithRefresh(() =>
-  supabase.from('intranet_agents').delete().eq('id', deletingAgentId)
-);
+```
+✅ Demanda registrada
+✅ Vendedor atribuído: Maria (rodízio)
+✅ Tarefa criada no CRM
+✅ Anotação no ChatGuru
+✅ Chat marcado como aberto
+✅ Vendedor atribuído no ChatGuru
+✅ Marcos atribuído no ChatGuru
+⚠️ Setor Comercial: ID não existe no ChatGuru (pulado)
 ```
 
-Resto do handler (toast, remoção da UI, `loadAgents`) continua igual — já está correto.
+Cores: verde (ok), amarelo (skipped intencional), vermelho (falha real).
+Toast com `duration: 12000` para dar tempo de leitura, ou um pequeno modal pós-envio com a lista. Vou usar **toast com componente custom JSX** dentro do sonner (suporta `toast.custom()`).
 
-### Validação
+### 3) `src/pages/ContatosAdvbox.tsx` — UI Admin
 
-1. Você (ou Mariana, ou qualquer criador/admin) clica na lixeira de um agente seu.
-2. Confirma no diálogo.
-3. Toast "Agente excluído" aparece, card some imediatamente.
-4. Recarrega a página → agente continua fora.
-5. Verifica no banco: linha realmente apagada (não mais um zumbi com `is_active=false`).
+- Marcar **"Setor Comercial"** com nota visível: *"O ChatGuru não possui um usuário 'Setor Comercial' — esta atribuição está desativada."* Switch fica **desabilitado e em off** quando o ID está vazio.
+- Aviso visual amarelo no card "ID ChatGuru do Setor Comercial" reforçando que sem ID essa atribuição é ignorada.
+- Aviso similar em qualquer vendedor sem `chatguru_user_id` cadastrado.
 
-### Não muda
+## NÃO precisa de migração de schema
 
-- Policies RLS (não preciso alterar nada no banco — a policy de DELETE já está perfeita).
-- Permissões (continua: só criador ou admin).
-- Criação, edição, listagem, chat com agentes.
-- Outras tabelas, edge functions, autenticação.
+A proposta anterior de adicionar colunas `chatguru_status` e `chatguru_last_attempt_at` em `comercial_demandas` foi descartada — vou usar a tabela **existente** `integration_sync_log` para persistir o JSON detalhado, e devolver o status na resposta direta da edge function. Mais limpo e sem alterar schema.
 
-### Risco
+## Não muda
 
-Mínimo. As tabelas filhas (`agent_files`, `agent_data_access`, `agent_usage_history`) já têm `ON DELETE CASCADE` configurado nas FKs, então o delete é seguro. Caso eu encontre alguma FK sem cascade ao fazer a mudança, ajusto via migração antes.
+- Lógica de rodízio (já funciona).
+- Criação de tarefa no CRM (já funciona).
+- IDs ChatGuru de Marcos e dos vendedores.
+- Permissões / RLS / outras integrações.
 
-### Por que não posso simplesmente "manter soft delete + arrumar a policy"
+## Risco
 
-Daria, adicionando um `WITH CHECK` explícito na policy UPDATE que ignore `is_active`. Mas:
-- Mudar policy = migração no banco = mais risco.
-- Continuaria deixando lixo de agentes "ocultos" no banco para sempre.
-- Não traz nenhum benefício real (não há recurso de restauração).
+Baixo. Toda chamada externa em `try/catch` e nunca bloqueia a criação da demanda. Pior caso: ChatGuru fora do ar → demanda + CRM continuam ok, e o usuário vê no toast quais etapas falharam (em vez do silêncio atual).
 
-Hard delete é uma linha de código mais simples e o comportamento que você espera.
+## Validação após deploy
 
+1. Demanda com cliente que tem WhatsApp ativo → todas etapas ✅ (exceto Setor Comercial = ⚠️ pulado).
+2. Demanda com telefone inválido → toast mostra ⚠️ nas etapas ChatGuru, demanda + CRM ✅.
+3. Conferir `integration_sync_log` filtrando `target_table = 'chatguru+crm'` — deve ter um registro por demanda com JSON detalhado.
+4. Verificar `comercial_demandas.chatguru_note_id` — passa de ~13% para próximo de 100% para clientes com WhatsApp válido.
+
+---
+
+**Aprovando, aplico edge function + UI no mesmo passo, faço deploy e te aviso.**

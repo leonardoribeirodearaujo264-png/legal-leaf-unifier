@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag, Megaphone, Settings, CheckCircle2 } from 'lucide-react';
+import { Users, Search, Phone, Mail, CreditCard, Cake, RefreshCw, User, Building2, MapPin, Briefcase, Edit, Save, X, Loader2, Plus, Tag, Megaphone, Settings, CheckCircle2, AlertTriangle, XCircle, MinusCircle, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAccessTracking } from '@/hooks/useAccessTracking';
 import { useAuth } from '@/hooks/useAuth';
@@ -406,11 +406,71 @@ export default function ContatosAdvbox() {
       if (error) throw error;
 
       if (data?.success) {
-        toast.success(
-          `Demanda criada com sucesso! Atribuída para ${data.vendedor_nome}.`,
-          { duration: 5000 }
+        const steps: Array<{ key: string; label: string; ok: boolean; skipped?: boolean; message?: string | null }> =
+          Array.isArray(data.steps_summary) ? data.steps_summary : [];
+
+        const okCount = steps.filter((s) => s.ok).length;
+        const skippedCount = steps.filter((s) => s.skipped).length;
+        const failCount = steps.filter((s) => !s.ok && !s.skipped).length;
+
+        const headerVariant: 'success' | 'warning' | 'error' =
+          failCount > 0 ? 'error' : skippedCount > 0 ? 'warning' : 'success';
+
+        toast.custom(
+          (t) => (
+            <div className="bg-card border border-border rounded-lg shadow-lg p-4 w-[380px] max-w-[90vw]">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  {headerVariant === 'success' && <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />}
+                  {headerVariant === 'warning' && <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />}
+                  {headerVariant === 'error' && <XCircle className="h-5 w-5 text-destructive shrink-0" />}
+                  <div>
+                    <p className="font-semibold text-sm">
+                      {headerVariant === 'success' && 'Demanda criada com sucesso'}
+                      {headerVariant === 'warning' && 'Demanda criada com avisos'}
+                      {headerVariant === 'error' && 'Demanda criada com falhas'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Vendedor: {data.vendedor_nome} · {okCount} ok · {skippedCount} pulado · {failCount} falha
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toast.dismiss(t)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <ul className="space-y-1.5 text-xs max-h-[260px] overflow-y-auto pr-1">
+                {steps.map((step) => (
+                  <li key={step.key} className="flex items-start gap-2">
+                    {step.ok ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                    ) : step.skipped ? (
+                      <MinusCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                    )}
+                    <div className="min-w-0">
+                      <p className={step.ok ? 'text-foreground' : step.skipped ? 'text-muted-foreground' : 'text-destructive'}>
+                        {step.label}
+                      </p>
+                      {step.message && (
+                        <p className="text-[11px] text-muted-foreground leading-tight">{step.message}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ),
+          { duration: failCount > 0 || skippedCount > 0 ? 15000 : 7000 }
         );
-        setRecentDemandas(prev => new Set([...prev, String(selectedDemandaClient.advbox_id)]));
+
+        setRecentDemandas((prev) => new Set([...prev, String(selectedDemandaClient.advbox_id)]));
         setShowDemandaDialog(false);
         setSelectedDemandaClient(null);
         setDemandaSearch('');
@@ -988,6 +1048,12 @@ export default function ContatosAdvbox() {
                           placeholder="Ex: 66392c1575f9357baf26ad8a"
                           className="h-7 text-xs mt-1"
                         />
+                        {v.ativo && !v.chatguru_user_id && (
+                          <div className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>Sem ID, este vendedor não será marcado como responsável no ChatGuru.</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
@@ -1017,12 +1083,19 @@ export default function ContatosAdvbox() {
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="flex-1 pr-2">
                           <p className="text-sm font-medium">Setor Comercial</p>
                           <p className="text-xs text-muted-foreground">Marcar setor como responsável</p>
+                          {!adminConfig['setor_comercial_chatguru_id'] && (
+                            <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                              <span>O ChatGuru não possui um usuário "Setor Comercial". Sem o ID, esta atribuição é ignorada automaticamente.</span>
+                            </div>
+                          )}
                         </div>
                         <Switch
-                          checked={adminConfig['setor_comercial_obrigatorio'] !== 'false'}
+                          checked={adminConfig['setor_comercial_obrigatorio'] !== 'false' && !!adminConfig['setor_comercial_chatguru_id']}
+                          disabled={!adminConfig['setor_comercial_chatguru_id']}
                           onCheckedChange={(checked) => updateConfig('setor_comercial_obrigatorio', checked ? 'true' : 'false')}
                         />
                       </div>
@@ -1062,6 +1135,10 @@ export default function ContatosAdvbox() {
                           placeholder="Preencher quando localizado"
                           className="h-8 text-sm mt-1"
                         />
+                        <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                          <Info className="h-3 w-3 mt-0.5 shrink-0" />
+                          <span>O ChatGuru não disponibiliza um perfil "Setor Comercial". Sem ID válido, esta etapa é pulada — apenas o vendedor do rodízio e o Marcos são marcados como responsáveis.</span>
+                        </div>
                       </div>
                     </div>
                   </div>
