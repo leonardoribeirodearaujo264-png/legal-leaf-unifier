@@ -80,11 +80,13 @@ export function DiagnosticoAdvbox() {
   const [writebackEnabled, setWritebackEnabled] = useState(false);
   const [writebackTestMode, setWritebackTestMode] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [excluded, setExcluded] = useState<ExcludedLanc[]>([]);
+  const [resyncing, setResyncing] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [diagRes, contasRes, orphansRes, settingsRes, logsRes] = await Promise.all([
+      const [diagRes, contasRes, orphansRes, settingsRes, logsRes, excludedRes] = await Promise.all([
         supabase.rpc('fin_advbox_diagnostico'),
         supabase.from('fin_contas').select('*').eq('ativa', true).order('saldo_atual', { ascending: false }),
         supabase
