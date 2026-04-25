@@ -576,8 +576,8 @@ function SafraTab({ data, loading }: any) {
                       <td className="text-right py-2 px-2">{fmtNum(s.em_producao)}</td>
                       <td className="text-right py-2 px-2">{fmtNum(s.em_execucao)}</td>
                       <td className="text-right py-2 px-2">{fmtNum(s.concluidos)}</td>
-                      <td className="text-right py-2 px-2 text-emerald-600">{fmtNum(s.ganhos)}</td>
-                      <td className="text-right py-2 px-2 text-rose-600">{fmtNum(s.perdas)}</td>
+                      <td className="text-right py-2 px-2 text-success">{fmtNum(s.ganhos)}</td>
+                      <td className="text-right py-2 px-2 text-destructive">{fmtNum(s.perdas)}</td>
                       <td className="text-right py-2 px-2">
                         <Badge variant={pct >= 50 ? "default" : "secondary"}>{fmtPct(pct)}</Badge>
                       </td>
