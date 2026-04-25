@@ -49,6 +49,16 @@ interface WritebackLog {
   created_at: string;
 }
 
+interface ExcludedLanc {
+  id: string;
+  data_vencimento: string;
+  tipo: string;
+  descricao: string;
+  valor: number;
+  status: string;
+  reason: string;
+}
+
 const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 function deltaCell(intranet: number, advbox: number) {
