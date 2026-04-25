@@ -172,7 +172,7 @@ export function DiagnosticoAdvbox() {
 
       const { data: testLanc, error: insertErr } = await supabase
         .from('fin_lancamentos')
-        .insert({
+        .insert([{
           tipo: 'receita',
           valor: 1.00,
           descricao: 'TESTE WRITEBACK ADVBox - ' + new Date().toISOString(),
@@ -181,7 +181,7 @@ export function DiagnosticoAdvbox() {
           status: 'pago',
           conta_origem_id: contaAsaas.id,
           observacoes: 'Lançamento de teste do writeback bidirecional',
-        })
+        } as any])
         .select('id')
         .single();
 
