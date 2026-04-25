@@ -1048,6 +1048,12 @@ export default function ContatosAdvbox() {
                           placeholder="Ex: 66392c1575f9357baf26ad8a"
                           className="h-7 text-xs mt-1"
                         />
+                        {v.ativo && !v.chatguru_user_id && (
+                          <div className="mt-1 flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>Sem ID, este vendedor não será marcado como responsável no ChatGuru.</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))
