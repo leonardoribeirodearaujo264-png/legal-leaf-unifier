@@ -259,10 +259,16 @@ export function DiagnosticoAdvbox() {
               Cross-check de saldos e métricas entre ADVBox e Intranet · Gabaritos manuais
             </CardDescription>
           </div>
-          <Button onClick={handleForceRefresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Forçar Recálculo + Limpar Cache
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" onClick={handleForceResync} disabled={resyncing || loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${resyncing ? 'animate-spin' : ''}`} />
+              {resyncing ? 'Resincronizando…' : 'Forçar Resync ADVBox (60d)'}
+            </Button>
+            <Button onClick={handleForceRefresh} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Forçar Recálculo + Limpar Cache
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -271,6 +277,7 @@ export function DiagnosticoAdvbox() {
             <TabsTrigger value="metricas">Métricas-Gabarito</TabsTrigger>
             <TabsTrigger value="contas">Contas ({contasComAdvbox.length})</TabsTrigger>
             <TabsTrigger value="orfaos">Órfãos ({orphans.length})</TabsTrigger>
+            <TabsTrigger value="excluidos">Excluídos por filtro ({excluded.length})</TabsTrigger>
             <TabsTrigger value="writeback">Writeback Bidirecional</TabsTrigger>
           </TabsList>
 
