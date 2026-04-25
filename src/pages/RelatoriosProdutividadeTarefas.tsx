@@ -73,7 +73,7 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
 
   useEffect(() => {
     fetchTasks();
-    // Carregar colaboradores ativos
+    // Carregar colaboradores ativos (uma vez na montagem)
     supabase
       .from('profiles')
       .select('full_name')
@@ -85,7 +85,14 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
           new Set((data || []).map((p: any) => (p.full_name || '').toUpperCase().trim()).filter(Boolean))
         );
       });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-busca tarefas quando o período muda (filtro server-side aplicado em fetchTasks).
+  useEffect(() => {
+    fetchTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate]);
 
   const fetchAdvboxTaskTypes = async () => {
     setLoadingTaskTypes(true);
