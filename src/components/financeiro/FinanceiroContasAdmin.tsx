@@ -93,6 +93,7 @@ export function FinanceiroContasAdmin() {
       setFormNumeroConta(conta.numero_conta || '');
       setFormSaldoInicial(conta.saldo_inicial.toString());
       setFormCor(conta.cor);
+      setFormAdvboxId(conta.advbox_account_id ? String(conta.advbox_account_id) : '');
     } else {
       setEditingConta(null);
       setFormNome('');
@@ -102,6 +103,7 @@ export function FinanceiroContasAdmin() {
       setFormNumeroConta('');
       setFormSaldoInicial('0');
       setFormCor('#3B82F6');
+      setFormAdvboxId('');
     }
     setShowDialog(true);
   };
