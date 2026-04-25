@@ -588,13 +588,36 @@ export function FinanceiroExecutivoDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Receitas</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+              Receitas
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">
+                      Receita líquida realizada (status pago). Exclui repasses internos
+                      (REPASSE, DISTRIBUIÇÃO DE LUCRO) e honorários sócio.
+                      {data.lancamentosExcluidos > 0 && (
+                        <> {data.lancamentosExcluidos} lançamento(s) excluído(s) do cálculo neste período.</>
+                      )}
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </CardTitle>
             <ArrowUpCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
               {formatCurrency(data.totalReceitas)}
             </div>
+            {data.receitaPrevista > 0 && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Previsto: <span className="font-medium">{formatCurrency(data.receitaPrevista)}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1 mt-1">
               {getVariacaoIcon(data.comparativo.variacaoReceitas)}
               <span className={`text-sm ${data.comparativo.variacaoReceitas >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -607,13 +630,33 @@ export function FinanceiroExecutivoDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Despesas</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+              Despesas
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">
+                      Despesa realizada (status pago). Exclui repasses internos
+                      (REPASSE, DISTRIBUIÇÃO DE LUCRO) e honorários sócio.
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </CardTitle>
             <ArrowDownCircle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
               {formatCurrency(data.totalDespesas)}
             </div>
+            {data.despesaPrevista > 0 && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Previsto: <span className="font-medium">{formatCurrency(data.despesaPrevista)}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1 mt-1">
               {getVariacaoIcon(data.comparativo.variacaoDespesas, true)}
               <span className={`text-sm ${data.comparativo.variacaoDespesas <= 0 ? 'text-green-600' : 'text-red-600'}`}>
