@@ -206,6 +206,7 @@ export function FinanceiroContasAdmin() {
                 <TableHead>Conta</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Banco</TableHead>
+                <TableHead className="text-right">ID ADVBox</TableHead>
                 <TableHead className="text-right">Saldo Inicial</TableHead>
                 <TableHead className="text-right">Saldo Atual</TableHead>
                 <TableHead>Status</TableHead>
@@ -228,6 +229,9 @@ export function FinanceiroContasAdmin() {
                   </TableCell>
                   <TableCell className="capitalize">{conta.tipo}</TableCell>
                   <TableCell>{conta.banco || '-'}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {conta.advbox_account_id ?? <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className="text-right">{formatCurrency(conta.saldo_inicial)}</TableCell>
                   <TableCell className={`text-right font-medium ${
                     conta.saldo_atual >= 0 ? 'text-green-600' : 'text-red-600'
