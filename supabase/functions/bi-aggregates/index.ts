@@ -500,6 +500,15 @@ Deno.serve(async (req) => {
     let somaTempoTotal = 0, countTempoTotal = 0;
     const honorariosPorGrupo = new Map<string, { total: number; count: number; tempoTotal: number; tempoCount: number }>();
 
+    // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
+    // Lawsuits com process_date legado/zerado geram valores absurdos (ex: 81 meses em produção).
+    const MAX_M = 120;
+    const safeMonths = (a: string | null, b: string | null): number | null => {
+      const v = monthsBetween(a, b);
+      if (v <= 0 || v > MAX_M) return null;
+      return v;
+    };
+
     for (const l of lawsuitsFiltradas) {
       const fee = Number(l.fees_money || 0);
       if (fee > 0) {
@@ -507,43 +516,22 @@ Deno.serve(async (req) => {
         countFees++;
       }
 
-      // Prospecção -> Produção
-      if (l.created_at && l.process_date) {
-        tProsp += monthsBetween(l.created_at, l.process_date);
-        cProsp++;
-      }
-      // Produção -> Execução
-      if (l.process_date && l.exit_production) {
-        tProd += monthsBetween(l.process_date, l.exit_production);
-        cProd++;
-      }
-      // Execução -> Rotação
-      if (l.exit_production && l.exit_execution) {
-        tExec += monthsBetween(l.exit_production, l.exit_execution);
-        cExec++;
-      }
-      // Rotação -> Encerramento
-      if (l.exit_execution && l.status_closure) {
-        tRot += monthsBetween(l.exit_execution, l.status_closure);
-        cRot++;
-      }
-      // Tempo total — só lawsuits com encerramento
-      if (l.created_at && l.status_closure) {
-        const total = monthsBetween(l.created_at, l.status_closure);
-        somaTempoTotal += total;
-        countTempoTotal++;
-      }
+      const v1 = safeMonths(l.created_at, l.process_date);
+      if (v1 !== null) { tProsp += v1; cProsp++; }
+      const v2 = safeMonths(l.process_date, l.exit_production);
+      if (v2 !== null) { tProd += v2; cProd++; }
+      const v3 = safeMonths(l.exit_production, l.exit_execution);
+      if (v3 !== null) { tExec += v3; cExec++; }
+      const v4 = safeMonths(l.exit_execution, l.status_closure);
+      if (v4 !== null) { tRot += v4; cRot++; }
+
+      const vTot = safeMonths(l.created_at, l.status_closure);
+      if (vTot !== null) { somaTempoTotal += vTot; countTempoTotal++; }
 
       const grp = l.group || "Outros";
       const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
-      if (fee > 0) {
-        cur.total += fee;
-        cur.count++;
-      }
-      if (l.created_at && l.status_closure) {
-        cur.tempoTotal += monthsBetween(l.created_at, l.status_closure);
-        cur.tempoCount++;
-      }
+      if (fee > 0) { cur.total += fee; cur.count++; }
+      if (vTot !== null) { cur.tempoTotal += vTot; cur.tempoCount++; }
       honorariosPorGrupo.set(grp, cur);
     }
 
