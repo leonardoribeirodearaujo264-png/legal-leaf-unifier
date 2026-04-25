@@ -75,7 +75,7 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  if (!body.lancamento_id && !body.create_test_record) {
+  if (!lancamentoId && !body.create_test_record) {
     return new Response(
       JSON.stringify({ error: 'lancamento_id is required (or set create_test_record=true)' }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -83,7 +83,7 @@ Deno.serve(async (req: Request) => {
   }
 
   // Caso especial: criar lançamento de teste R$ 1,00 (bypassa RLS via service role)
-  let lancamentoId: string | undefined = body.lancamento_id;
+  let lancamentoId: string | undefined = lancamentoId;
 
   if (body.create_test_record) {
     const { data: contaAsaas, error: contaErr } = await supabase
@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
 
   if (!writebackEnabled && !testMode) {
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'disabled',
       error_message: 'Writeback desabilitado em fin_settings',
       triggered_by: triggeredBy,
@@ -171,13 +171,13 @@ Deno.serve(async (req: Request) => {
       conta:fin_contas!fin_lancamentos_conta_origem_id_fkey(id, nome, advbox_account_id),
       categoria:fin_categorias(id, nome)
     `)
-    .eq('id', body.lancamento_id)
+    .eq('id', lancamentoId)
     .maybeSingle();
 
   if (lancErr || !lanc) {
     const msg = lancErr?.message || 'Lançamento não encontrado';
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'error',
       error_message: msg,
       triggered_by: triggeredBy,
@@ -194,7 +194,7 @@ Deno.serve(async (req: Request) => {
   if (!advboxAccountId) {
     const msg = 'Conta sem advbox_account_id vinculado';
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'skipped',
       error_message: msg,
       triggered_by: triggeredBy,
@@ -221,7 +221,7 @@ Deno.serve(async (req: Request) => {
 
   if (testMode) {
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'success',
       request_payload: { ...requestPayload, _test_mode: true },
       response_payload: { simulated: true, note: 'TEST MODE - nenhuma chamada real ao ADVBox' },
@@ -241,7 +241,7 @@ Deno.serve(async (req: Request) => {
   if (!advboxToken) {
     const msg = 'ADVBOX_API_TOKEN não configurado';
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'error',
       request_payload: requestPayload,
       error_message: msg,
@@ -273,7 +273,7 @@ Deno.serve(async (req: Request) => {
     if (!resp.ok) {
       const errMsg = `ADVBox retornou ${resp.status}: ${typeof advboxResponse === 'string' ? advboxResponse : JSON.stringify(advboxResponse)}`;
       await logWriteback(supabase, {
-        lancamento_id: body.lancamento_id,
+        lancamento_id: lancamentoId,
         status: 'error',
         request_payload: requestPayload,
         response_payload: advboxResponse,
@@ -293,11 +293,11 @@ Deno.serve(async (req: Request) => {
       await supabase
         .from('fin_lancamentos')
         .update({ advbox_id: advboxId })
-        .eq('id', body.lancamento_id);
+        .eq('id', lancamentoId);
     }
 
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       advbox_id: advboxId,
       status: 'success',
       request_payload: requestPayload,
@@ -318,7 +318,7 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e);
     await logWriteback(supabase, {
-      lancamento_id: body.lancamento_id,
+      lancamento_id: lancamentoId,
       status: 'error',
       request_payload: requestPayload,
       error_message: errMsg,
