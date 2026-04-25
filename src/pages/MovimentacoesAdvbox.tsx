@@ -582,7 +582,7 @@ export default function MovimentacoesAdvbox() {
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs">
-                              {new Date(movement.date).toLocaleDateString('pt-BR')}
+                              {(getEffectiveDate(movement) ?? new Date()).toLocaleDateString('pt-BR')}
                             </Badge>
                             {associatedLawsuit && (
                               <>
