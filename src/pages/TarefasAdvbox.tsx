@@ -667,6 +667,11 @@ export default function TarefasAdvbox() {
             <Dialog open={dialogOpen} onOpenChange={(open) => {
               setDialogOpen(open);
               if (!open) setNewTaskProcessNumber('');
+              // Lazy load dos tipos de tarefa e usuários ADVBox apenas quando o dialog abre
+              if (open) {
+                if (advboxTaskTypes.length === 0 && !loadingTaskTypes) fetchAdvboxTaskTypes();
+                if (advboxUsers.length === 0 && !loadingAdvboxUsers) fetchAdvboxUsers();
+              }
             }}>
               <DialogTrigger asChild>
                 <Button className="gap-2">
