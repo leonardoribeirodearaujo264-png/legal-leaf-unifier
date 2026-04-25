@@ -132,47 +132,16 @@ export function FinanceiroExecutivoDashboard() {
     asaasBalance: null
   });
 
-  // Load data from cache
-  const loadFromCache = async () => {
-    try {
-      const { data: cache, error } = await supabase
-        .from('fin_dashboard_cache')
-        .select('*')
-        .eq('id', 'singleton')
-        .single();
-
-      if (error || !cache?.dashboard_data) {
-        console.log('Cache vazio, executando cálculo local...');
-        await fetchDataDirectly();
-        return;
-      }
-
-      const allData = cache.dashboard_data as Record<string, any>;
-      const periodoData = allData[periodo];
-
-      if (periodoData) {
-        setData(periodoData as DashboardData);
-        setLastUpdated(cache.updated_at);
-        setLoading(false);
-      } else {
-        await fetchDataDirectly();
-      }
-    } catch (err) {
-      console.error('Erro ao carregar cache:', err);
-      await fetchDataDirectly();
-    }
-  };
-
-  // Trigger Edge Function to refresh cache
+  // Force fresh recalculation: rebuild fin_contas.saldo_atual via RPC, then refetch.
+  // Bypasses fin_dashboard_cache entirely (cache stale = -R$35M bug).
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      await supabase.functions.invoke('fin-dashboard-cache-refresh', {
-        body: { periodo }
-      });
+      const { error: rpcErr } = await supabase.rpc('fin_force_refresh_dashboard');
+      if (rpcErr) console.warn('fin_force_refresh_dashboard:', rpcErr.message);
+      await fetchDataDirectly();
     } catch (err) {
-      console.error('Erro ao atualizar cache:', err);
-      // Fallback: calculate directly
+      console.error('Erro ao atualizar dados:', err);
       await fetchDataDirectly();
     } finally {
       setRefreshing(false);
@@ -291,17 +260,17 @@ export function FinanceiroExecutivoDashboard() {
       const variacaoLucro = lucroMesAnterior !== 0
         ? ((lucroMesAtual - lucroMesAnterior) / Math.abs(lucroMesAnterior)) * 100 : 0;
 
+      // SoT: fin_contas.saldo_atual já é calculado por fin_calc_saldo_atual.
+      // Toda conta ativa entra no Saldo Total — não há mais "não configurado".
       let contasSaldo: ContaSaldo[] = contas?.map(c => {
         const isAsaas = c.nome?.toLowerCase().includes('asaas') || c.tipo === 'pagamentos';
-        const saldoInicial = Number(c.saldo_inicial) || 0;
-        const saldoConfigurado = isAsaas || saldoInicial !== 0;
         return {
           id: c.id,
           nome: c.nome,
           saldo: Number(c.saldo_atual) || 0,
           cor: c.cor || '#3B82F6',
           isAsaas,
-          saldoConfigurado
+          saldoConfigurado: true
         };
       }) || [];
 
@@ -447,43 +416,27 @@ export function FinanceiroExecutivoDashboard() {
     }
   };
 
-  // Load from cache on mount / period change
+  // Load directly from fin_lancamentos + fin_contas. Cache fin_dashboard_cache
+  // is bypassed (fonte stale = -R$35M bug).
   useEffect(() => {
-    loadFromCache();
+    fetchDataDirectly();
+    setLastUpdated(new Date().toISOString());
   }, [periodo]);
 
-  // Subscribe to Realtime updates on cache table
+  // Realtime: refetch when fin_contas changes (saldo recalc)
   useEffect(() => {
     const channel = supabase
-      .channel('fin-dashboard-cache-realtime')
+      .channel('fin-contas-realtime')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'fin_dashboard_cache',
-          filter: 'id=eq.singleton'
-        },
-        (payload: any) => {
-          console.log('Cache financeiro atualizado via Realtime');
-          const newData = payload.new;
-          if (newData?.dashboard_data) {
-            const allData = newData.dashboard_data as Record<string, any>;
-            const periodoData = allData[periodo];
-            if (periodoData) {
-              setData(periodoData as DashboardData);
-              setLastUpdated(newData.updated_at);
-              setLoading(false);
-              setRefreshing(false);
-            }
-          }
+        { event: '*', schema: 'public', table: 'fin_contas' },
+        () => {
+          fetchDataDirectly();
+          setLastUpdated(new Date().toISOString());
         }
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [periodo]);
 
   const formatCurrency = (value: number) => {
@@ -537,22 +490,8 @@ export function FinanceiroExecutivoDashboard() {
         onSaved={() => triggerRefresh()}
       />
 
-      {/* BUG #1: Alerta de contas sem saldo inicial */}
-      {contasSemSaldoCount > 0 && (
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Saldo total pode estar incompleto</AlertTitle>
-          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
-            <span>
-              {contasSemSaldoCount} conta(s) sem saldo inicial configurado. O Saldo Total em Caixa não inclui essas contas corretamente.
-            </span>
-            <Button size="sm" variant="outline" onClick={() => setShowConfigSaldo(true)}>
-              <Settings className="h-3.5 w-3.5 mr-1.5" />
-              Configurar agora
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* Alerta removido — fin_contas.saldo_atual agora é a fonte única da verdade
+           (fin_calc_saldo_atual). Toda conta ativa entra no Saldo Total. */}
 
       {/* Filtros */}
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -579,7 +518,7 @@ export function FinanceiroExecutivoDashboard() {
           )}
           <Button variant="outline" onClick={triggerRefresh} disabled={loading || refreshing}>
             <RefreshCw className={`h-4 w-4 mr-2 ${(loading || refreshing) ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Atualizando...' : 'Atualizar'}
+            {refreshing ? 'Atualizando…' : 'Atualizar dados'}
           </Button>
         </div>
       </div>
@@ -743,12 +682,10 @@ export function FinanceiroExecutivoDashboard() {
               <Wallet className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-lg font-bold">
-                  {contasConfiguradas > 0 ? formatCurrency(saldoTotalConfigurado) : 'Não configurado'}
+                  {formatCurrency(saldoTotalConfigurado)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {contasConfiguradas > 0 
-                    ? `${contasConfiguradas} conta(s) configurada(s)` 
-                    : 'Configure o saldo inicial das contas'}
+                  {totalContas} conta(s) ativas · fonte: ADVBox snapshot
                 </p>
               </div>
             </div>

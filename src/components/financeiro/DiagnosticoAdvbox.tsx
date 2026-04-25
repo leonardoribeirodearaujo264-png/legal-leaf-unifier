@@ -49,6 +49,16 @@ interface WritebackLog {
   created_at: string;
 }
 
+interface ExcludedLanc {
+  id: string;
+  data_vencimento: string;
+  tipo: string;
+  descricao: string;
+  valor: number;
+  status: string;
+  reason: string;
+}
+
 const fmtBRL = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 function deltaCell(intranet: number, advbox: number) {
@@ -70,11 +80,13 @@ export function DiagnosticoAdvbox() {
   const [writebackEnabled, setWritebackEnabled] = useState(false);
   const [writebackTestMode, setWritebackTestMode] = useState(true);
   const [testing, setTesting] = useState(false);
+  const [excluded, setExcluded] = useState<ExcludedLanc[]>([]);
+  const [resyncing, setResyncing] = useState(false);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [diagRes, contasRes, orphansRes, settingsRes, logsRes] = await Promise.all([
+      const [diagRes, contasRes, orphansRes, settingsRes, logsRes, excludedRes] = await Promise.all([
         supabase.rpc('fin_advbox_diagnostico'),
         supabase.from('fin_contas').select('*').eq('ativa', true).order('saldo_atual', { ascending: false }),
         supabase
@@ -89,12 +101,14 @@ export function DiagnosticoAdvbox() {
           .select('id, lancamento_id, advbox_id, status, http_status, error_message, created_at')
           .order('created_at', { ascending: false })
           .limit(20),
+        supabase.rpc('fin_advbox_excluded_by_filter'),
       ]);
 
       setDiagnostico(diagRes.data ?? null);
       setContas((contasRes.data as any) ?? []);
       setOrphans((orphansRes.data as any) ?? []);
       setLogs((logsRes.data as any) ?? []);
+      setExcluded((excludedRes.data as any) ?? []);
       if (settingsRes.data) {
         setWritebackEnabled(settingsRes.data.writeback_enabled === true);
         setWritebackTestMode(settingsRes.data.writeback_test_mode === true);
@@ -122,6 +136,24 @@ export function DiagnosticoAdvbox() {
       toast.error(e instanceof Error ? e.message : 'Erro ao recalcular');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForceResync = async () => {
+    setResyncing(true);
+    try {
+      toast.info('Resync ADVBox iniciado (últimos 60 dias)…');
+      const { data, error } = await supabase.functions.invoke('sync-advbox-financial', {
+        body: { force_restart: true, months: 2 },
+      });
+      if (error) throw error;
+      toast.success(`Resync: ${(data as any)?.total_created ?? 0} criados, ${(data as any)?.total_updated ?? 0} atualizados`);
+      await supabase.rpc('fin_force_refresh_dashboard');
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro no resync');
+    } finally {
+      setResyncing(false);
     }
   };
 
@@ -227,10 +259,16 @@ export function DiagnosticoAdvbox() {
               Cross-check de saldos e métricas entre ADVBox e Intranet · Gabaritos manuais
             </CardDescription>
           </div>
-          <Button onClick={handleForceRefresh} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Forçar Recálculo + Limpar Cache
-          </Button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" onClick={handleForceResync} disabled={resyncing || loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${resyncing ? 'animate-spin' : ''}`} />
+              {resyncing ? 'Resincronizando…' : 'Forçar Resync ADVBox (60d)'}
+            </Button>
+            <Button onClick={handleForceRefresh} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Forçar Recálculo + Limpar Cache
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -239,6 +277,7 @@ export function DiagnosticoAdvbox() {
             <TabsTrigger value="metricas">Métricas-Gabarito</TabsTrigger>
             <TabsTrigger value="contas">Contas ({contasComAdvbox.length})</TabsTrigger>
             <TabsTrigger value="orfaos">Órfãos ({orphans.length})</TabsTrigger>
+            <TabsTrigger value="excluidos">Excluídos por filtro ({excluded.length})</TabsTrigger>
             <TabsTrigger value="writeback">Writeback Bidirecional</TabsTrigger>
           </TabsList>
 
@@ -372,6 +411,44 @@ export function DiagnosticoAdvbox() {
                       <TableCell className="max-w-md truncate">{l.descricao}</TableCell>
                       <TableCell className="text-right font-mono">{fmtBRL(Number(l.valor))}</TableCell>
                       <TableCell className="text-right font-mono text-xs">{l.advbox_id ?? '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </TabsContent>
+
+          {/* Tab: Excluídos por filtro REGISTRO_INTERNO */}
+          <TabsContent value="excluidos" className="space-y-4">
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>{excluded.length} lançamento(s) excluído(s) do dashboard (mês corrente)</AlertTitle>
+              <AlertDescription>
+                Filtrados pelo padrão "registro interno" (REPASSE, DISTRIBUIÇÃO DE LUCRO, HONORÁRIOS SÓCIO).
+                Não entram em Receitas/Despesas/Lucro da Visão Geral. Se algum for legítimo, ajuste o pattern em <code>FinanceiroExecutivoDashboard.tsx</code>.
+              </AlertDescription>
+            </Alert>
+            {excluded.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Motivo</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {excluded.slice(0, 50).map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="font-mono text-xs">{l.data_vencimento}</TableCell>
+                      <TableCell>
+                        <Badge variant={l.tipo === 'receita' ? 'default' : 'destructive'}>{l.tipo}</Badge>
+                      </TableCell>
+                      <TableCell><Badge variant="outline">{l.reason}</Badge></TableCell>
+                      <TableCell className="max-w-md truncate">{l.descricao}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtBRL(Number(l.valor))}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
