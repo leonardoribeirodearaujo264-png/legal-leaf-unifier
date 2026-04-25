@@ -366,6 +366,7 @@ export default function MovimentacoesAdvbox() {
               Atualizar
             </Button>
           </div>
+        </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
 
