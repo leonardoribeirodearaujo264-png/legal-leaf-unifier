@@ -515,6 +515,15 @@ export function AdvboxFinancialSync() {
                   <Play className="h-4 w-4 mr-2" />
                   {syncStatus?.status === 'completed' ? 'Sincronizar Novamente' : 'Iniciar Sincronização'}
                 </Button>
+                <Button
+                  onClick={handleForceResync}
+                  variant="secondary"
+                  size="lg"
+                  title="Resetar cursor (offset=0) e limpar cache antes de iniciar"
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Forçar Resync
+                </Button>
                 {stats.totalLocal > 0 && (
                   <Button 
                     onClick={handleResync} 
