@@ -10301,6 +10301,18 @@ export type Database = {
     }
     Functions: {
       fin_advbox_diagnostico: { Args: never; Returns: Json }
+      fin_advbox_excluded_by_filter: {
+        Args: { p_data_fim?: string; p_data_inicio?: string }
+        Returns: {
+          data_vencimento: string
+          descricao: string
+          id: string
+          reason: string
+          status: string
+          tipo: string
+          valor: number
+        }[]
+      }
       fin_calc_saldo_atual: {
         Args: { p_conta_id: string; p_data_ref?: string }
         Returns: number
