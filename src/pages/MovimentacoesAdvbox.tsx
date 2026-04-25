@@ -45,13 +45,34 @@ interface Lawsuit {
 
 interface Movement {
   lawsuit_id: number;
-  date: string;
+  // `date` é a data REAL do andamento; pode ser null em alguns retornos do ADVBox.
+  // Por isso usamos os campos abaixo como fallback (nesta ordem) ao calcular a data efetiva.
+  date: string | null;
+  date_deadline?: string | null;
+  created_at?: string | null;
   title: string;
   header: string;
   process_number: string;
   protocol_number: string | null;
   customers: string | { name: string; customer_id?: number } | { name: string; customer_id?: number }[];
 }
+
+// Retorna a data efetiva da movimentação seguindo a ordem: date → date_deadline → created_at.
+// Movimentações sem nenhuma data válida ou com data no futuro (> hoje) retornam null e são descartadas.
+const getEffectiveDate = (m: Movement): Date | null => {
+  const candidates = [m.date, m.date_deadline, m.created_at];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    // Normaliza "YYYY-MM-DD HH:mm:ss" → ISO; aceita também ISO direto.
+    const iso = String(raw).replace(' ', 'T');
+    const parsed = new Date(iso);
+    if (isNaN(parsed.getTime())) continue;
+    // Descarta datas no futuro (bug ADVBox: alguns andamentos vêm com date_deadline futuro).
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) continue;
+    return parsed;
+  }
+  return null;
+};
 
 const MOVEMENTS_CACHE_KEY = 'advbox-movements-full-cache';
 const MOVEMENTS_CACHE_TIMESTAMP_KEY = 'advbox-movements-full-cache-timestamp';
@@ -152,7 +173,10 @@ export default function MovimentacoesAdvbox() {
     const matchesResponsible = showAllResponsibles ||
       (movementResponsible && selectedResponsibles.includes(movementResponsible));
 
-    const matchesPeriod = !dateFilter || !isBefore(new Date(movement.date), dateFilter);
+    // Usa data efetiva (date → date_deadline → created_at) e descarta movimentações sem data válida.
+    const effectiveDate = getEffectiveDate(movement);
+    if (!effectiveDate) return false;
+    const matchesPeriod = !dateFilter || !isBefore(effectiveDate, dateFilter);
 
     const isActive = associatedLawsuit ? !associatedLawsuit.status_closure : true;
     const lawsuitStatus = isActive ? 'Ativo' : 'Inativo';
@@ -194,22 +218,20 @@ export default function MovimentacoesAdvbox() {
       return matchesSearch && matchesResponsible && matchesStatus && matchesActionType && matchesArea;
     });
     chartMovements.forEach(m => {
-      try {
-        const dateStr = m.date?.replace(' ', 'T');
-        const parsed = new Date(dateStr);
-        if (isNaN(parsed.getTime())) return;
-        const dateKey = format(parsed, 'yyyy-MM-dd');
-        if (!dateCounts[dateKey]) {
-          dateCounts[dateKey] = { date: parsed, count: 0 };
-        }
-        dateCounts[dateKey].count++;
-      } catch {
-        // Skip invalid dates
+      // Usa data efetiva com fallback; descarta nulos e datas futuras.
+      const parsed = getEffectiveDate(m);
+      if (!parsed) return;
+      const dateKey = format(parsed, 'yyyy-MM-dd');
+      if (!dateCounts[dateKey]) {
+        dateCounts[dateKey] = { date: parsed, count: 0 };
       }
+      dateCounts[dateKey].count++;
     });
+    // Timeline: filtra explicitamente os últimos 30 dias para evitar barras vazias antigas.
+    const cutoff = subDays(new Date(), 30);
     return Object.entries(dateCounts)
+      .filter(([, { date }]) => date >= cutoff)
       .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-30)
       .map(([, { date, count }]) => ({
         date: format(date, 'dd/MM', { locale: ptBR }),
         movimentações: count,
@@ -317,10 +339,33 @@ export default function MovimentacoesAdvbox() {
               )}
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => { setIsRefreshing(true); fetchData(true).finally(() => setIsRefreshing(false)); }} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Atualizar
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Botão Resync: força bypass do cache (memória + DB) e re-busca completa do ADVBox */}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                setIsRefreshing(true);
+                // Limpa cache local antes de re-sincronizar
+                try {
+                  localStorage.removeItem(MOVEMENTS_CACHE_KEY);
+                  localStorage.removeItem(MOVEMENTS_CACHE_TIMESTAMP_KEY);
+                } catch (e) { console.warn('Erro ao limpar cache local:', e); }
+                fetchData(true)
+                  .then(() => toast({ title: 'Movimentações ressincronizadas', description: 'Cache atualizado a partir do ADVBox.' }))
+                  .finally(() => setIsRefreshing(false));
+              }}
+              className="gap-2"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Resync Movimentações
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setIsRefreshing(true); fetchData(true).finally(() => setIsRefreshing(false)); }} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Atualizar
+            </Button>
+          </div>
         </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
@@ -537,7 +582,7 @@ export default function MovimentacoesAdvbox() {
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-xs">
-                              {new Date(movement.date).toLocaleDateString('pt-BR')}
+                              {(getEffectiveDate(movement) ?? new Date()).toLocaleDateString('pt-BR')}
                             </Badge>
                             {associatedLawsuit && (
                               <>
