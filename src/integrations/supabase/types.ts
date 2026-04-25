@@ -4105,6 +4105,7 @@ export type Database = {
           numero_conta: string | null
           saldo_atual: number | null
           saldo_inicial: number | null
+          saldo_inicial_data: string | null
           tipo: string
           updated_at: string | null
         }
@@ -4122,6 +4123,7 @@ export type Database = {
           numero_conta?: string | null
           saldo_atual?: number | null
           saldo_inicial?: number | null
+          saldo_inicial_data?: string | null
           tipo: string
           updated_at?: string | null
         }
@@ -4139,6 +4141,7 @@ export type Database = {
           numero_conta?: string | null
           saldo_atual?: number | null
           saldo_inicial?: number | null
+          saldo_inicial_data?: string | null
           tipo?: string
           updated_at?: string | null
         }
