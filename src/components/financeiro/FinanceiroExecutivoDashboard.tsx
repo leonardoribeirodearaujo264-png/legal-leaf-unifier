@@ -518,7 +518,7 @@ export function FinanceiroExecutivoDashboard() {
           )}
           <Button variant="outline" onClick={triggerRefresh} disabled={loading || refreshing}>
             <RefreshCw className={`h-4 w-4 mr-2 ${(loading || refreshing) ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Atualizando...' : 'Atualizar'}
+            {refreshing ? 'Atualizando…' : 'Atualizar dados'}
           </Button>
         </div>
       </div>
