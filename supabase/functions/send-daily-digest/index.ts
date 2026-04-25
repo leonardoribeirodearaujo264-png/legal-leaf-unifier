@@ -103,7 +103,7 @@ interface UserDigestData {
 }
 
 async function insertDigestLog(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   payload: {
     runId: string;
     profileId?: string;

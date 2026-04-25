@@ -408,7 +408,7 @@ Deno.serve(async (req) => {
     };
 
     // Start background processing
-    EdgeRuntime.waitUntil(processReminders());
+    (globalThis as any).EdgeRuntime?.waitUntil(processReminders());
 
     return new Response(
       JSON.stringify({

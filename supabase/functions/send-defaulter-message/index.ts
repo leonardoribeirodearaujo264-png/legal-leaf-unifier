@@ -45,7 +45,7 @@ function validateBrazilianPhone(phone: string): string {
   return fullPhone;
 }
 
-async function sendCollectionMessageViaZAPI(phone: string, customerName: string, amount: number, daysOverdue: number): Promise<{ zaapId?: string; success: boolean }> {
+async function sendCollectionMessageViaZAPI(phone: string, customerName: string, amount: number, daysOverdue: number): Promise<{ zaapId?: string; success: boolean; sentMessage?: string }> {
   const ZAPI_INSTANCE_ID = (Deno.env.get('ZAPI_INSTANCE_ID') || '').trim();
   const ZAPI_TOKEN = (Deno.env.get('ZAPI_TOKEN') || '').trim();
   const ZAPI_CLIENT_TOKEN = (Deno.env.get('ZAPI_CLIENT_TOKEN') || '').trim();
@@ -182,7 +182,7 @@ serve(async (req) => {
     const { data: roleData } = await supabase
       .from('user_roles')
       .select('role')
-      .eq('user_id', user.id)
+      .eq('user_id', user!.id)
       .eq('role', 'admin')
       .maybeSingle();
 
@@ -209,7 +209,7 @@ serve(async (req) => {
         status: 'sent',
         chatguru_message_id: zapiResponse.zaapId || null,
         sent_at: new Date().toISOString(),
-        sent_by: user.id,
+        sent_by: user!.id,
       });
 
     // Also log in Z-API log table
@@ -221,7 +221,7 @@ serve(async (req) => {
       message_type: 'cobranca',
       status: 'sent',
       zapi_message_id: zapiResponse.zaapId || null,
-      sent_by: user.id,
+      sent_by: user!.id,
     });
 
     // Mirror into WhatsApp Avisos panel
@@ -229,7 +229,7 @@ serve(async (req) => {
       phone: customerPhone,
       messageText: zapiResponse.sentMessage || `Cobrança - ${customerName}`,
       zaapId: zapiResponse.zaapId || null,
-      sentBy: user.id,
+      sentBy: user!.id,
       contactName: customerName,
       messageType: 'text',
     });

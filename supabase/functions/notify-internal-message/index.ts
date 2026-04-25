@@ -21,7 +21,7 @@ async function importVapidKeys(publicKeyB64: string, privateKeyB64: string) {
 
   const publicKey = await crypto.subtle.importKey(
     "raw",
-    publicKeyBytes,
+    publicKeyBytes as BufferSource,
     { name: "ECDSA", namedCurve: "P-256" },
     true,
     []
@@ -258,7 +258,7 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error("notify-internal-message error:", err);
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
