@@ -265,9 +265,31 @@ export function AdvboxFinancialSync() {
     return Math.min(95, (syncStatus.total_processed / estimatedTotal) * 100);
   };
 
+  const getMinutesSinceLastRun = (): number | null => {
+    if (!syncStatus?.last_run_at) return null;
+    const last = new Date(syncStatus.last_run_at).getTime();
+    return Math.floor((Date.now() - last) / 60000);
+  };
+
+  const isStalled = (): boolean => {
+    if (syncStatus?.status !== 'running') return false;
+    const mins = getMinutesSinceLastRun();
+    return mins !== null && mins > 15;
+  };
+
   const getStatusBadge = () => {
     if (!syncStatus) return <Badge variant="outline">Não iniciado</Badge>;
-    
+
+    if (isStalled()) {
+      const mins = getMinutesSinceLastRun();
+      return (
+        <Badge variant="destructive" className="gap-1">
+          <AlertCircle className="h-3 w-3" />
+          Sync parado há {mins} min
+        </Badge>
+      );
+    }
+
     switch (syncStatus.status) {
       case 'running':
         return (
@@ -292,6 +314,37 @@ export function AdvboxFinancialSync() {
         );
       default:
         return <Badge variant="outline">Aguardando</Badge>;
+    }
+  };
+
+  const handleForceResync = async () => {
+    if (!confirm('Forçar resync irá resetar o cursor (offset=0) e descartar o cache antes de disparar a sincronização. Continuar?')) {
+      return;
+    }
+    try {
+      // Reset cursor
+      await supabase
+        .from('advbox_sync_status')
+        .update({
+          status: 'idle',
+          last_offset: 0,
+          total_processed: 0,
+          total_created: 0,
+          total_updated: 0,
+          total_skipped: 0,
+          completed_at: null,
+          error_message: null,
+        })
+        .eq('sync_type', 'financial');
+
+      // Limpar cache do dashboard
+      await supabase.from('advbox_dashboard_cache').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      toast.info('Cursor resetado e cache limpo. Iniciando resync...');
+      await handleStartSync();
+    } catch (error) {
+      console.error('Erro ao forçar resync:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao forçar resync');
     }
   };
 
