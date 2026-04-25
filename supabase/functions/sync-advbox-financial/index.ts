@@ -352,25 +352,24 @@ async function resolveContaId(
   contasInfo: ContaInfo[],
   bankId: number | null,
   bankName: string | null,
-  systemUserId: string,
+  _systemUserId: string,
 ): Promise<string | null> {
-  // 1. Match exato por advbox_account_id
+  // 1. Match exato por advbox_account_id (fonte primária da verdade)
   if (bankId) {
     const found = contasInfo.find(c => c.advbox_account_id === bankId);
     if (found) return found.id;
   }
 
-  // 2. Fallback: nome normalizado
-  let normalizedName: string | null = null;
+  // 2. Match por nome normalizado contra contas ATIVAS já cadastradas
   if (bankName && bankName.trim()) {
     const { data: normData } = await supabase.rpc('fin_normalize_bank_name', { p_name: bankName });
-    normalizedName = (normData as string | null) || null;
+    const normalizedName = (normData as string | null) || null;
     if (normalizedName) {
       for (const c of contasInfo) {
         const { data: cn } = await supabase.rpc('fin_normalize_bank_name', { p_name: c.nome });
         if (cn === normalizedName) {
-          // Se achou por nome e tem bankId, atualizar advbox_account_id
-          if (bankId && c.advbox_account_id !== bankId) {
+          // Se achou por nome e ainda não tinha advbox_account_id, vincular agora
+          if (bankId && c.advbox_account_id == null) {
             await supabase.from('fin_contas').update({ advbox_account_id: bankId } as never).eq('id', c.id);
             c.advbox_account_id = bankId;
           }
@@ -380,33 +379,9 @@ async function resolveContaId(
     }
   }
 
-  // 3. Auto-criar conta se temos pelo menos um identificador
-  if (bankId || (bankName && bankName.trim())) {
-    const newName = (bankName?.trim()) || `ADVBox #${bankId}`;
-    const { data: newConta, error: createErr } = await supabase
-      .from('fin_contas')
-      .insert({
-        nome: newName,
-        tipo: 'conta_corrente',
-        advbox_account_id: bankId,
-        saldo_inicial: 0,
-        saldo_atual: 0,
-        ativa: true,
-        created_by: systemUserId,
-      } as never)
-      .select('id, nome, advbox_account_id')
-      .single();
-
-    if (!createErr && newConta) {
-      const created = newConta as { id: string; nome: string; advbox_account_id: number | null };
-      contasInfo.push({ id: created.id, nome: created.nome, advbox_account_id: created.advbox_account_id });
-      console.log(`[auto-create] Conta criada: ${created.nome} (advbox_id=${bankId})`);
-      return created.id;
-    } else {
-      console.error('[auto-create] Erro ao criar conta:', createErr?.message);
-    }
-  }
-
+  // 3. SEM MATCH → conta_origem_id = NULL (lançamento órfão para revisão manual)
+  // NUNCA cair em Banco Itaú nem auto-criar conta. Banco Itaú não é lixeira.
+  console.log(`[orphan] Lançamento sem match — bankId=${bankId} bankName="${bankName}" → conta_origem_id=NULL`);
   return null;
 }
 
