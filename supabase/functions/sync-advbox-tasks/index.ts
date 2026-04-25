@@ -180,6 +180,15 @@ Deno.serve(async (req) => {
 
           const { status, completedAt } = determineStatus(task, localCompletedIds);
 
+          // Extrair nome do cliente do raw_data para evitar processamento no front
+          let clientName: string | null = null;
+          const customers = task.lawsuit?.customers;
+          if (Array.isArray(customers) && customers.length > 0) {
+            clientName = customers[0]?.name || null;
+          } else if (customers && typeof customers === 'object' && customers.name) {
+            clientName = customers.name;
+          }
+
           const record: any = {
             advbox_id: task.id,
             title: task.task || 'Sem título',
@@ -192,6 +201,7 @@ Deno.serve(async (req) => {
             lawsuit_id: task.lawsuit?.id || task.lawsuits_id || null,
             task_type: task.task || null,
             task_type_id: task.tasks_id || null,
+            client_name: clientName,
             points: 1,
             raw_data: task,
             synced_at: new Date().toISOString(),
