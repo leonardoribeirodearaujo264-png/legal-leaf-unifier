@@ -81,6 +81,7 @@ import ViabilidadeNovo from "./pages/ViabilidadeNovo";
 import PesquisaHumor from "./pages/PesquisaHumor";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import DistribuicaoTarefas from "./pages/DistribuicaoTarefas";
+import BusinessIntelligence from "./pages/BusinessIntelligence";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 const queryClient = new QueryClient({
@@ -690,6 +691,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <AdvboxConfig />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/business-intelligence"
+              element={
+                <ProtectedRoute>
+                  <BusinessIntelligence />
                 </ProtectedRoute>
               }
             />
