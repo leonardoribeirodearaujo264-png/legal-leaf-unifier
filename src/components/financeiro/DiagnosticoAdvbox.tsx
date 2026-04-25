@@ -139,6 +139,24 @@ export function DiagnosticoAdvbox() {
     }
   };
 
+  const handleForceResync = async () => {
+    setResyncing(true);
+    try {
+      toast.info('Resync ADVBox iniciado (últimos 60 dias)…');
+      const { data, error } = await supabase.functions.invoke('sync-advbox-financial', {
+        body: { force_restart: true, months: 2 },
+      });
+      if (error) throw error;
+      toast.success(`Resync: ${(data as any)?.total_created ?? 0} criados, ${(data as any)?.total_updated ?? 0} atualizados`);
+      await supabase.rpc('fin_force_refresh_dashboard');
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro no resync');
+    } finally {
+      setResyncing(false);
+    }
+  };
+
   const handleToggleWriteback = async (enabled: boolean) => {
     try {
       const { error } = await supabase
