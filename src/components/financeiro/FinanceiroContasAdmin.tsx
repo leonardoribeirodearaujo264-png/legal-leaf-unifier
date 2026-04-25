@@ -22,6 +22,7 @@ interface Conta {
   saldo_atual: number;
   cor: string;
   ativa: boolean;
+  advbox_account_id: number | null;
 }
 
 export function FinanceiroContasAdmin() {
@@ -39,6 +40,7 @@ export function FinanceiroContasAdmin() {
   const [formNumeroConta, setFormNumeroConta] = useState('');
   const [formSaldoInicial, setFormSaldoInicial] = useState('0');
   const [formCor, setFormCor] = useState('#3B82F6');
+  const [formAdvboxId, setFormAdvboxId] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -91,6 +93,7 @@ export function FinanceiroContasAdmin() {
       setFormNumeroConta(conta.numero_conta || '');
       setFormSaldoInicial(conta.saldo_inicial.toString());
       setFormCor(conta.cor);
+      setFormAdvboxId(conta.advbox_account_id ? String(conta.advbox_account_id) : '');
     } else {
       setEditingConta(null);
       setFormNome('');
@@ -100,6 +103,7 @@ export function FinanceiroContasAdmin() {
       setFormNumeroConta('');
       setFormSaldoInicial('0');
       setFormCor('#3B82F6');
+      setFormAdvboxId('');
     }
     setShowDialog(true);
   };
@@ -119,7 +123,8 @@ export function FinanceiroContasAdmin() {
         agencia: formAgencia.trim() || null,
         numero_conta: formNumeroConta.trim() || null,
         saldo_inicial: parseFloat(formSaldoInicial) || 0,
-        cor: formCor
+        cor: formCor,
+        advbox_account_id: formAdvboxId.trim() ? parseInt(formAdvboxId.trim(), 10) : null,
       };
 
       if (editingConta) {
@@ -201,6 +206,7 @@ export function FinanceiroContasAdmin() {
                 <TableHead>Conta</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Banco</TableHead>
+                <TableHead className="text-right">ID ADVBox</TableHead>
                 <TableHead className="text-right">Saldo Inicial</TableHead>
                 <TableHead className="text-right">Saldo Atual</TableHead>
                 <TableHead>Status</TableHead>
@@ -223,6 +229,9 @@ export function FinanceiroContasAdmin() {
                   </TableCell>
                   <TableCell className="capitalize">{conta.tipo}</TableCell>
                   <TableCell>{conta.banco || '-'}</TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {conta.advbox_account_id ?? <span className="text-muted-foreground">—</span>}
+                  </TableCell>
                   <TableCell className="text-right">{formatCurrency(conta.saldo_inicial)}</TableCell>
                   <TableCell className={`text-right font-medium ${
                     conta.saldo_atual >= 0 ? 'text-green-600' : 'text-red-600'
@@ -300,6 +309,19 @@ export function FinanceiroContasAdmin() {
                   onChange={(e) => setFormSaldoInicial(e.target.value)} 
                 />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>ID da conta no ADVBox</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 38615"
+                value={formAdvboxId}
+                onChange={(e) => setFormAdvboxId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vincula esta conta ao ID correspondente no painel ADVBox para que os lançamentos sincronizados sejam atribuídos corretamente.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Cor</Label>
