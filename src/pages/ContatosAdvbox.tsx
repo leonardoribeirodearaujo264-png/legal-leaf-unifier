@@ -1077,12 +1077,19 @@ export default function ContatosAdvbox() {
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <div>
+                        <div className="flex-1 pr-2">
                           <p className="text-sm font-medium">Setor Comercial</p>
                           <p className="text-xs text-muted-foreground">Marcar setor como responsável</p>
+                          {!adminConfig['setor_comercial_chatguru_id'] && (
+                            <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                              <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                              <span>O ChatGuru não possui um usuário "Setor Comercial". Sem o ID, esta atribuição é ignorada automaticamente.</span>
+                            </div>
+                          )}
                         </div>
                         <Switch
-                          checked={adminConfig['setor_comercial_obrigatorio'] !== 'false'}
+                          checked={adminConfig['setor_comercial_obrigatorio'] !== 'false' && !!adminConfig['setor_comercial_chatguru_id']}
+                          disabled={!adminConfig['setor_comercial_chatguru_id']}
                           onCheckedChange={(checked) => updateConfig('setor_comercial_obrigatorio', checked ? 'true' : 'false')}
                         />
                       </div>
