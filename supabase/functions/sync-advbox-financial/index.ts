@@ -930,9 +930,8 @@ serve(async (req) => {
         const { created, updated, skipped } = await processTransactionsBatch(
           supabase,
           items,
-          categoriaMap,
           categorias,
-          contasMap,
+          contasInfo,
           systemUserId
         );
 
