@@ -180,18 +180,26 @@ Deno.serve(async (req) => {
       (t) => t.status === "completed" || t.completed_at
     ).length;
 
-    // 1.2) Atrasadas — pendentes com due_date < hoje (independe do mês selecionado)
+    // 1.2) Atrasadas — pendentes com due_date < hoje (count + amostra para tipos)
     const now = new Date();
-    let atrasadasQuery = supabase
+    // Count exato
+    let atrasadasCountQ = supabase
       .from("advbox_tasks")
-      .select("id, title, due_date, assigned_users, client_name, task_type", { count: "exact" })
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lt("due_date", now.toISOString());
+    if (advogado !== "todos") atrasadasCountQ = atrasadasCountQ.ilike("assigned_users", `%${advogado}%`);
+    const { count: atrasadasCount } = await atrasadasCountQ;
+
+    // Amostra para tipos (até 5000 — suficiente para top 10)
+    let atrasadasSampleQ = supabase
+      .from("advbox_tasks")
+      .select("id, title, due_date, assigned_users, client_name, task_type")
       .eq("status", "pending")
       .lt("due_date", now.toISOString())
-      .limit(20000);
-    if (advogado !== "todos") {
-      atrasadasQuery = atrasadasQuery.ilike("assigned_users", `%${advogado}%`);
-    }
-    const { data: atrasadasData, count: atrasadasCount } = await atrasadasQuery;
+      .range(0, 4999);
+    if (advogado !== "todos") atrasadasSampleQ = atrasadasSampleQ.ilike("assigned_users", `%${advogado}%`);
+    const { data: atrasadasData } = await atrasadasSampleQ;
 
     // 1.3) Prazo fatal próximos 5 dias
     const cincoDias = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
