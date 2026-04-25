@@ -260,17 +260,17 @@ export function FinanceiroExecutivoDashboard() {
       const variacaoLucro = lucroMesAnterior !== 0
         ? ((lucroMesAtual - lucroMesAnterior) / Math.abs(lucroMesAnterior)) * 100 : 0;
 
+      // SoT: fin_contas.saldo_atual já é calculado por fin_calc_saldo_atual.
+      // Toda conta ativa entra no Saldo Total — não há mais "não configurado".
       let contasSaldo: ContaSaldo[] = contas?.map(c => {
         const isAsaas = c.nome?.toLowerCase().includes('asaas') || c.tipo === 'pagamentos';
-        const saldoInicial = Number(c.saldo_inicial) || 0;
-        const saldoConfigurado = isAsaas || saldoInicial !== 0;
         return {
           id: c.id,
           nome: c.nome,
           saldo: Number(c.saldo_atual) || 0,
           cor: c.cor || '#3B82F6',
           isAsaas,
-          saldoConfigurado
+          saldoConfigurado: true
         };
       }) || [];
 
