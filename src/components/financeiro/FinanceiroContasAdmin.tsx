@@ -311,6 +311,19 @@ export function FinanceiroContasAdmin() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label>ID da conta no ADVBox</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 38615"
+                value={formAdvboxId}
+                onChange={(e) => setFormAdvboxId(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vincula esta conta ao ID correspondente no painel ADVBox para que os lançamentos sincronizados sejam atribuídos corretamente.
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label>Cor</Label>
               <div className="flex gap-2">
                 <Input 
