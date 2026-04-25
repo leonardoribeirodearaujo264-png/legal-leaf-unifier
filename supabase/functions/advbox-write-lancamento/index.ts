@@ -75,11 +75,62 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  if (!body.lancamento_id) {
+  if (!body.lancamento_id && !body.create_test_record) {
     return new Response(
-      JSON.stringify({ error: 'lancamento_id is required' }),
+      JSON.stringify({ error: 'lancamento_id is required (or set create_test_record=true)' }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+  }
+
+  // Caso especial: criar lançamento de teste R$ 1,00 (bypassa RLS via service role)
+  let lancamentoId: string | undefined = body.lancamento_id;
+
+  if (body.create_test_record) {
+    const { data: contaAsaas, error: contaErr } = await supabase
+      .from('fin_contas')
+      .select('id')
+      .ilike('nome', '%asaas%')
+      .limit(1)
+      .maybeSingle();
+
+    if (contaErr || !contaAsaas) {
+      return new Response(
+        JSON.stringify({ error: 'Conta Asaas nao encontrada para teste' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: testLanc, error: insertErr } = await supabase
+      .from('fin_lancamentos')
+      .insert({
+        tipo: 'receita',
+        valor: 1.00,
+        descricao: 'TESTE WRITEBACK ADVBox - ' + new Date().toISOString(),
+        data_vencimento: today,
+        data_pagamento: today,
+        status: 'pago',
+        conta_origem_id: contaAsaas.id,
+        observacoes: 'Lancamento de teste do writeback bidirecional',
+        created_by: triggeredBy,
+      })
+      .select('id')
+      .single();
+
+    if (insertErr || !testLanc) {
+      const msg = insertErr?.message || 'Falha ao criar lancamento de teste';
+      await logWriteback(supabase, {
+        status: 'error',
+        error_message: 'create_test_record: ' + msg,
+        triggered_by: triggeredBy,
+      });
+      return new Response(
+        JSON.stringify({ success: false, error: msg }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    lancamentoId = testLanc.id;
   }
 
   // Carregar settings
