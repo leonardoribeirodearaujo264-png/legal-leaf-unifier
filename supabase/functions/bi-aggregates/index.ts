@@ -1,6 +1,20 @@
-// Edge function read-only que consolida agregados do ADVBox para a página /business-intelligence.
-// Lê advbox_dashboard_cache (JSONB) + advbox_tasks (table) e devolve KPIs + séries
-// já calculados no servidor para evitar baixar 12k+ registros no cliente.
+// =====================================================================
+// BI AGGREGATES — espelha /managementV2 do ADVBox.
+// Edge function read-only que entrega KPIs e séries para a página
+// /business-intelligence da intranet.
+//
+// Fontes:
+//   - advbox_dashboard_cache  (lawsuits + movements em JSONB)
+//   - advbox_tasks            (tabela com 13k+ registros)
+//   - fin_lancamentos         (custos do escritório, despesas pagas)
+//
+// Filtros aceitos via query string:
+//   - mes (YYYY-MM)            -> default = mês corrente
+//   - advogado (nome | "todos") -> default = todos
+//   - sort_by (pontos|atividades|tempo|honorarios|custos)
+//
+// IMPORTANTE: nada de LIMIT artificial. Sem cap em 1000.
+// =====================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -9,12 +23,12 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Paleta de cores oficial das fases do ADVBox (espelhada na intranet)
+// Paleta oficial das fases ADVBox (espelhada na intranet)
 const STAGE_COLORS = {
-  prospeccao: "#8B5CF6", // roxo
-  producao: "#3B82F6",   // azul
-  execucao: "#10B981",   // verde
-  rotacao: "#F59E0B",    // âmbar
+  prospeccao: "#8B5CF6",
+  producao: "#3B82F6",
+  execucao: "#10B981",
+  rotacao: "#F59E0B",
 };
 
 interface Lawsuit {
@@ -31,16 +45,13 @@ interface Lawsuit {
   exit_execution: string | null;
   status_closure: string | null;
   customers: Array<{ name: string }> | null;
+  archived?: boolean | number | null;
+  state?: string | null;
 }
 
-interface Movement {
-  date: string | null;
-  title: string | null;
-  lawsuit_id: number | null;
-  customers: string | null;
-}
+// ---------- helpers ----------
 
-// Determina a fase atual de um processo conforme regra ADVBox
+// Stage atual do processo conforme regra ADVBox
 function getStage(l: Lawsuit): "prospeccao" | "producao" | "execucao" | "rotacao" | "concluido" {
   if (l.status_closure) return "concluido";
   if (l.exit_execution) return "rotacao";
@@ -49,7 +60,7 @@ function getStage(l: Lawsuit): "prospeccao" | "producao" | "execucao" | "rotacao
   return "prospeccao";
 }
 
-// Calcula meses entre duas datas (positivo)
+// Diferença em meses (sempre positivo). Usa 30.44 dias por mês.
 function monthsBetween(a: string | null, b: string | null): number {
   if (!a || !b) return 0;
   const da = new Date(a).getTime();
@@ -58,6 +69,30 @@ function monthsBetween(a: string | null, b: string | null): number {
   return Math.max(0, (db - da) / (1000 * 60 * 60 * 24 * 30.44));
 }
 
+// Parse "YYYY-MM" -> { inicio, fim } no fuso local UTC
+function parseMonth(mes: string | null): { inicio: Date; fim: Date; label: string } {
+  const now = new Date();
+  let y = now.getUTCFullYear();
+  let m = now.getUTCMonth(); // 0-11
+  if (mes && /^\d{4}-\d{2}$/.test(mes)) {
+    const [yy, mm] = mes.split("-").map(Number);
+    y = yy;
+    m = mm - 1;
+  }
+  const inicio = new Date(Date.UTC(y, m, 1, 0, 0, 0));
+  const fim = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59));
+  const label = `${String(m + 1).padStart(2, "0")}/${y}`;
+  return { inicio, fim, label };
+}
+
+// Comparador de datas seguro
+function dentroDoMes(d: string | null, ini: Date, fim: Date): boolean {
+  if (!d) return false;
+  const dt = new Date(d).getTime();
+  return !isNaN(dt) && dt >= ini.getTime() && dt <= fim.getTime();
+}
+
+// =====================================================================
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -70,25 +105,14 @@ Deno.serve(async (req) => {
     );
 
     const url = new URL(req.url);
-    const periodo = url.searchParams.get("periodo") || "mes"; // mes | trimestre | ano | custom
+    const mesParam = url.searchParams.get("mes"); // YYYY-MM
     const advogado = url.searchParams.get("advogado") || "todos";
-    const dataInicio = url.searchParams.get("data_inicio");
-    const dataFim = url.searchParams.get("data_fim");
+    const sortBy = url.searchParams.get("sort_by") || "pontos";
+    const { inicio, fim, label } = parseMonth(mesParam);
 
-    // Período de filtro padrão: mês atual
-    const now = new Date();
-    let inicio = new Date(now.getFullYear(), now.getMonth(), 1);
-    let fim = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-    if (periodo === "trimestre") {
-      inicio = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    } else if (periodo === "ano") {
-      inicio = new Date(now.getFullYear(), 0, 1);
-    } else if (periodo === "custom" && dataInicio && dataFim) {
-      inicio = new Date(dataInicio);
-      fim = new Date(dataFim);
-    }
-
-    // 1) Carrega cache do dashboard (JSONB com lawsuits e movements)
+    // -----------------------------------------------------------------
+    // 1) Carrega cache (lawsuits + movements em JSONB)
+    // -----------------------------------------------------------------
     const { data: cache, error: cacheErr } = await supabase
       .from("advbox_dashboard_cache")
       .select("lawsuits_data, movements_data, total_lawsuits, total_movements, updated_at")
@@ -98,159 +122,366 @@ Deno.serve(async (req) => {
     if (cacheErr) throw cacheErr;
 
     const lawsuits: Lawsuit[] = (cache?.lawsuits_data as Lawsuit[]) || [];
-    const movements: Movement[] = (cache?.movements_data as Movement[]) || [];
 
-    // Filtro por advogado (se aplicável)
+    // Filtro por advogado responsável
     const lawsuitsFiltradas = advogado === "todos"
       ? lawsuits
       : lawsuits.filter((l) => (l.responsible || "").trim() === advogado);
 
-    // ============= ABA 1: PRODUTIVIDADE =============
-    // Busca tarefas no período
-    const { data: tasksMes } = await supabase
-      .from("advbox_tasks")
-      .select("id, status, points, completed_at, due_date, assigned_users")
-      .gte("due_date", inicio.toISOString())
-      .lte("due_date", fim.toISOString());
+    // -----------------------------------------------------------------
+    // Lista de meses disponíveis (dropdown frontend)
+    // baseado em created_at das lawsuits
+    // -----------------------------------------------------------------
+    const mesesSet = new Set<string>();
+    for (const l of lawsuits) {
+      if (l.created_at) {
+        const d = new Date(l.created_at);
+        if (!isNaN(d.getTime())) {
+          mesesSet.add(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+        }
+      }
+    }
+    const mesesDisponiveis = Array.from(mesesSet).sort().reverse(); // mais recente primeiro
 
-    const tasksConcluidas = (tasksMes || []).filter(
+    // =================================================================
+    // ABA 1 — PRODUTIVIDADE (KPIs ADVBox: atribuídas, concluídas, atrasadas, prazo fatal 5d)
+    // =================================================================
+
+    // 1.1) Tarefas com due_date no mês selecionado
+    // CRÍTICO: PostgREST tem cap default 1000. Usamos .range() em loop para buscar TUDO.
+    async function fetchAllTasks(filter: (q: any) => any): Promise<any[]> {
+      const all: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        let q = supabase
+          .from("advbox_tasks")
+          .select("id, status, points, completed_at, due_date, assigned_users, task_type, lawsuit_id, raw_data")
+          .range(offset, offset + pageSize - 1);
+        q = filter(q);
+        const { data, error } = await q;
+        if (error) { console.error("[BI] fetchAllTasks erro:", error); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+        if (offset > 50000) break; // failsafe
+      }
+      return all;
+    }
+    const tasksMes = await fetchAllTasks((q) => {
+      let qq = q.gte("due_date", inicio.toISOString()).lte("due_date", fim.toISOString());
+      if (advogado !== "todos") qq = qq.ilike("assigned_users", `%${advogado}%`);
+      return qq;
+    });
+
+    const tasksAtribuidas = tasksMes.length;
+    const tasksConcluidas = tasksMes.filter(
       (t) => t.status === "completed" || t.completed_at
-    );
-    const totalPontos = tasksConcluidas.reduce(
-      (s, t) => s + (t.points || 0),
-      0
-    );
-    // Ganhos/perdas: usar status_closure no período + indicador positivo (fees_money > 0 = ganho)
-    const ganhos = lawsuitsFiltradas.filter((l) => {
-      if (!l.status_closure) return false;
-      const d = new Date(l.status_closure);
-      return d >= inicio && d <= fim && Number(l.fees_money || 0) > 0;
-    }).length;
-    const perdas = lawsuitsFiltradas.filter((l) => {
-      if (!l.status_closure) return false;
-      const d = new Date(l.status_closure);
-      return d >= inicio && d <= fim && Number(l.fees_money || 0) === 0;
-    }).length;
+    ).length;
 
-    // Série semanal (últimas 7 semanas)
-    const serieSemanal: Array<{ semana: string; concluidas: number; pontos: number }> = [];
-    for (let i = 6; i >= 0; i--) {
-      const semFim = new Date(now);
-      semFim.setDate(semFim.getDate() - i * 7);
-      const semIni = new Date(semFim);
-      semIni.setDate(semIni.getDate() - 6);
-      const { data: weekTasks } = await supabase
+    // 1.2) Atrasadas — pendentes com due_date < hoje (count + amostra para tipos)
+    const now = new Date();
+    // Count exato
+    let atrasadasCountQ = supabase
+      .from("advbox_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .lt("due_date", now.toISOString());
+    if (advogado !== "todos") atrasadasCountQ = atrasadasCountQ.ilike("assigned_users", `%${advogado}%`);
+    const { count: atrasadasCount } = await atrasadasCountQ;
+
+    // Amostra para tipos (até 5000 — suficiente para top 10)
+    let atrasadasSampleQ = supabase
+      .from("advbox_tasks")
+      .select("id, title, due_date, assigned_users, client_name, task_type")
+      .eq("status", "pending")
+      .lt("due_date", now.toISOString())
+      .range(0, 4999);
+    if (advogado !== "todos") atrasadasSampleQ = atrasadasSampleQ.ilike("assigned_users", `%${advogado}%`);
+    const { data: atrasadasData } = await atrasadasSampleQ;
+
+    // 1.3) Prazo fatal próximos 5 dias
+    const cincoDias = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    let prazoFatalQuery = supabase
+      .from("advbox_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending")
+      .gte("due_date", now.toISOString())
+      .lte("due_date", cincoDias.toISOString());
+    if (advogado !== "todos") {
+      prazoFatalQuery = prazoFatalQuery.ilike("assigned_users", `%${advogado}%`);
+    }
+    const { count: prazoFatalCount } = await prazoFatalQuery;
+
+    // 1.4) Agregação por TIPO de tarefa atrasada (tabela ADVBox)
+    const tipoMap = new Map<string, number>();
+    for (const a of atrasadasData || []) {
+      const tipo = (a.task_type || "Sem tipo").trim();
+      tipoMap.set(tipo, (tipoMap.get(tipo) || 0) + 1);
+    }
+    const atrasadasPorTipo = Array.from(tipoMap.entries())
+      .map(([tipo, qtd]) => ({ tipo, qtd }))
+      .sort((a, b) => b.qtd - a.qtd)
+      .slice(0, 10);
+
+    // 1.5) Série semanal: tarefas atribuídas vs concluídas (S T Q Q S do mês selecionado)
+    // Pegamos a SEMANA atual dentro do mês (segunda a sexta).
+    const hojeUTC = new Date();
+    const dow = hojeUTC.getUTCDay() || 7; // 1..7
+    const seg = new Date(hojeUTC);
+    seg.setUTCDate(hojeUTC.getUTCDate() - (dow - 1));
+    seg.setUTCHours(0, 0, 0, 0);
+    const semanaSerie: Array<{ dia: string; atribuidas: number; concluidas: number }> = [];
+    const diasLabel = ["S", "T", "Q", "Q", "S"];
+    for (let i = 0; i < 5; i++) {
+      const dia = new Date(seg);
+      dia.setUTCDate(seg.getUTCDate() + i);
+      const diaFim = new Date(dia);
+      diaFim.setUTCHours(23, 59, 59);
+      let atribuidasQ = supabase
         .from("advbox_tasks")
-        .select("id, points")
-        .gte("completed_at", semIni.toISOString())
-        .lte("completed_at", semFim.toISOString());
-      const concluidas = (weekTasks || []).length;
-      const pontos = (weekTasks || []).reduce((s, t) => s + (t.points || 0), 0);
-      serieSemanal.push({
-        semana: `${semIni.getDate()}/${semIni.getMonth() + 1}`,
-        concluidas,
-        pontos,
+        .select("id", { count: "exact", head: true })
+        .gte("due_date", dia.toISOString())
+        .lte("due_date", diaFim.toISOString());
+      let concluidasQ = supabase
+        .from("advbox_tasks")
+        .select("id", { count: "exact", head: true })
+        .gte("completed_at", dia.toISOString())
+        .lte("completed_at", diaFim.toISOString());
+      if (advogado !== "todos") {
+        atribuidasQ = atribuidasQ.ilike("assigned_users", `%${advogado}%`);
+        concluidasQ = concluidasQ.ilike("assigned_users", `%${advogado}%`);
+      }
+      const [{ count: atrCount }, { count: concCount }] = await Promise.all([
+        atribuidasQ, concluidasQ,
+      ]);
+      semanaSerie.push({
+        dia: diasLabel[i],
+        atribuidas: atrCount || 0,
+        concluidas: concCount || 0,
       });
     }
 
-    // Top advogados (agregados por nome)
-    const advogadoMap = new Map<string, { tarefas: number; pontos: number; concluidas: number }>();
+    // 1.6) Ranking por advogado (cards individuais)
+    // Agrupa todas as tarefas do mês por usuário (assigned_users.split(",")[0])
+    const advogadoMap = new Map<string, { tarefas: number; pontos: number; concluidas: number; atrasadas: number; primeira: string | null }>();
     for (const t of tasksMes || []) {
-      const nome = (t.assigned_users || "").split(",")[0]?.trim();
-      if (!nome) continue;
-      const cur = advogadoMap.get(nome) || { tarefas: 0, pontos: 0, concluidas: 0 };
-      cur.tarefas += 1;
-      cur.pontos += t.points || 0;
-      if (t.status === "completed" || t.completed_at) cur.concluidas += 1;
-      advogadoMap.set(nome, cur);
-    }
-    const advogadosRanking = Array.from(advogadoMap.entries())
-      .map(([nome, v]) => ({ nome, ...v }))
-      .sort((a, b) => b.pontos - a.pontos)
-      .slice(0, 12);
+      // ADVBox manda múltiplos responsáveis em raw_data.users
+      const users = (t.raw_data as any)?.users || [];
+      const nomes: string[] = users.length > 0
+        ? users.map((u: any) => u.name).filter(Boolean)
+        : (t.assigned_users || "").split(",").map((s: string) => s.trim()).filter(Boolean);
 
-    // Tarefas mais atrasadas (top 5)
-    const { data: atrasadas } = await supabase
+      for (const nome of nomes) {
+        const cur = advogadoMap.get(nome) || { tarefas: 0, pontos: 0, concluidas: 0, atrasadas: 0, primeira: null };
+        cur.tarefas += 1;
+        cur.pontos += t.points || 0;
+        const userObj = users.find((u: any) => u.name === nome);
+        if ((t.status === "completed" && t.completed_at) || userObj?.completed) {
+          cur.concluidas += 1;
+        }
+        if (t.status === "pending" && t.due_date && new Date(t.due_date) < now) {
+          cur.atrasadas += 1;
+        }
+        if (!cur.primeira || (t.due_date && t.due_date < cur.primeira)) {
+          cur.primeira = t.due_date;
+        }
+        advogadoMap.set(nome, cur);
+      }
+    }
+    let advogadosRanking = Array.from(advogadoMap.entries()).map(([nome, v]) => {
+      const taxa = v.tarefas > 0 ? (v.concluidas / v.tarefas) * 100 : 0;
+      const media = v.tarefas > 0 ? v.pontos / v.tarefas : 0;
+      return { nome, ...v, taxa_conclusao: taxa, media_pontos: media };
+    });
+
+    // Ordenação dinâmica conforme filtro Classificar por
+    advogadosRanking.sort((a, b) => {
+      switch (sortBy) {
+        case "atividades": return b.tarefas - a.tarefas;
+        case "tempo": return b.atrasadas - a.atrasadas;
+        case "honorarios": return b.media_pontos - a.media_pontos;
+        case "custos": return a.tarefas - b.tarefas; // inverso
+        case "pontos":
+        default: return b.pontos - a.pontos;
+      }
+    });
+    advogadosRanking = advogadosRanking.slice(0, 18);
+
+    // 1.7) Atividades recentes (últimas 8 tarefas concluídas no mês)
+    let recentesQ = supabase
       .from("advbox_tasks")
-      .select("title, due_date, assigned_users, client_name")
-      .eq("status", "pending")
-      .lt("due_date", now.toISOString())
-      .order("due_date", { ascending: true })
-      .limit(5);
+      .select("title, completed_at, assigned_users, task_type, client_name")
+      .eq("status", "completed")
+      .not("completed_at", "is", null)
+      .gte("completed_at", inicio.toISOString())
+      .lte("completed_at", fim.toISOString())
+      .order("completed_at", { ascending: false })
+      .limit(8);
+    if (advogado !== "todos") {
+      recentesQ = recentesQ.ilike("assigned_users", `%${advogado}%`);
+    }
+    const { data: recentes } = await recentesQ;
 
     const produtividade = {
       kpis: {
-        atividades_concluidas: tasksConcluidas.length,
-        pontos: totalPontos,
-        ganhos,
-        perdas,
+        atribuidas: tasksAtribuidas,
+        concluidas: tasksConcluidas,
+        atrasadas: atrasadasCount || 0,
+        prazo_fatal_5d: prazoFatalCount || 0,
       },
-      serie_semanal: serieSemanal,
+      progresso_mes: {
+        concluidas: tasksConcluidas,
+        atribuidas: tasksAtribuidas,
+        percentual: tasksAtribuidas > 0 ? (tasksConcluidas / tasksAtribuidas) * 100 : 0,
+      },
+      semana_serie: semanaSerie,
+      atrasadas_por_tipo: atrasadasPorTipo,
       advogados: advogadosRanking,
-      atrasadas: (atrasadas || []).map((t) => ({
-        titulo: t.title,
-        cliente: t.client_name,
-        responsavel: t.assigned_users,
-        dias_atraso: Math.floor(
-          (now.getTime() - new Date(t.due_date).getTime()) / (1000 * 60 * 60 * 24)
-        ),
+      recentes: (recentes || []).map((r) => ({
+        titulo: r.title,
+        responsavel: (r.assigned_users || "").split(",")[0]?.trim(),
+        tipo: r.task_type,
+        cliente: r.client_name,
+        completado_em: r.completed_at,
       })),
     };
 
-    // ============= ABA 2: ESTOQUE E PROSPECÇÃO =============
+    // =================================================================
+    // ABA 2 — ESTOQUE & PROSPECÇÃO
+    // KPIs ADVBox: oportunidades do mês, processos ativos, arquivados, +120d parados
+    // =================================================================
+
+    // Oportunidades do mês = lawsuits criadas no mês
+    let oportunidadesMes = 0;
+    // Mês anterior para delta %
+    const mesAntInicio = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth() - 1, 1));
+    const mesAntFim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), 0, 23, 59, 59));
+    let oportunidadesMesAnt = 0;
+
+    let processosAtivos = 0;
+    let processosArquivados = 0;
+    let processos120Parados = 0;
+    let fechamentosMes = 0;
+    let fechamentosMesAnt = 0;
+    const limite120 = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
+
+    // Contadores por fase
     const fasesCount = { prospeccao: 0, producao: 0, execucao: 0, rotacao: 0, concluido: 0 };
     const areaCount = new Map<string, number>();
+
+    // Para "oportunidades por grupo" e "oportunidades por período"
+    const grupoMap = new Map<string, { oportunidades: number; fechamentos: number }>();
+
     for (const l of lawsuitsFiltradas) {
       const stage = getStage(l);
       fasesCount[stage]++;
       const area = l.group || "Outros";
       areaCount.set(area, (areaCount.get(area) || 0) + 1);
+
+      // Oportunidades do mês (created_at)
+      if (l.created_at) {
+        const d = new Date(l.created_at);
+        if (dentroDoMes(l.created_at, inicio, fim)) {
+          oportunidadesMes++;
+          const cur = grupoMap.get(area) || { oportunidades: 0, fechamentos: 0 };
+          cur.oportunidades++;
+          grupoMap.set(area, cur);
+        }
+        if (dentroDoMes(l.created_at, mesAntInicio, mesAntFim)) {
+          oportunidadesMesAnt++;
+        }
+      }
+
+      // Fechamentos = lawsuits encerradas no mês
+      if (l.status_closure) {
+        if (dentroDoMes(l.status_closure, inicio, fim)) {
+          fechamentosMes++;
+          const cur = grupoMap.get(area) || { oportunidades: 0, fechamentos: 0 };
+          cur.fechamentos++;
+          grupoMap.set(area, cur);
+        }
+        if (dentroDoMes(l.status_closure, mesAntInicio, mesAntFim)) {
+          fechamentosMesAnt++;
+        }
+      }
+
+      // Processos ativos = não concluídos e não arquivados
+      const arquivado = l.archived === true || l.archived === 1 || l.state === "arquivado";
+      if (!l.status_closure && !arquivado) processosAtivos++;
+      if (arquivado || l.status_closure) processosArquivados++;
+
+      // +120 dias parados (sem movimento — usamos exit_production/exit_execution mais recente)
+      const ultimaMov = l.exit_execution || l.exit_production || l.process_date || l.created_at;
+      if (ultimaMov && new Date(ultimaMov) < limite120 && !l.status_closure && !arquivado) {
+        processos120Parados++;
+      }
     }
+
+    const totalAtivo = fasesCount.prospeccao + fasesCount.producao + fasesCount.execucao + fasesCount.rotacao;
+    const pct = (n: number) => totalAtivo > 0 ? (n / totalAtivo) * 100 : 0;
+
     const areas = Array.from(areaCount.entries())
       .map(([area, qtd]) => ({ area, qtd }))
       .sort((a, b) => b.qtd - a.qtd)
       .slice(0, 12);
 
-    // Fechamentos do mês = lawsuits com status_closure no período
-    const fechamentos = lawsuitsFiltradas.filter((l) => {
-      if (!l.status_closure) return false;
-      const d = new Date(l.status_closure);
-      return d >= inicio && d <= fim;
-    }).length;
-
-    // Evolução mensal (últimos 12 meses) - novos cadastros
+    // Evolução mensal (últimos 12 meses)
     const evolucao: Array<{ mes: string; novos: number; concluidos: number }> = [];
     for (let i = 11; i >= 0; i--) {
-      const mIni = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const mFim = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      const mIni = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const mFim = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i + 1, 0, 23, 59, 59));
       let novos = 0, concluidos = 0;
       for (const l of lawsuitsFiltradas) {
-        if (l.created_at) {
-          const d = new Date(l.created_at);
-          if (d >= mIni && d <= mFim) novos++;
-        }
-        if (l.status_closure) {
-          const d = new Date(l.status_closure);
-          if (d >= mIni && d <= mFim) concluidos++;
-        }
+        if (dentroDoMes(l.created_at, mIni, mFim)) novos++;
+        if (dentroDoMes(l.status_closure, mIni, mFim)) concluidos++;
       }
       evolucao.push({
-        mes: `${mIni.getMonth() + 1}/${String(mIni.getFullYear()).slice(2)}`,
+        mes: `${String(mIni.getUTCMonth() + 1).padStart(2, "0")}/${String(mIni.getUTCFullYear()).slice(2)}`,
         novos,
         concluidos,
       });
     }
 
+    // Resumo da carteira (mini cards com sparkline básico)
+    // Variação % vs mês anterior
+    const deltaPercent = (atual: number, ant: number) =>
+      ant > 0 ? ((atual - ant) / ant) * 100 : 0;
+
     const estoque = {
       kpis: {
-        em_prospeccao: fasesCount.prospeccao,
-        em_producao: fasesCount.producao,
-        em_execucao: fasesCount.execucao,
-        em_rotacao: fasesCount.rotacao,
+        oportunidades_mes: oportunidadesMes,
+        oportunidades_delta: deltaPercent(oportunidadesMes, oportunidadesMesAnt),
+        processos_ativos: processosAtivos,
+        processos_arquivados: processosArquivados,
+        processos_120_parados: processos120Parados,
       },
-      fechamentos,
+      resumo_carteira: {
+        fechamentos: { valor: fechamentosMes, delta: deltaPercent(fechamentosMes, fechamentosMesAnt) },
+        em_atendimento: {
+          valor: fasesCount.prospeccao,
+          percentual: pct(fasesCount.prospeccao),
+          delta: 0, // não temos histórico de fase
+        },
+        em_producao: {
+          valor: fasesCount.producao,
+          percentual: pct(fasesCount.producao),
+          delta: 0,
+        },
+        em_execucao: {
+          valor: fasesCount.execucao,
+          percentual: pct(fasesCount.execucao),
+          delta: 0,
+        },
+      },
+      por_grupo_acao: Array.from(grupoMap.entries())
+        .map(([grupo, v]) => ({ grupo, ...v }))
+        .sort((a, b) => b.oportunidades + b.fechamentos - (a.oportunidades + a.fechamentos))
+        .slice(0, 10),
+      por_periodo: evolucao, // reusa a série de 12 meses
+      taxa_conversao: oportunidadesMes > 0 ? (fechamentosMes / oportunidadesMes) * 100 : 0,
       areas,
-      evolucao,
       composicao: [
         { fase: "Prospecção", qtd: fasesCount.prospeccao, cor: STAGE_COLORS.prospeccao },
         { fase: "Produção", qtd: fasesCount.producao, cor: STAGE_COLORS.producao },
@@ -259,12 +490,24 @@ Deno.serve(async (req) => {
       ],
     };
 
-    // ============= ABA 3: TEMPO E HONORÁRIOS =============
-    // Tempo médio em cada fase (em meses)
+    // =================================================================
+    // ABA 3 — TEMPO & HONORÁRIOS
+    // CRÍTICO: usar AVG (não SUM) e meses (não dias)
+    // =================================================================
     let tProsp = 0, tProd = 0, tExec = 0, tRot = 0;
     let cProsp = 0, cProd = 0, cExec = 0, cRot = 0;
     let totalFees = 0, countFees = 0;
-    const honorariosPorGrupo = new Map<string, { total: number; count: number; tempoTotal: number }>();
+    let somaTempoTotal = 0, countTempoTotal = 0;
+    const honorariosPorGrupo = new Map<string, { total: number; count: number; tempoTotal: number; tempoCount: number }>();
+
+    // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
+    // Lawsuits com process_date legado/zerado geram valores absurdos (ex: 81 meses em produção).
+    const MAX_M = 120;
+    const safeMonths = (a: string | null, b: string | null): number | null => {
+      const v = monthsBetween(a, b);
+      if (v <= 0 || v > MAX_M) return null;
+      return v;
+    };
 
     for (const l of lawsuitsFiltradas) {
       const fee = Number(l.fees_money || 0);
@@ -272,65 +515,51 @@ Deno.serve(async (req) => {
         totalFees += fee;
         countFees++;
       }
-      // Prospecção -> Produção
-      if (l.created_at && l.process_date) {
-        tProsp += monthsBetween(l.created_at, l.process_date);
-        cProsp++;
-      }
-      // Produção -> Execução
-      if (l.process_date && l.exit_production) {
-        tProd += monthsBetween(l.process_date, l.exit_production);
-        cProd++;
-      }
-      // Execução -> Rotação
-      if (l.exit_production && l.exit_execution) {
-        tExec += monthsBetween(l.exit_production, l.exit_execution);
-        cExec++;
-      }
-      // Rotação -> Encerramento
-      if (l.exit_execution && l.status_closure) {
-        tRot += monthsBetween(l.exit_execution, l.status_closure);
-        cRot++;
-      }
-      // Tempo total p/ grupo de ação
+
+      const v1 = safeMonths(l.created_at, l.process_date);
+      if (v1 !== null) { tProsp += v1; cProsp++; }
+      const v2 = safeMonths(l.process_date, l.exit_production);
+      if (v2 !== null) { tProd += v2; cProd++; }
+      const v3 = safeMonths(l.exit_production, l.exit_execution);
+      if (v3 !== null) { tExec += v3; cExec++; }
+      const v4 = safeMonths(l.exit_execution, l.status_closure);
+      if (v4 !== null) { tRot += v4; cRot++; }
+
+      const vTot = safeMonths(l.created_at, l.status_closure);
+      if (vTot !== null) { somaTempoTotal += vTot; countTempoTotal++; }
+
       const grp = l.group || "Outros";
-      const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0 };
-      if (fee > 0) {
-        cur.total += fee;
-        cur.count++;
-      }
-      if (l.created_at && l.status_closure) {
-        cur.tempoTotal += monthsBetween(l.created_at, l.status_closure);
-      }
+      const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
+      if (fee > 0) { cur.total += fee; cur.count++; }
+      if (vTot !== null) { cur.tempoTotal += vTot; cur.tempoCount++; }
       honorariosPorGrupo.set(grp, cur);
     }
 
     const honorarioMedio = countFees > 0 ? totalFees / countFees : 0;
-    const tempoMedio = (
-      (cProsp ? tProsp / cProsp : 0) +
-      (cProd ? tProd / cProd : 0) +
-      (cExec ? tExec / cExec : 0) +
-      (cRot ? tRot / cRot : 0)
-    );
+    const tempoMedio = countTempoTotal > 0 ? somaTempoTotal / countTempoTotal : 0;
+    const honorarioMes = tempoMedio > 0 ? honorarioMedio / tempoMedio : 0;
+
+    // Médias REAIS por estágio
+    const stages = {
+      prospeccao: cProsp > 0 ? tProsp / cProsp : 0,
+      producao: cProd > 0 ? tProd / cProd : 0,
+      execucao: cExec > 0 ? tExec / cExec : 0,
+      rotacao: cRot > 0 ? tRot / cRot : 0,
+    };
 
     const tempo = {
-      stages: {
-        prospeccao: cProsp ? tProsp / cProsp : 0,
-        producao: cProd ? tProd / cProd : 0,
-        execucao: cExec ? tExec / cExec : 0,
-        rotacao: cRot ? tRot / cRot : 0,
-      },
+      stages,
       kpis: {
         honorario_medio: honorarioMedio,
-        honorario_mes: tempoMedio > 0 ? honorarioMedio / tempoMedio : 0,
+        honorario_mes: honorarioMes,
         tempo_medio_meses: tempoMedio,
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
         .map(([grupo, v]) => ({
           grupo,
-          media_meses: v.count > 0 ? v.tempoTotal / v.count : 0,
+          media_meses: v.tempoCount > 0 ? v.tempoTotal / v.tempoCount : 0,
           media_honorario: v.count > 0 ? v.total / v.count : 0,
-          mensal: v.tempoTotal > 0 ? v.total / v.tempoTotal : 0,
+          mensal: v.tempoCount > 0 && v.count > 0 ? (v.total / v.count) / (v.tempoTotal / v.tempoCount) : 0,
           count: v.count,
         }))
         .filter((g) => g.count >= 5)
@@ -338,8 +567,9 @@ Deno.serve(async (req) => {
         .slice(0, 15),
     };
 
-    // ============= ABA 4: CUSTOS =============
-    // Custos: lê fin_lancamentos do período (despesas) + categoriza
+    // =================================================================
+    // ABA 4 — CUSTOS (custo total do mês × proporção tempo médio × volume)
+    // =================================================================
     const { data: despesas } = await supabase
       .from("fin_lancamentos")
       .select("valor, categoria_id, fin_categorias!fin_lancamentos_categoria_id_fkey(nome, grupo)")
@@ -358,25 +588,53 @@ Deno.serve(async (req) => {
       grupoCustos.set(grupo, (grupoCustos.get(grupo) || 0) + valor);
       totalCustos += valor;
     }
-    // Distribui custo entre fases proporcionalmente ao volume de lawsuits
-    const totalProcessos = fasesCount.prospeccao + fasesCount.producao + fasesCount.execucao + fasesCount.rotacao;
-    const custoPorPonto = totalPontos > 0 ? totalCustos / totalPontos : 0;
+
+    // Distribuição: custo por estágio = total × peso(estágio)
+    // Peso = (tempo_medio_estágio × volume_estágio) / Σ pesos
+    const pesos = {
+      prospeccao: stages.prospeccao * fasesCount.prospeccao,
+      producao: stages.producao * fasesCount.producao,
+      execucao: stages.execucao * fasesCount.execucao,
+      rotacao: stages.rotacao * fasesCount.rotacao,
+    };
+    const somaPesos = pesos.prospeccao + pesos.producao + pesos.execucao + pesos.rotacao;
+
+    // Custo total por estágio / volume = custo médio por processo no estágio
+    function custoEstagio(peso: number, volume: number): number {
+      if (somaPesos === 0 || volume === 0) return 0;
+      const totalEstagio = totalCustos * (peso / somaPesos);
+      return totalEstagio / volume;
+    }
+
+    // Total de pontos do mês para custo/ponto
+    let pontosMes = 0;
+    for (const t of tasksMes || []) {
+      if (t.status === "completed" || t.completed_at) pontosMes += t.points || 0;
+    }
+    const custoPorPonto = pontosMes > 0 ? totalCustos / pontosMes : 0;
+
     const custos = {
       kpis: {
-        prospeccao: totalProcessos ? (totalCustos * fasesCount.prospeccao / totalProcessos) / Math.max(fasesCount.prospeccao, 1) : 0,
-        producao: totalProcessos ? (totalCustos * fasesCount.producao / totalProcessos) / Math.max(fasesCount.producao, 1) : 0,
-        execucao: totalProcessos ? (totalCustos * fasesCount.execucao / totalProcessos) / Math.max(fasesCount.execucao, 1) : 0,
-        rotacao: totalProcessos ? (totalCustos * fasesCount.rotacao / totalProcessos) / Math.max(fasesCount.rotacao, 1) : 0,
+        prospeccao: custoEstagio(pesos.prospeccao, fasesCount.prospeccao),
+        producao: custoEstagio(pesos.producao, fasesCount.producao),
+        execucao: custoEstagio(pesos.execucao, fasesCount.execucao),
+        rotacao: custoEstagio(pesos.rotacao, fasesCount.rotacao),
         custo_por_ponto: custoPorPonto,
       },
       grupos: Array.from(grupoCustos.entries())
-        .map(([grupo, valor]) => ({ grupo, valor }))
+        .map(([grupo, valor]) => ({
+          grupo,
+          valor,
+          percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
+        }))
         .sort((a, b) => b.valor - a.valor),
       total: totalCustos,
     };
 
-    // ============= ABA 5: SAFRA E QUALIDADE =============
-    // Por área: ganho% e perdido%
+    // =================================================================
+    // ABA 5 — SAFRA & QUALIDADE
+    // CRÍTICO: top 4 áreas por % de GANHO (não volume absoluto)
+    // =================================================================
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
@@ -388,39 +646,29 @@ Deno.serve(async (req) => {
       }
       safraPorArea.set(grp, cur);
     }
+
+    // Top 4 ordenado por % de ganho (= ganhos / (ganhos+perdas)), exigindo no mínimo 5 fechamentos
     const areasQualidade = Array.from(safraPorArea.entries())
-      .map(([area, v]) => ({
-        area,
-        ganhos: v.ganhos,
-        perdas: v.perdas,
-        total: v.total,
-        percentual_ganho: v.total > 0 ? (v.ganhos / v.total) * 100 : 0,
-      }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 8);
+      .map(([area, v]) => {
+        const fechados = v.ganhos + v.perdas;
+        const pctGanho = fechados > 0 ? (v.ganhos / fechados) * 100 : 0;
+        return { area, ganhos: v.ganhos, perdas: v.perdas, total: v.total, fechados, percentual_ganho: pctGanho };
+      })
+      .filter((g) => g.fechados >= 5) // só áreas com volume mínimo
+      .sort((a, b) => b.percentual_ganho - a.percentual_ganho)
+      .slice(0, 4);
 
     // Safras anuais (últimos 10 anos)
-    const safrasAnuais: Array<{
-      ano: number;
-      fechamentos: number;
-      em_producao: number;
-      em_execucao: number;
-      concluidos: number;
-      ganhos: number;
-      perdas: number;
-    }> = [];
-    const anoAtual = now.getFullYear();
+    const safrasAnuais: Array<any> = [];
+    const anoAtual = now.getUTCFullYear();
     for (let ano = anoAtual; ano > anoAtual - 10; ano--) {
-      const ini = new Date(ano, 0, 1);
-      const f = new Date(ano, 11, 31, 23, 59, 59);
+      const ini = new Date(Date.UTC(ano, 0, 1));
+      const f = new Date(Date.UTC(ano, 11, 31, 23, 59, 59));
       let fech = 0, prod = 0, exec = 0, conc = 0, gan = 0, per = 0;
       for (const l of lawsuitsFiltradas) {
-        if (l.created_at) {
-          const d = new Date(l.created_at);
-          if (d >= ini && d <= f) fech++;
-        }
+        if (dentroDoMes(l.created_at, ini, f)) fech++;
         const stage = getStage(l);
-        if (l.created_at && new Date(l.created_at).getFullYear() === ano) {
+        if (l.created_at && new Date(l.created_at).getUTCFullYear() === ano) {
           if (stage === "producao") prod++;
           if (stage === "execucao") exec++;
           if (stage === "concluido") {
@@ -438,6 +686,8 @@ Deno.serve(async (req) => {
         concluidos: conc,
         ganhos: gan,
         perdas: per,
+        pct_ganho: conc > 0 ? (gan / conc) * 100 : 0,
+        pct_perda: conc > 0 ? (per / conc) * 100 : 0,
       });
     }
 
@@ -446,7 +696,9 @@ Deno.serve(async (req) => {
       anuais: safrasAnuais,
     };
 
-    // Lista de advogados disponíveis para filtro
+    // =================================================================
+    // Lista de advogados disponíveis
+    // =================================================================
     const advSet = new Set<string>();
     for (const l of lawsuits) {
       if (l.responsible) advSet.add(l.responsible);
@@ -461,12 +713,14 @@ Deno.serve(async (req) => {
         custos,
         safra,
         advogados_disponiveis: advogadosFiltro,
+        meses_disponiveis: mesesDisponiveis,
         meta: {
           total_lawsuits: cache?.total_lawsuits || 0,
           total_movements: cache?.total_movements || 0,
           updated_at: cache?.updated_at,
-          periodo_inicio: inicio.toISOString(),
-          periodo_fim: fim.toISOString(),
+          mes_label: label,
+          mes_atual: `${inicio.getUTCFullYear()}-${String(inicio.getUTCMonth() + 1).padStart(2, "0")}`,
+          gerado_em: new Date().toISOString(),
         },
       }),
       {
