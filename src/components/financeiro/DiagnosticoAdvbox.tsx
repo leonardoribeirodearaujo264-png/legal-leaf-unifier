@@ -188,52 +188,27 @@ export function DiagnosticoAdvbox() {
   const handleTestWriteback = async () => {
     setTesting(true);
     try {
-      // Pega o primeiro lançamento da conta Asaas pra teste
-      const { data: contaAsaas } = await supabase
-        .from('fin_contas')
-        .select('id')
-        .ilike('nome', '%asaas%')
-        .limit(1)
-        .maybeSingle();
-
-      if (!contaAsaas) {
-        toast.error('Conta Asaas não encontrada para teste');
-        setTesting(false);
-        return;
-      }
-
-      const { data: testLanc, error: insertErr } = await supabase
-        .from('fin_lancamentos')
-        .insert([{
-          tipo: 'receita',
-          valor: 1.00,
-          descricao: 'TESTE WRITEBACK ADVBox - ' + new Date().toISOString(),
-          data_vencimento: new Date().toISOString().slice(0, 10),
-          data_pagamento: new Date().toISOString().slice(0, 10),
-          status: 'pago',
-          conta_origem_id: contaAsaas.id,
-          observacoes: 'Lançamento de teste do writeback bidirecional',
-        } as any])
-        .select('id')
-        .single();
-
-      if (insertErr || !testLanc) throw insertErr ?? new Error('Falha ao criar lançamento de teste');
-
+      // Toda a criação do lançamento de teste é feita dentro da edge function
+      // (que roda com SERVICE_ROLE_KEY e bypassa RLS), evitando 403 no client.
       const { data: result, error: writeErr } = await supabase.functions.invoke('advbox-write-lancamento', {
-        body: { lancamento_id: testLanc.id },
+        body: { create_test_record: true },
       });
 
       if (writeErr) throw writeErr;
 
-      if ((result as any)?.success) {
+      const r = result as any;
+
+      if (r?.success) {
         toast.success(
-          (result as any).test_mode
-            ? `✅ TEST MODE: payload simulado gerado. Veja em "Logs" abaixo.`
-            : `✅ Lançamento criado no ADVBox! ID: ${(result as any).advbox_id}`,
+          r.test_mode
+            ? `✅ TEST MODE: payload simulado gerado. Veja em "Últimos logs" abaixo.`
+            : `✅ Lançamento criado no ADVBox! ID: ${r.advbox_id}`,
           { duration: 6000 }
         );
+      } else if (r?.error?.includes?.('Conta Asaas')) {
+        toast.error('Conta Asaas não encontrada para teste');
       } else {
-        toast.warning(`Resposta: ${JSON.stringify(result)}`);
+        toast.warning(`Resposta: ${JSON.stringify(r)}`);
       }
 
       await loadAll();
