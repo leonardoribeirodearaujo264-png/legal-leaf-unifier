@@ -406,11 +406,71 @@ export default function ContatosAdvbox() {
       if (error) throw error;
 
       if (data?.success) {
-        toast.success(
-          `Demanda criada com sucesso! Atribuída para ${data.vendedor_nome}.`,
-          { duration: 5000 }
+        const steps: Array<{ key: string; label: string; ok: boolean; skipped?: boolean; message?: string | null }> =
+          Array.isArray(data.steps_summary) ? data.steps_summary : [];
+
+        const okCount = steps.filter((s) => s.ok).length;
+        const skippedCount = steps.filter((s) => s.skipped).length;
+        const failCount = steps.filter((s) => !s.ok && !s.skipped).length;
+
+        const headerVariant: 'success' | 'warning' | 'error' =
+          failCount > 0 ? 'error' : skippedCount > 0 ? 'warning' : 'success';
+
+        toast.custom(
+          (t) => (
+            <div className="bg-card border border-border rounded-lg shadow-lg p-4 w-[380px] max-w-[90vw]">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  {headerVariant === 'success' && <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />}
+                  {headerVariant === 'warning' && <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />}
+                  {headerVariant === 'error' && <XCircle className="h-5 w-5 text-destructive shrink-0" />}
+                  <div>
+                    <p className="font-semibold text-sm">
+                      {headerVariant === 'success' && 'Demanda criada com sucesso'}
+                      {headerVariant === 'warning' && 'Demanda criada com avisos'}
+                      {headerVariant === 'error' && 'Demanda criada com falhas'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Vendedor: {data.vendedor_nome} · {okCount} ok · {skippedCount} pulado · {failCount} falha
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toast.dismiss(t)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <ul className="space-y-1.5 text-xs max-h-[260px] overflow-y-auto pr-1">
+                {steps.map((step) => (
+                  <li key={step.key} className="flex items-start gap-2">
+                    {step.ok ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                    ) : step.skipped ? (
+                      <MinusCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                    )}
+                    <div className="min-w-0">
+                      <p className={step.ok ? 'text-foreground' : step.skipped ? 'text-muted-foreground' : 'text-destructive'}>
+                        {step.label}
+                      </p>
+                      {step.message && (
+                        <p className="text-[11px] text-muted-foreground leading-tight">{step.message}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ),
+          { duration: failCount > 0 || skippedCount > 0 ? 15000 : 7000 }
         );
-        setRecentDemandas(prev => new Set([...prev, String(selectedDemandaClient.advbox_id)]));
+
+        setRecentDemandas((prev) => new Set([...prev, String(selectedDemandaClient.advbox_id)]));
         setShowDemandaDialog(false);
         setSelectedDemandaClient(null);
         setDemandaSearch('');
