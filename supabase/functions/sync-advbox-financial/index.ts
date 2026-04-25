@@ -842,29 +842,29 @@ serve(async (req) => {
 
     const categorias = categoriasData as Categoria[] | null;
 
-    // Get all active accounts to map bank_account from ADVBox
+    // Get all active accounts WITH advbox_account_id for matching
     const { data: contas } = await supabase
       .from('fin_contas')
-      .select('id, nome')
+      .select('id, nome, advbox_account_id')
       .eq('ativa', true);
 
-    // Build a map of account names to IDs for matching
-    const contasMap = new Map<string, string>();
-    (contas as ContaBancaria[] | null)?.forEach(c => {
-      contasMap.set(c.nome.toLowerCase(), c.id);
-    });
-    
-    console.log(`Loaded ${contasMap.size} active bank accounts for mapping`);
-    
-    // Get a system user for created_by field (first admin user found from user_roles table)
+    const contasInfo: ContaInfo[] = ((contas as Array<{ id: string; nome: string; advbox_account_id: number | null }> | null) || []).map(c => ({
+      id: c.id,
+      nome: c.nome,
+      advbox_account_id: c.advbox_account_id,
+    }));
+
+    console.log(`Loaded ${contasInfo.length} active accounts (${contasInfo.filter(c => c.advbox_account_id).length} with advbox_account_id)`);
+
+    // Get a system user for created_by field
     const { data: systemUserData } = await supabase
       .from('user_roles')
       .select('user_id')
       .eq('role', 'admin')
       .limit(1);
-    
+
     const systemUserId = (systemUserData as Array<{ user_id: string }> | null)?.[0]?.user_id;
-    
+
     if (!systemUserId) {
       console.error('No system user found for created_by field');
       return new Response(
@@ -872,11 +872,6 @@ serve(async (req) => {
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
-    const categoriaMap = new Map<string, { id: string; tipo: string }>();
-    categorias?.forEach(c => {
-      categoriaMap.set(c.nome.toLowerCase(), { id: c.id, tipo: c.tipo });
-    });
 
     // Process batches until timeout or completion
     const fetchLimit = 100;
