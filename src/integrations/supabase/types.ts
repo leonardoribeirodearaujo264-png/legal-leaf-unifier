@@ -608,6 +608,7 @@ export type Database = {
           advbox_id: number
           assigned_user_ids: Json | null
           assigned_users: string | null
+          client_name: string | null
           completed_at: string | null
           created_at: string
           description: string | null
@@ -628,6 +629,7 @@ export type Database = {
           advbox_id: number
           assigned_user_ids?: Json | null
           assigned_users?: string | null
+          client_name?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
@@ -648,6 +650,7 @@ export type Database = {
           advbox_id?: number
           assigned_user_ids?: Json | null
           assigned_users?: string | null
+          client_name?: string | null
           completed_at?: string | null
           created_at?: string
           description?: string | null
