@@ -522,14 +522,38 @@ export function FinanceiroExecutivoDashboard() {
       : <TrendingDown className="h-5 w-5 text-red-500" />;
   };
 
-  // Only sum accounts that have configured balances
+  // BUG #1: Saldo total soma TODAS as contas ativas (não filtra por saldoConfigurado)
   const saldoTotalConfigurado = data.contasSaldo
-    .filter(c => c.saldoConfigurado)
     .reduce((acc, c) => acc + c.saldo, 0);
   const contasConfiguradas = data.contasSaldo.filter(c => c.saldoConfigurado).length;
+  const totalContas = data.contasSaldo.length;
+  const contasSemSaldoCount = (data.contasSemSaldo?.length) ?? data.contasSaldo.filter(c => !c.saldoConfigurado).length;
 
   return (
     <div className="space-y-6">
+      <ConfigurarSaldoInicialDialog
+        open={showConfigSaldo}
+        onOpenChange={setShowConfigSaldo}
+        onSaved={() => triggerRefresh()}
+      />
+
+      {/* BUG #1: Alerta de contas sem saldo inicial */}
+      {contasSemSaldoCount > 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Saldo total pode estar incompleto</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
+            <span>
+              {contasSemSaldoCount} conta(s) sem saldo inicial configurado. O Saldo Total em Caixa não inclui essas contas corretamente.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setShowConfigSaldo(true)}>
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              Configurar agora
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Filtros */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4 flex-wrap">
