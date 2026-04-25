@@ -51,6 +51,7 @@ const menuItems: MenuItem[] = [
       { id: 'dashboard', label: 'Dashboard Executivo' },
       { id: 'fluxo', label: 'Fluxo de Caixa' },
       { id: 'previsoes', label: 'Previsões IA' },
+      { id: 'diagnostico-advbox', label: 'Diagnóstico ADVBox' },
     ]
   },
   {

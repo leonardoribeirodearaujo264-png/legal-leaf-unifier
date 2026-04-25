@@ -331,7 +331,7 @@ export function DiagnosticoAdvbox() {
                     <TableCell className="font-medium">{c.nome}</TableCell>
                     <TableCell className="text-right font-mono text-xs">{c.advbox_account_id}</TableCell>
                     <TableCell className="text-right font-mono">{fmtBRL(Number(c.saldo_inicial))}</TableCell>
-                    <TableCell className={`text-right font-mono font-medium ${Number(c.saldo_atual) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <TableCell className={`text-right font-mono font-medium ${Number(c.saldo_atual) >= 0 ? 'text-foreground' : 'text-destructive'}`}>
                       {fmtBRL(Number(c.saldo_atual))}
                     </TableCell>
                   </TableRow>

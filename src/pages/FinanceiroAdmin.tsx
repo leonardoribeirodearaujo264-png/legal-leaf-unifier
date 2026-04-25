@@ -17,6 +17,7 @@ import { FinanceiroRankingClientes } from '@/components/financeiro/FinanceiroRan
 import { FinanceiroContratos } from '@/components/financeiro/FinanceiroContratos';
 import { RelatorioSaudeFinanceira, RelatorioMargemCliente, RelatorioConformidade } from '@/components/financeiro/RelatoriosAvancados';
 import { AlertasAnomalias } from '@/components/financeiro/AlertasAnomalias';
+import { DiagnosticoAdvbox } from '@/components/financeiro/DiagnosticoAdvbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function FinanceiroAdmin() {
@@ -64,6 +65,8 @@ export default function FinanceiroAdmin() {
         return <FinanceiroSetoresAdmin />;
       case 'auditoria':
         return <FinanceiroAuditoria />;
+      case 'diagnostico-advbox':
+        return <DiagnosticoAdvbox />;
       default:
         return <FinanceiroContratos />;
     }
@@ -122,6 +125,9 @@ export default function FinanceiroAdmin() {
                 <option value="contas">Contas Bancárias</option>
                 <option value="clientes">Clientes</option>
                 <option value="setores">Setores</option>
+              </optgroup>
+              <optgroup label="ADVBox">
+                <option value="diagnostico-advbox">Diagnóstico ADVBox</option>
               </optgroup>
               <option value="auditoria">Auditoria</option>
             </select>
