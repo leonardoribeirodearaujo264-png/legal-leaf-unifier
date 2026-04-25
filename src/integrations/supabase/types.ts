@@ -10300,10 +10300,12 @@ export type Database = {
       }
     }
     Functions: {
+      fin_advbox_diagnostico: { Args: never; Returns: Json }
       fin_calc_saldo_atual: {
         Args: { p_conta_id: string; p_data_ref?: string }
         Returns: number
       }
+      fin_force_refresh_dashboard: { Args: never; Returns: Json }
       fin_normalize_bank_name: { Args: { p_name: string }; Returns: string }
       fin_recalc_all_saldos: { Args: never; Returns: number }
       get_adiantamentos_pendentes: {
