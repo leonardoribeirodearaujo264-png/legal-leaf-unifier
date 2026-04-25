@@ -3617,6 +3617,53 @@ export type Database = {
           },
         ]
       }
+      fin_advbox_writeback_logs: {
+        Row: {
+          advbox_id: number | null
+          created_at: string
+          error_message: string | null
+          http_status: number | null
+          id: string
+          lancamento_id: string | null
+          request_payload: Json | null
+          response_payload: Json | null
+          status: string
+          triggered_by: string | null
+        }
+        Insert: {
+          advbox_id?: number | null
+          created_at?: string
+          error_message?: string | null
+          http_status?: number | null
+          id?: string
+          lancamento_id?: string | null
+          request_payload?: Json | null
+          response_payload?: Json | null
+          status: string
+          triggered_by?: string | null
+        }
+        Update: {
+          advbox_id?: number | null
+          created_at?: string
+          error_message?: string | null
+          http_status?: number | null
+          id?: string
+          lancamento_id?: string | null
+          request_payload?: Json | null
+          response_payload?: Json | null
+          status?: string
+          triggered_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fin_advbox_writeback_logs_lancamento_id_fkey"
+            columns: ["lancamento_id"]
+            isOneToOne: false
+            referencedRelation: "fin_lancamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fin_alertas: {
         Row: {
           created_at: string | null
@@ -4386,6 +4433,7 @@ export type Database = {
         Row: {
           a_reembolsar: boolean | null
           advbox_account_id: number | null
+          advbox_id: number | null
           advbox_transaction_id: string | null
           anexo_url: string | null
           categoria_id: string | null
@@ -4407,6 +4455,7 @@ export type Database = {
           descricao: string
           id: string
           lancamento_pai_id: string | null
+          needs_review: boolean
           numero_documento: string | null
           observacoes: string | null
           origem: string | null
@@ -4432,6 +4481,7 @@ export type Database = {
         Insert: {
           a_reembolsar?: boolean | null
           advbox_account_id?: number | null
+          advbox_id?: number | null
           advbox_transaction_id?: string | null
           anexo_url?: string | null
           categoria_id?: string | null
@@ -4453,6 +4503,7 @@ export type Database = {
           descricao: string
           id?: string
           lancamento_pai_id?: string | null
+          needs_review?: boolean
           numero_documento?: string | null
           observacoes?: string | null
           origem?: string | null
@@ -4478,6 +4529,7 @@ export type Database = {
         Update: {
           a_reembolsar?: boolean | null
           advbox_account_id?: number | null
+          advbox_id?: number | null
           advbox_transaction_id?: string | null
           anexo_url?: string | null
           categoria_id?: string | null
@@ -4499,6 +4551,7 @@ export type Database = {
           descricao?: string
           id?: string
           lancamento_pai_id?: string | null
+          needs_review?: boolean
           numero_documento?: string | null
           observacoes?: string | null
           origem?: string | null
@@ -4840,6 +4893,30 @@ export type Database = {
           descricao?: string | null
           id?: string
           nome?: string
+        }
+        Relationships: []
+      }
+      fin_settings: {
+        Row: {
+          id: string
+          updated_at: string
+          updated_by: string | null
+          writeback_enabled: boolean
+          writeback_test_mode: boolean
+        }
+        Insert: {
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+          writeback_enabled?: boolean
+          writeback_test_mode?: boolean
+        }
+        Update: {
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+          writeback_enabled?: boolean
+          writeback_test_mode?: boolean
         }
         Relationships: []
       }
@@ -10223,7 +10300,12 @@ export type Database = {
       }
     }
     Functions: {
+      fin_calc_saldo_atual: {
+        Args: { p_conta_id: string; p_data_ref?: string }
+        Returns: number
+      }
       fin_normalize_bank_name: { Args: { p_name: string }; Returns: string }
+      fin_recalc_all_saldos: { Args: never; Returns: number }
       get_adiantamentos_pendentes: {
         Args: { p_colaborador_id: string }
         Returns: {
