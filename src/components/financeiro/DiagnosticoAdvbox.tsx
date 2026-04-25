@@ -418,6 +418,44 @@ export function DiagnosticoAdvbox() {
             )}
           </TabsContent>
 
+          {/* Tab: Excluídos por filtro REGISTRO_INTERNO */}
+          <TabsContent value="excluidos" className="space-y-4">
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>{excluded.length} lançamento(s) excluído(s) do dashboard (mês corrente)</AlertTitle>
+              <AlertDescription>
+                Filtrados pelo padrão "registro interno" (REPASSE, DISTRIBUIÇÃO DE LUCRO, HONORÁRIOS SÓCIO).
+                Não entram em Receitas/Despesas/Lucro da Visão Geral. Se algum for legítimo, ajuste o pattern em <code>FinanceiroExecutivoDashboard.tsx</code>.
+              </AlertDescription>
+            </Alert>
+            {excluded.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Motivo</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {excluded.slice(0, 50).map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="font-mono text-xs">{l.data_vencimento}</TableCell>
+                      <TableCell>
+                        <Badge variant={l.tipo === 'receita' ? 'default' : 'destructive'}>{l.tipo}</Badge>
+                      </TableCell>
+                      <TableCell><Badge variant="outline">{l.reason}</Badge></TableCell>
+                      <TableCell className="max-w-md truncate">{l.descricao}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtBRL(Number(l.valor))}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </TabsContent>
+
           {/* Tab 4: Writeback */}
           <TabsContent value="writeback" className="space-y-4">
             <Alert>
