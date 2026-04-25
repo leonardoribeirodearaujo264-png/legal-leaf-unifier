@@ -108,6 +108,8 @@ export function FinanceiroExecutivoDashboard() {
     lucro: 0,
     margemLucro: 0,
     contasSaldo: [],
+    contasSemSaldo: [],
+    lancamentosExcluidos: 0,
     despesasReembolsar: 0,
     receitasPorCategoria: [],
     despesasPorCategoria: [],
@@ -221,23 +223,23 @@ export function FinanceiroExecutivoDashboard() {
         .select(`*, categoria:fin_categorias(nome, cor)`)
         .gte('data_vencimento', format(dataInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(dataFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: lancMesAtual } = await supabase
         .from('fin_lancamentos')
-        .select('tipo, valor, descricao')
+        .select('tipo, valor, descricao, status')
         .gte('data_vencimento', format(mesAtualInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(mesAtualFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: lancMesAnterior } = await supabase
         .from('fin_lancamentos')
-        .select('tipo, valor, descricao')
+        .select('tipo, valor, descricao, status')
         .gte('data_vencimento', format(mesAnteriorInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(mesAnteriorFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: reembolsos } = await supabase
@@ -255,21 +257,29 @@ export function FinanceiroExecutivoDashboard() {
       const lancamentosFiltered = filterOperacional(lancamentos);
       const lancMesAtualFiltered = filterOperacional(lancMesAtual);
       const lancMesAnteriorFiltered = filterOperacional(lancMesAnterior);
+      const lancamentosExcluidos = (lancamentos?.length || 0) - lancamentosFiltered.length;
 
-      const totalReceitas = lancamentosFiltered.filter(l => l.tipo === 'receita')
+      const isPago = (l: any) => l.status === 'pago';
+      const isPrevisto = (l: any) => l.status === 'pendente' || l.status === 'atrasado';
+
+      const totalReceitas = lancamentosFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const totalDespesas = lancamentosFiltered.filter(l => l.tipo === 'despesa')
+      const totalDespesas = lancamentosFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const receitaPrevista = lancamentosFiltered.filter(l => l.tipo === 'receita' && isPrevisto(l))
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const despesaPrevista = lancamentosFiltered.filter(l => l.tipo === 'despesa' && isPrevisto(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
       const lucro = totalReceitas - totalDespesas;
       const margemLucro = totalReceitas > 0 ? (lucro / totalReceitas) * 100 : 0;
 
-      const receitasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'receita')
+      const receitasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const despesasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'despesa')
+      const despesasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const receitasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'receita')
+      const receitasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const despesasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'despesa')
+      const despesasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
 
       const variacaoReceitas = receitasMesAnterior > 0
@@ -286,6 +296,7 @@ export function FinanceiroExecutivoDashboard() {
         const saldoInicial = Number(c.saldo_inicial) || 0;
         const saldoConfigurado = isAsaas || saldoInicial !== 0;
         return {
+          id: c.id,
           nome: c.nome,
           saldo: Number(c.saldo_atual) || 0,
           cor: c.cor || '#3B82F6',
@@ -396,12 +407,18 @@ export function FinanceiroExecutivoDashboard() {
         }
       }
 
+      const contasSemSaldo = contasSaldo.filter(c => !c.saldoConfigurado);
+
       setData({
         totalReceitas,
         totalDespesas,
+        receitaPrevista,
+        despesaPrevista,
         lucro,
         margemLucro,
         contasSaldo,
+        contasSemSaldo,
+        lancamentosExcluidos,
         despesasReembolsar,
         receitasPorCategoria,
         despesasPorCategoria,
