@@ -101,12 +101,14 @@ export function DiagnosticoAdvbox() {
           .select('id, lancamento_id, advbox_id, status, http_status, error_message, created_at')
           .order('created_at', { ascending: false })
           .limit(20),
+        supabase.rpc('fin_advbox_excluded_by_filter'),
       ]);
 
       setDiagnostico(diagRes.data ?? null);
       setContas((contasRes.data as any) ?? []);
       setOrphans((orphansRes.data as any) ?? []);
       setLogs((logsRes.data as any) ?? []);
+      setExcluded((excludedRes.data as any) ?? []);
       if (settingsRes.data) {
         setWritebackEnabled(settingsRes.data.writeback_enabled === true);
         setWritebackTestMode(settingsRes.data.writeback_test_mode === true);
