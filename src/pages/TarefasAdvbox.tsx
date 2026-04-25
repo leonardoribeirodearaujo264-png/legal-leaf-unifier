@@ -255,9 +255,10 @@ export default function TarefasAdvbox() {
     if (tasks.length === 0) {
       setLoading(true);
     }
-    
+
     try {
-      // Fetch ALL tasks from the database using pagination to bypass 1000 row limit
+      // Buscar todas as tarefas em batches, SEM raw_data (campo pesado, ~70% do payload)
+      // raw_data é carregado sob demanda apenas no detalhe da tarefa.
       const allDbTasks: any[] = [];
       const batchSize = 1000;
       let offset = 0;
@@ -266,7 +267,7 @@ export default function TarefasAdvbox() {
       while (hasMore) {
         const { data: batch, error: batchError } = await supabase
           .from('advbox_tasks')
-          .select('advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, raw_data')
+          .select('advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, client_name')
           .order('due_date', { ascending: false })
           .range(offset, offset + batchSize - 1);
 
@@ -282,63 +283,52 @@ export default function TarefasAdvbox() {
       }
 
       const dbTasks = allDbTasks;
-      const dbError = null;
 
-      // Fetch priorities
+      // Fetch priorities (poucos registros — Map para lookup O(1) em vez de find O(n))
       const { data: priorities } = await supabase
         .from('task_priorities')
         .select('task_id, priority');
 
-      const tasksData: Task[] = (dbTasks || []).map((t: any) => {
-        const priorityData = priorities?.find((p) => p.task_id === String(t.advbox_id));
-        // Extract client name from raw_data
-        let clientName = '';
-        try {
-          const raw = t.raw_data;
-          if (raw?.lawsuit?.customers) {
-            const customers = raw.lawsuit.customers;
-            if (Array.isArray(customers) && customers.length > 0) {
-              clientName = customers[0]?.name || '';
-            } else if (typeof customers === 'object' && customers?.name) {
-              clientName = customers.name;
-            }
-          }
-        } catch (e) { /* ignore parse errors */ }
-        
-        return {
-          id: String(t.advbox_id),
-          title: t.title || 'Sem título',
-          description: t.description || '',
-          due_date: t.due_date,
-          status: t.status || 'pending',
-          assigned_to: t.assigned_users || '',
-          process_number: t.process_number || '',
-          category: '',
-          priority: priorityData?.priority as 'alta' | 'media' | 'baixa' | undefined,
-          task_type: t.task_type || '',
-          lawsuit_id: t.lawsuit_id,
-          completed_at: t.completed_at,
-          created_at: t.created_at,
-          client_name: clientName,
-        };
-      });
+      const priorityMap = new Map<string, 'alta' | 'media' | 'baixa'>();
+      if (priorities) {
+        for (const p of priorities) {
+          priorityMap.set(String(p.task_id), p.priority as 'alta' | 'media' | 'baixa');
+        }
+      }
+
+      const tasksData: Task[] = (dbTasks || []).map((t: any) => ({
+        id: String(t.advbox_id),
+        title: t.title || 'Sem título',
+        description: t.description || '',
+        due_date: t.due_date,
+        status: t.status || 'pending',
+        assigned_to: t.assigned_users || '',
+        process_number: t.process_number || '',
+        category: '',
+        priority: priorityMap.get(String(t.advbox_id)),
+        task_type: t.task_type || '',
+        lawsuit_id: t.lawsuit_id,
+        completed_at: t.completed_at,
+        created_at: t.created_at,
+        client_name: t.client_name || '',
+      }));
 
       setTasks(tasksData);
-      
-      // If DB is empty, trigger initial sync
+
+      // Se DB vazio, dispara sync inicial
       if (tasksData.length === 0) {
         console.log('No tasks in DB, triggering initial sync...');
         handleSyncTasks();
         return;
       }
-      
-      // Set last update from most recent synced_at
+
+      // Last update do synced_at mais recente
       if (dbTasks && dbTasks.length > 0) {
-        const mostRecent = dbTasks.reduce((max: any, t: any) => 
+        const mostRecent = dbTasks.reduce((max: any, t: any) =>
           !max || (t.synced_at && t.synced_at > max) ? t.synced_at : max, null);
         if (mostRecent) setLastUpdate(new Date(mostRecent));
       }
-      
+
       setMetadata({ fromCache: false });
     } catch (error) {
       console.error('Error fetching tasks from DB:', error);
