@@ -73,7 +73,7 @@ async function saveToWhatsAppAvisos(
   phone: string,
   messageText: string,
   zaapId: string | null,
-  userId: string,
+  userId: string | null,
   customerName: string
 ) {
   try {

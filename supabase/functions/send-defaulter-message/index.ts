@@ -45,7 +45,7 @@ function validateBrazilianPhone(phone: string): string {
   return fullPhone;
 }
 
-async function sendCollectionMessageViaZAPI(phone: string, customerName: string, amount: number, daysOverdue: number): Promise<{ zaapId?: string; success: boolean }> {
+async function sendCollectionMessageViaZAPI(phone: string, customerName: string, amount: number, daysOverdue: number): Promise<{ zaapId?: string; success: boolean; sentMessage?: string }> {
   const ZAPI_INSTANCE_ID = (Deno.env.get('ZAPI_INSTANCE_ID') || '').trim();
   const ZAPI_TOKEN = (Deno.env.get('ZAPI_TOKEN') || '').trim();
   const ZAPI_CLIENT_TOKEN = (Deno.env.get('ZAPI_CLIENT_TOKEN') || '').trim();
