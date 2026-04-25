@@ -387,14 +387,13 @@ export default function TarefasAdvbox() {
 
   // useEffect DEVE vir DEPOIS das definições de funções
   useEffect(() => {
-    // Só carregar dados quando permissões estiverem prontas E usuário tiver acesso
+    // Só carregar dados quando permissões estiverem prontas E usuário tiver acesso.
+    // fetchAdvboxTaskTypes e fetchAdvboxUsers são chamados sob demanda quando o dialog "Nova Tarefa" abre.
     if (!isLoading && hasAdvboxAccess && !dataLoaded) {
       console.log('TarefasAdvbox: Carregando dados...');
       setDataLoaded(true);
       fetchTasks();
       fetchUsers();
-      fetchAdvboxTaskTypes();
-      fetchAdvboxUsers();
     }
   }, [isLoading, hasAdvboxAccess, dataLoaded]);
 
