@@ -132,47 +132,16 @@ export function FinanceiroExecutivoDashboard() {
     asaasBalance: null
   });
 
-  // Load data from cache
-  const loadFromCache = async () => {
-    try {
-      const { data: cache, error } = await supabase
-        .from('fin_dashboard_cache')
-        .select('*')
-        .eq('id', 'singleton')
-        .single();
-
-      if (error || !cache?.dashboard_data) {
-        console.log('Cache vazio, executando cálculo local...');
-        await fetchDataDirectly();
-        return;
-      }
-
-      const allData = cache.dashboard_data as Record<string, any>;
-      const periodoData = allData[periodo];
-
-      if (periodoData) {
-        setData(periodoData as DashboardData);
-        setLastUpdated(cache.updated_at);
-        setLoading(false);
-      } else {
-        await fetchDataDirectly();
-      }
-    } catch (err) {
-      console.error('Erro ao carregar cache:', err);
-      await fetchDataDirectly();
-    }
-  };
-
-  // Trigger Edge Function to refresh cache
+  // Force fresh recalculation: rebuild fin_contas.saldo_atual via RPC, then refetch.
+  // Bypasses fin_dashboard_cache entirely (cache stale = -R$35M bug).
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      await supabase.functions.invoke('fin-dashboard-cache-refresh', {
-        body: { periodo }
-      });
+      const { error: rpcErr } = await supabase.rpc('fin_force_refresh_dashboard');
+      if (rpcErr) console.warn('fin_force_refresh_dashboard:', rpcErr.message);
+      await fetchDataDirectly();
     } catch (err) {
-      console.error('Erro ao atualizar cache:', err);
-      // Fallback: calculate directly
+      console.error('Erro ao atualizar dados:', err);
       await fetchDataDirectly();
     } finally {
       setRefreshing(false);
