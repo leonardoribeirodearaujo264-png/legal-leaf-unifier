@@ -22,6 +22,7 @@ interface Conta {
   saldo_atual: number;
   cor: string;
   ativa: boolean;
+  advbox_account_id: number | null;
 }
 
 export function FinanceiroContasAdmin() {
