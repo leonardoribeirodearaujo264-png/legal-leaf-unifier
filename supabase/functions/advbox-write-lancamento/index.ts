@@ -9,8 +9,9 @@ const corsHeaders = {
 };
 
 interface WritebackPayload {
-  lancamento_id: string;
+  lancamento_id?: string;
   test_mode?: boolean;
+  create_test_record?: boolean;
 }
 
 async function logWriteback(
