@@ -4092,6 +4092,7 @@ export type Database = {
       }
       fin_contas: {
         Row: {
+          advbox_account_id: number | null
           agencia: string | null
           ativa: boolean | null
           banco: string | null
@@ -4108,6 +4109,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          advbox_account_id?: number | null
           agencia?: string | null
           ativa?: boolean | null
           banco?: string | null
@@ -4124,6 +4126,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          advbox_account_id?: number | null
           agencia?: string | null
           ativa?: boolean | null
           banco?: string | null
