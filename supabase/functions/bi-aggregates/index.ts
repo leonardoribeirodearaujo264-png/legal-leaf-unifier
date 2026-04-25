@@ -148,20 +148,35 @@ Deno.serve(async (req) => {
     // =================================================================
 
     // 1.1) Tarefas com due_date no mês selecionado
-    let tasksQuery = supabase
-      .from("advbox_tasks")
-      .select("id, status, points, completed_at, due_date, assigned_users, task_type, lawsuit_id, raw_data", { count: "exact" })
-      .gte("due_date", inicio.toISOString())
-      .lte("due_date", fim.toISOString())
-      .limit(20000); // garantir sem cap de 1000
-    if (advogado !== "todos") {
-      tasksQuery = tasksQuery.ilike("assigned_users", `%${advogado}%`);
+    // CRÍTICO: PostgREST tem cap default 1000. Usamos .range() em loop para buscar TUDO.
+    async function fetchAllTasks(filter: (q: any) => any): Promise<any[]> {
+      const all: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        let q = supabase
+          .from("advbox_tasks")
+          .select("id, status, points, completed_at, due_date, assigned_users, task_type, lawsuit_id, raw_data")
+          .range(offset, offset + pageSize - 1);
+        q = filter(q);
+        const { data, error } = await q;
+        if (error) { console.error("[BI] fetchAllTasks erro:", error); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+        if (offset > 50000) break; // failsafe
+      }
+      return all;
     }
-    const { data: tasksMes, error: tasksErr } = await tasksQuery;
-    if (tasksErr) console.error("[BI] tasksMes erro:", tasksErr);
+    const tasksMes = await fetchAllTasks((q) => {
+      let qq = q.gte("due_date", inicio.toISOString()).lte("due_date", fim.toISOString());
+      if (advogado !== "todos") qq = qq.ilike("assigned_users", `%${advogado}%`);
+      return qq;
+    });
 
-    const tasksAtribuidas = (tasksMes || []).length;
-    const tasksConcluidas = (tasksMes || []).filter(
+    const tasksAtribuidas = tasksMes.length;
+    const tasksConcluidas = tasksMes.filter(
       (t) => t.status === "completed" || t.completed_at
     ).length;
 
