@@ -682,12 +682,10 @@ export function FinanceiroExecutivoDashboard() {
               <Wallet className="h-5 w-5 text-primary" />
               <div>
                 <p className="text-lg font-bold">
-                  {contasConfiguradas > 0 ? formatCurrency(saldoTotalConfigurado) : 'Não configurado'}
+                  {formatCurrency(saldoTotalConfigurado)}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {contasConfiguradas > 0 
-                    ? `${contasConfiguradas} conta(s) configurada(s)` 
-                    : 'Configure o saldo inicial das contas'}
+                  {totalContas} conta(s) ativas · fonte: ADVBox snapshot
                 </p>
               </div>
             </div>
