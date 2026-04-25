@@ -47,6 +47,8 @@ export default function RelatoriosProdutividadeTarefas({ embedded = false }: { e
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeNames, setActiveNames] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  // Erro de carregamento (timeout, falha de rede, etc.) — exibido em UI dedicada com botão "Tentar novamente".
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<any>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | undefined>(undefined);
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
