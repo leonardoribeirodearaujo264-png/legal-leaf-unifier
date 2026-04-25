@@ -173,7 +173,10 @@ export default function MovimentacoesAdvbox() {
     const matchesResponsible = showAllResponsibles ||
       (movementResponsible && selectedResponsibles.includes(movementResponsible));
 
-    const matchesPeriod = !dateFilter || !isBefore(new Date(movement.date), dateFilter);
+    // Usa data efetiva (date → date_deadline → created_at) e descarta movimentações sem data válida.
+    const effectiveDate = getEffectiveDate(movement);
+    if (!effectiveDate) return false;
+    const matchesPeriod = !dateFilter || !isBefore(effectiveDate, dateFilter);
 
     const isActive = associatedLawsuit ? !associatedLawsuit.status_closure : true;
     const lawsuitStatus = isActive ? 'Ativo' : 'Inativo';
@@ -215,22 +218,20 @@ export default function MovimentacoesAdvbox() {
       return matchesSearch && matchesResponsible && matchesStatus && matchesActionType && matchesArea;
     });
     chartMovements.forEach(m => {
-      try {
-        const dateStr = m.date?.replace(' ', 'T');
-        const parsed = new Date(dateStr);
-        if (isNaN(parsed.getTime())) return;
-        const dateKey = format(parsed, 'yyyy-MM-dd');
-        if (!dateCounts[dateKey]) {
-          dateCounts[dateKey] = { date: parsed, count: 0 };
-        }
-        dateCounts[dateKey].count++;
-      } catch {
-        // Skip invalid dates
+      // Usa data efetiva com fallback; descarta nulos e datas futuras.
+      const parsed = getEffectiveDate(m);
+      if (!parsed) return;
+      const dateKey = format(parsed, 'yyyy-MM-dd');
+      if (!dateCounts[dateKey]) {
+        dateCounts[dateKey] = { date: parsed, count: 0 };
       }
+      dateCounts[dateKey].count++;
     });
+    // Timeline: filtra explicitamente os últimos 30 dias para evitar barras vazias antigas.
+    const cutoff = subDays(new Date(), 30);
     return Object.entries(dateCounts)
+      .filter(([, { date }]) => date >= cutoff)
       .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-30)
       .map(([, { date, count }]) => ({
         date: format(date, 'dd/MM', { locale: ptBR }),
         movimentações: count,
@@ -338,11 +339,33 @@ export default function MovimentacoesAdvbox() {
               )}
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => { setIsRefreshing(true); fetchData(true).finally(() => setIsRefreshing(false)); }} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
-            Atualizar
-          </Button>
-        </div>
+          <div className="flex items-center gap-2">
+            {/* Botão Resync: força bypass do cache (memória + DB) e re-busca completa do ADVBox */}
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                setIsRefreshing(true);
+                // Limpa cache local antes de re-sincronizar
+                try {
+                  localStorage.removeItem(MOVEMENTS_CACHE_KEY);
+                  localStorage.removeItem(MOVEMENTS_CACHE_TIMESTAMP_KEY);
+                } catch (e) { console.warn('Erro ao limpar cache local:', e); }
+                fetchData(true)
+                  .then(() => toast({ title: 'Movimentações ressincronizadas', description: 'Cache atualizado a partir do ADVBox.' }))
+                  .finally(() => setIsRefreshing(false));
+              }}
+              className="gap-2"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              Resync Movimentações
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setIsRefreshing(true); fetchData(true).finally(() => setIsRefreshing(false)); }} className="gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Atualizar
+            </Button>
+          </div>
 
         {metadata && <AdvboxCacheAlert metadata={metadata} />}
 
