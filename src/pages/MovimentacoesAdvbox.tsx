@@ -45,13 +45,34 @@ interface Lawsuit {
 
 interface Movement {
   lawsuit_id: number;
-  date: string;
+  // `date` é a data REAL do andamento; pode ser null em alguns retornos do ADVBox.
+  // Por isso usamos os campos abaixo como fallback (nesta ordem) ao calcular a data efetiva.
+  date: string | null;
+  date_deadline?: string | null;
+  created_at?: string | null;
   title: string;
   header: string;
   process_number: string;
   protocol_number: string | null;
   customers: string | { name: string; customer_id?: number } | { name: string; customer_id?: number }[];
 }
+
+// Retorna a data efetiva da movimentação seguindo a ordem: date → date_deadline → created_at.
+// Movimentações sem nenhuma data válida ou com data no futuro (> hoje) retornam null e são descartadas.
+const getEffectiveDate = (m: Movement): Date | null => {
+  const candidates = [m.date, m.date_deadline, m.created_at];
+  for (const raw of candidates) {
+    if (!raw) continue;
+    // Normaliza "YYYY-MM-DD HH:mm:ss" → ISO; aceita também ISO direto.
+    const iso = String(raw).replace(' ', 'T');
+    const parsed = new Date(iso);
+    if (isNaN(parsed.getTime())) continue;
+    // Descarta datas no futuro (bug ADVBox: alguns andamentos vêm com date_deadline futuro).
+    if (parsed.getTime() > Date.now() + 24 * 60 * 60 * 1000) continue;
+    return parsed;
+  }
+  return null;
+};
 
 const MOVEMENTS_CACHE_KEY = 'advbox-movements-full-cache';
 const MOVEMENTS_CACHE_TIMESTAMP_KEY = 'advbox-movements-full-cache-timestamp';
