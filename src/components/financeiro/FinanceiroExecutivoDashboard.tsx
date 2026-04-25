@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
+import { ConfigurarSaldoInicialDialog } from './ConfigurarSaldoInicialDialog';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -20,7 +22,8 @@ import {
   ArrowDown,
   Minus,
   CreditCard,
-  Info
+  Info,
+  Settings
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -31,6 +34,7 @@ import {
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface ContaSaldo {
+  id?: string;
   nome: string;
   saldo: number;
   cor: string;
@@ -41,9 +45,13 @@ interface ContaSaldo {
 interface DashboardData {
   totalReceitas: number;
   totalDespesas: number;
+  receitaPrevista: number;
+  despesaPrevista: number;
   lucro: number;
   margemLucro: number;
   contasSaldo: ContaSaldo[];
+  contasSemSaldo: ContaSaldo[];
+  lancamentosExcluidos: number;
   despesasReembolsar: number;
   receitasPorCategoria: { nome: string; valor: number; cor: string }[];
   despesasPorCategoria: { nome: string; valor: number; cor: string }[];
@@ -90,13 +98,18 @@ export function FinanceiroExecutivoDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  
+  const [showConfigSaldo, setShowConfigSaldo] = useState(false);
+
   const [data, setData] = useState<DashboardData>({
     totalReceitas: 0,
     totalDespesas: 0,
+    receitaPrevista: 0,
+    despesaPrevista: 0,
     lucro: 0,
     margemLucro: 0,
     contasSaldo: [],
+    contasSemSaldo: [],
+    lancamentosExcluidos: 0,
     despesasReembolsar: 0,
     receitasPorCategoria: [],
     despesasPorCategoria: [],
@@ -210,23 +223,23 @@ export function FinanceiroExecutivoDashboard() {
         .select(`*, categoria:fin_categorias(nome, cor)`)
         .gte('data_vencimento', format(dataInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(dataFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: lancMesAtual } = await supabase
         .from('fin_lancamentos')
-        .select('tipo, valor, descricao')
+        .select('tipo, valor, descricao, status')
         .gte('data_vencimento', format(mesAtualInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(mesAtualFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: lancMesAnterior } = await supabase
         .from('fin_lancamentos')
-        .select('tipo, valor, descricao')
+        .select('tipo, valor, descricao, status')
         .gte('data_vencimento', format(mesAnteriorInicio, 'yyyy-MM-dd'))
         .lte('data_vencimento', format(mesAnteriorFim, 'yyyy-MM-dd'))
-        .eq('status', 'pago')
+        .in('status', ['pago', 'pendente', 'atrasado'])
         .is('deleted_at', null);
 
       const { data: reembolsos } = await supabase
@@ -244,21 +257,29 @@ export function FinanceiroExecutivoDashboard() {
       const lancamentosFiltered = filterOperacional(lancamentos);
       const lancMesAtualFiltered = filterOperacional(lancMesAtual);
       const lancMesAnteriorFiltered = filterOperacional(lancMesAnterior);
+      const lancamentosExcluidos = (lancamentos?.length || 0) - lancamentosFiltered.length;
 
-      const totalReceitas = lancamentosFiltered.filter(l => l.tipo === 'receita')
+      const isPago = (l: any) => l.status === 'pago';
+      const isPrevisto = (l: any) => l.status === 'pendente' || l.status === 'atrasado';
+
+      const totalReceitas = lancamentosFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const totalDespesas = lancamentosFiltered.filter(l => l.tipo === 'despesa')
+      const totalDespesas = lancamentosFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const receitaPrevista = lancamentosFiltered.filter(l => l.tipo === 'receita' && isPrevisto(l))
+        .reduce((acc, l) => acc + Number(l.valor), 0);
+      const despesaPrevista = lancamentosFiltered.filter(l => l.tipo === 'despesa' && isPrevisto(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
       const lucro = totalReceitas - totalDespesas;
       const margemLucro = totalReceitas > 0 ? (lucro / totalReceitas) * 100 : 0;
 
-      const receitasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'receita')
+      const receitasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const despesasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'despesa')
+      const despesasMesAtual = lancMesAtualFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const receitasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'receita')
+      const receitasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'receita' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
-      const despesasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'despesa')
+      const despesasMesAnterior = lancMesAnteriorFiltered.filter(l => l.tipo === 'despesa' && isPago(l))
         .reduce((acc, l) => acc + Number(l.valor), 0);
 
       const variacaoReceitas = receitasMesAnterior > 0
@@ -275,6 +296,7 @@ export function FinanceiroExecutivoDashboard() {
         const saldoInicial = Number(c.saldo_inicial) || 0;
         const saldoConfigurado = isAsaas || saldoInicial !== 0;
         return {
+          id: c.id,
           nome: c.nome,
           saldo: Number(c.saldo_atual) || 0,
           cor: c.cor || '#3B82F6',
@@ -385,12 +407,18 @@ export function FinanceiroExecutivoDashboard() {
         }
       }
 
+      const contasSemSaldo = contasSaldo.filter(c => !c.saldoConfigurado);
+
       setData({
         totalReceitas,
         totalDespesas,
+        receitaPrevista,
+        despesaPrevista,
         lucro,
         margemLucro,
         contasSaldo,
+        contasSemSaldo,
+        lancamentosExcluidos,
         despesasReembolsar,
         receitasPorCategoria,
         despesasPorCategoria,
@@ -494,14 +522,38 @@ export function FinanceiroExecutivoDashboard() {
       : <TrendingDown className="h-5 w-5 text-red-500" />;
   };
 
-  // Only sum accounts that have configured balances
+  // BUG #1: Saldo total soma TODAS as contas ativas (não filtra por saldoConfigurado)
   const saldoTotalConfigurado = data.contasSaldo
-    .filter(c => c.saldoConfigurado)
     .reduce((acc, c) => acc + c.saldo, 0);
   const contasConfiguradas = data.contasSaldo.filter(c => c.saldoConfigurado).length;
+  const totalContas = data.contasSaldo.length;
+  const contasSemSaldoCount = (data.contasSemSaldo?.length) ?? data.contasSaldo.filter(c => !c.saldoConfigurado).length;
 
   return (
     <div className="space-y-6">
+      <ConfigurarSaldoInicialDialog
+        open={showConfigSaldo}
+        onOpenChange={setShowConfigSaldo}
+        onSaved={() => triggerRefresh()}
+      />
+
+      {/* BUG #1: Alerta de contas sem saldo inicial */}
+      {contasSemSaldoCount > 0 && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Saldo total pode estar incompleto</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
+            <span>
+              {contasSemSaldoCount} conta(s) sem saldo inicial configurado. O Saldo Total em Caixa não inclui essas contas corretamente.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setShowConfigSaldo(true)}>
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              Configurar agora
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Filtros */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4 flex-wrap">
@@ -536,13 +588,36 @@ export function FinanceiroExecutivoDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Receitas</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+              Receitas
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">
+                      Receita líquida realizada (status pago). Exclui repasses internos
+                      (REPASSE, DISTRIBUIÇÃO DE LUCRO) e honorários sócio.
+                      {data.lancamentosExcluidos > 0 && (
+                        <> {data.lancamentosExcluidos} lançamento(s) excluído(s) do cálculo neste período.</>
+                      )}
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </CardTitle>
             <ArrowUpCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
               {formatCurrency(data.totalReceitas)}
             </div>
+            {data.receitaPrevista > 0 && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Previsto: <span className="font-medium">{formatCurrency(data.receitaPrevista)}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1 mt-1">
               {getVariacaoIcon(data.comparativo.variacaoReceitas)}
               <span className={`text-sm ${data.comparativo.variacaoReceitas >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -555,13 +630,33 @@ export function FinanceiroExecutivoDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Despesas</CardTitle>
+            <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+              Despesas
+              <TooltipProvider>
+                <UITooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">
+                      Despesa realizada (status pago). Exclui repasses internos
+                      (REPASSE, DISTRIBUIÇÃO DE LUCRO) e honorários sócio.
+                    </p>
+                  </TooltipContent>
+                </UITooltip>
+              </TooltipProvider>
+            </CardTitle>
             <ArrowDownCircle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
               {formatCurrency(data.totalDespesas)}
             </div>
+            {data.despesaPrevista > 0 && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Previsto: <span className="font-medium">{formatCurrency(data.despesaPrevista)}</span>
+              </div>
+            )}
             <div className="flex items-center gap-1 mt-1">
               {getVariacaoIcon(data.comparativo.variacaoDespesas, true)}
               <span className={`text-sm ${data.comparativo.variacaoDespesas <= 0 ? 'text-green-600' : 'text-red-600'}`}>
