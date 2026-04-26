@@ -44,12 +44,34 @@ async function makeAdvboxRequest(endpoint: string, retryCount = 0): Promise<any>
   return JSON.parse(responseText);
 }
 
+/**
+ * Gera advbox_id sintético determinístico para movimentos.
+ * O payload /last_movements do ADVBox NÃO traz id próprio — então usamos
+ * SHA-256 de (lawsuit_id + date + title + header + process_number) truncado
+ * para 63 bits (caber em BIGINT positivo). Determinístico = mesma movimentação
+ * sempre gera o mesmo id, garantindo idempotência do upsert.
+ */
+async function syntheticId(m: any): Promise<bigint> {
+  const key = [
+    m.lawsuit_id ?? '',
+    m.date ?? '',
+    m.title ?? '',
+    m.header ?? '',
+    m.process_number ?? '',
+  ].join('|');
+  const buf = new TextEncoder().encode(key);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  const view = new DataView(hash);
+  // Pega 8 primeiros bytes como BigInt e mascara o bit alto p/ ficar positivo
+  const high = view.getBigUint64(0, false);
+  return high & ((1n << 63n) - 1n);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Auth permissiva: verify_jwt=false + anon-key-gateway. Mesmo padrão de sync-advbox-tasks.
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
   const startTime = Date.now();
   const MAX_RUNTIME_MS = 110000;
@@ -63,34 +85,48 @@ Deno.serve(async (req) => {
 
     console.log(`Starting ${syncType} sync of ADVBox movements...`);
 
+    // Resume from last incomplete sync if exists
+    let resumeOffset = 0;
+    if (syncType === 'full') {
+      const { data: lastIncomplete } = await supabase
+        .from('advbox_movements_sync_status')
+        .select('id, last_offset')
+        .eq('sync_type', 'full')
+        .in('status', ['running', 'partial'])
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastIncomplete?.last_offset) {
+        resumeOffset = lastIncomplete.last_offset;
+        console.log(`Resuming full sync from offset=${resumeOffset}`);
+      }
+    }
+
     const { data: syncRecord } = await supabase
       .from('advbox_movements_sync_status')
-      .insert({ sync_type: syncType, status: 'running', started_at: new Date().toISOString() })
+      .insert({ sync_type: syncType, status: 'running', started_at: new Date().toISOString(), last_offset: resumeOffset })
       .select('id')
       .single();
     const syncId = syncRecord?.id;
 
     let allMovements: any[] = [];
-    let offset = 0;
+    let offset = resumeOffset;
     const limit = 100;
     let hasMore = true;
     let totalCount = 0;
     let iterations = 0;
-    const maxIterations = 80;
+    const maxIterations = 200;
     const DELAY_BETWEEN_REQUESTS = 2100;
-
-    // Para incremental, limitamos aos últimos 90 dias
-    const endpoint = syncType === 'full' ? '/last_movements' : '/last_movements';
 
     while (hasMore && iterations < maxIterations) {
       if (Date.now() - startTime > MAX_RUNTIME_MS) {
-        console.log('Approaching timeout, stopping fetch loop');
+        console.log(`Approaching timeout, stopping at offset=${offset}`);
         break;
       }
       if (iterations > 0) await sleep(DELAY_BETWEEN_REQUESTS);
 
       console.log(`Fetching movements offset=${offset}...`);
-      const response = await makeAdvboxRequest(`${endpoint}?limit=${limit}&offset=${offset}`);
+      const response = await makeAdvboxRequest(`/last_movements?limit=${limit}&offset=${offset}`);
       const items = response.data || [];
       totalCount = response.totalCount || totalCount || items.length;
 
@@ -100,7 +136,7 @@ Deno.serve(async (req) => {
         allMovements = allMovements.concat(items);
         offset += items.length;
         iterations++;
-        if (items.length < limit || allMovements.length >= totalCount) hasMore = false;
+        if (items.length < limit) hasMore = false;
       }
 
       if (syncId) {
@@ -118,53 +154,59 @@ Deno.serve(async (req) => {
 
     const batchSize = 500;
     let upsertedCount = 0;
-    let skippedNoId = 0;
 
     for (let i = 0; i < allMovements.length; i += batchSize) {
-      const batch = allMovements.slice(i, i + batchSize)
-        .map((m: any) => {
-          const advboxId = m.id ?? m.movement_id ?? m._id ?? null;
-          if (advboxId == null) { skippedNoId++; return null; }
-          return {
-            advbox_id: advboxId,
-            lawsuit_id: m.lawsuit_id || m.lawsuits_id || m.lawsuit?.id || null,
-            lawsuit_number: m.process_number || m.lawsuit?.process_number || null,
-            date: m.date || m.date_deadline || m.created_at || null,
-            content: m.title || m.header || m.content || m.description || null,
-            type: m.type || null,
-            raw_data: m,
-            last_synced_at: new Date().toISOString(),
-          };
-        })
-        .filter((x: any) => x !== null);
+      const slice = allMovements.slice(i, i + batchSize);
+      const batch: any[] = [];
+      for (const m of slice) {
+        // Tenta usar id real primeiro; se não houver, gera hash determinístico.
+        let advboxId: bigint | number | null = m.id ?? m.movement_id ?? m._id ?? null;
+        if (advboxId == null) {
+          advboxId = await syntheticId(m);
+        }
+        batch.push({
+          advbox_id: typeof advboxId === 'bigint' ? advboxId.toString() : advboxId,
+          lawsuit_id: m.lawsuit_id ?? m.lawsuits_id ?? m.lawsuit?.id ?? null,
+          lawsuit_number: m.process_number ?? m.lawsuit?.process_number ?? null,
+          date: m.date ?? m.date_deadline ?? m.created_at ?? null,
+          content: m.title ?? m.header ?? m.content ?? m.description ?? null,
+          type: m.type ?? null,
+          raw_data: m,
+          last_synced_at: new Date().toISOString(),
+        });
+      }
 
       if (batch.length === 0) continue;
 
       const { error } = await supabase.from('advbox_movements').upsert(batch, { onConflict: 'advbox_id' });
       if (error) { console.error(`Batch upsert error at ${i}:`, error); throw error; }
       upsertedCount += batch.length;
-      console.log(`Upserted ${upsertedCount}/${allMovements.length} movements (skipped no-id: ${skippedNoId})`);
+      console.log(`Upserted ${upsertedCount}/${allMovements.length} movements`);
     }
 
+    const finalStatus = (Date.now() - startTime > MAX_RUNTIME_MS && hasMore) ? 'partial' : 'completed';
     if (syncId) {
       await supabase.from('advbox_movements_sync_status')
         .update({
-          status: 'completed',
+          status: finalStatus,
           total_synced: upsertedCount,
           total_count: totalCount,
+          last_offset: offset,
           completed_at: new Date().toISOString(),
         })
         .eq('id', syncId);
     }
 
-    console.log(`Sync completed: ${upsertedCount} movements upserted`);
+    console.log(`Sync ${finalStatus}: ${upsertedCount} movements upserted (offset=${offset}/${totalCount})`);
 
     return new Response(JSON.stringify({
       success: true,
+      status: finalStatus,
       total_fetched: allMovements.length,
       total_upserted: upsertedCount,
       total_count: totalCount,
       iterations,
+      next_offset: hasMore ? offset : null,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
