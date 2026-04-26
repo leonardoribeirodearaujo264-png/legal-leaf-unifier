@@ -112,34 +112,38 @@ Deno.serve(async (req) => {
 
     console.log(`Fetched ${allMovements.length} movements in ${iterations} iterations`);
 
+    if (allMovements.length > 0) {
+      console.log('Sample movement keys:', Object.keys(allMovements[0]).join(','));
+    }
+
     const batchSize = 500;
     let upsertedCount = 0;
+    let skippedNoId = 0;
 
     for (let i = 0; i < allMovements.length; i += batchSize) {
       const batch = allMovements.slice(i, i + batchSize)
-        .filter((m: any) => m.id != null)
-        .map((m: any) => ({
-          advbox_id: m.id,
-          lawsuit_id: m.lawsuit_id || m.lawsuits_id || null,
-          lawsuit_number: m.process_number || m.lawsuit?.process_number || null,
-          date: m.date || m.created_at || null,
-          content: m.title || m.header || m.content || m.description || null,
-          type: m.type || null,
-          raw_data: m,
-          last_synced_at: new Date().toISOString(),
-        }));
+        .map((m: any) => {
+          const advboxId = m.id ?? m.movement_id ?? m._id ?? null;
+          if (advboxId == null) { skippedNoId++; return null; }
+          return {
+            advbox_id: advboxId,
+            lawsuit_id: m.lawsuit_id || m.lawsuits_id || m.lawsuit?.id || null,
+            lawsuit_number: m.process_number || m.lawsuit?.process_number || null,
+            date: m.date || m.date_deadline || m.created_at || null,
+            content: m.title || m.header || m.content || m.description || null,
+            type: m.type || null,
+            raw_data: m,
+            last_synced_at: new Date().toISOString(),
+          };
+        })
+        .filter((x: any) => x !== null);
 
       if (batch.length === 0) continue;
 
-      const { error } = await supabase
-        .from('advbox_movements')
-        .upsert(batch, { onConflict: 'advbox_id' });
-      if (error) {
-        console.error(`Batch upsert error at ${i}:`, error);
-        throw error;
-      }
+      const { error } = await supabase.from('advbox_movements').upsert(batch, { onConflict: 'advbox_id' });
+      if (error) { console.error(`Batch upsert error at ${i}:`, error); throw error; }
       upsertedCount += batch.length;
-      console.log(`Upserted ${upsertedCount}/${allMovements.length} movements`);
+      console.log(`Upserted ${upsertedCount}/${allMovements.length} movements (skipped no-id: ${skippedNoId})`);
     }
 
     if (syncId) {
