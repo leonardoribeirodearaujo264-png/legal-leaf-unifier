@@ -563,9 +563,10 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // P1.7 (correção solicitada pelo cliente):
-    //   - SEM coorte de 365d (estava excluindo arquivados antigos
-    //     justamente os que medem o tempo gasto em cada fase).
+    // P1.8 (correção 26/04 — alinhar com ADVBox /managementV2):
+    //   - COORTE 24m: SOMENTE processos com last_movement >= now() - 730d
+    //     (mediana sem coorte ficou enviesada por arquivados de décadas
+    //     atrás, ex.: Produção 54m vs alvo ADVBox 8m).
     //   - MEDIANA da DURAÇÃO DENTRO de cada fase, calculada via
     //     timestamps de transição cru do ADVBox:
     //       Prospecção = created_at -> process_date
@@ -574,8 +575,11 @@ Deno.serve(async (req) => {
     //       Rotação    = exit_execution -> status_closure  (proxy)
     //   - Para processos ATIVOS sem timestamp de saída ainda,
     //     usamos (now() - timestamp_entrada_da_fase) como proxy.
-    //   - Mediana já absorve outliers; não filtra por gap máximo.
+    //   - "Rotação" no ADVBox = ciclo completo (turns/ano).
+    //     Se mediana = 1 mês -> ~12 turns/ano. Frontend exibe alinhado.
     // =================================================================
+    const COORTE_TEMPO_DIAS = 730; // 24 meses
+    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 24 * 60 * 60 * 1000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
@@ -616,8 +620,16 @@ Deno.serve(async (req) => {
     const nowMs = now.getTime();
     const nowIso = now.toISOString();
 
+    let descartadosCoorteTempo = 0;
     for (const l of lawsuitsFiltradas) {
-      // P1.7 — SEM filtro de coorte. Considera toda a base.
+      // P1.8 — filtro de coorte 24m. Exclui processos cujo último marco
+      // temporal é mais antigo que 730 dias atrás. Sem isso, mediana fica
+      // enviesada por arquivados antigos que ficaram décadas em cada fase.
+      const lm = lastMov(l);
+      if (!lm || lm < limiteTempo) {
+        descartadosCoorteTempo++;
+        continue;
+      }
 
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
@@ -678,13 +690,17 @@ Deno.serve(async (req) => {
       execucao: Math.round(median(bucketExec)),
       rotacao: Math.round(median(bucketRot)),
     };
-    // Rotação completa = soma das fases (espelha ADVBox)
+    // P1.8 — "Rotação" no ADVBox = ciclo completo em MESES (alvo ~12m).
+    // Calculamos como soma das fases ativas (prosp + prod + exec) que representa
+    // o ciclo de vida típico de um processo até o arquivamento.
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
+    // Display alternativo: turns/ano (12 / mediana_rot). Útil quando ADVBox usa essa unidade.
+    const rotacaoTurnsAno = stages.rotacao > 0 ? 12 / stages.rotacao : 0;
 
     console.log(
-      `[BI Tempo] sem_coorte total=${bucketTotal.length} ` +
+      `[BI Tempo] coorte=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados_coorte=${descartadosCoorteTempo} ` +
       `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)} ` +
+      `stages=${JSON.stringify(stages)} rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(1)} ` +
       `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
     );
 
@@ -696,6 +712,7 @@ Deno.serve(async (req) => {
         tempo_medio_meses: tempoMedio,
         tempo_perdido_meses: Math.round(tempoPerdido),
         rotacao_completa: rotacaoCompleta,
+        rotacao_turns_ano: rotacaoTurnsAno, // P1.8 — para frontend exibir alinhado ADVBox
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
         .map(([grupo, v]) => {
@@ -776,9 +793,14 @@ Deno.serve(async (req) => {
       lawsuitArea.set(l.id, (l.group || "GERAL").toUpperCase());
     }
 
-    // 4.4.1) Buscar TODOS os syncs do mês (não filtrar por lancamento_id pois muitas
-    // despesas podem ter sido sincronizadas com lawsuit_id válido)
+    // 4.4.1) Buscar TODOS os syncs do mês. Acumulamos custos por fase
+    // e identificamos os "órfãos" (despesas sem lawsuit_id no JSONB),
+    // que serão rateados proporcionalmente entre as fases ativas.
     const despesasIds = (despesas || []).map((d: any) => d.id);
+    const despesaValor = new Map<string, number>();
+    for (const d of despesas || []) {
+      despesaValor.set(d.id, Number(d.valor || 0));
+    }
     let custoPorFase = { atendimento: 0, producao: 0, execucao: 0, arquivado: 0, outro: 0 };
     let lawsuitsComCustoPorFase = {
       atendimento: new Set<number>(),
@@ -790,6 +812,9 @@ Deno.serve(async (req) => {
     // Custos rateados por ÁREA do processo (denominador real para Aba 4)
     const custoPorArea = new Map<string, number>();
     const lawsuitsComCustoPorArea = new Map<string, Set<number>>();
+    // P1.8 — controle de órfãos (despesas sem lawsuit_id no sync)
+    const despesasComLawsuit = new Set<string>();
+    let totalCustosComLawsuit = 0;
 
     if (despesasIds.length > 0) {
       const CHUNK = 500;
@@ -803,8 +828,10 @@ Deno.serve(async (req) => {
         for (const s of syncs || []) {
           const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
           if (!lawsuitId) continue;
+          // Usa o valor REAL do lançamento (campo amount do JSONB às vezes vem nulo).
+          // Preferimos despesaValor[lancamento_id] como fonte de verdade.
+          const amount = despesaValor.get(s.lancamento_id) ?? Number((s.advbox_data as any)?.amount || 0);
           const fase = lawsuitFase.get(lawsuitId) || "outro";
-          const amount = Number((s.advbox_data as any)?.amount || 0);
           custoPorFase[fase] += amount;
           lawsuitsComCustoPorFase[fase].add(lawsuitId);
           // Agrega por ÁREA também
@@ -812,40 +839,62 @@ Deno.serve(async (req) => {
           custoPorArea.set(area, (custoPorArea.get(area) || 0) + amount);
           if (!lawsuitsComCustoPorArea.has(area)) lawsuitsComCustoPorArea.set(area, new Set());
           lawsuitsComCustoPorArea.get(area)!.add(lawsuitId);
+          despesasComLawsuit.add(s.lancamento_id);
+          totalCustosComLawsuit += amount;
         }
       }
     }
+    // Custos órfãos = despesas pagas no mês que não têm lawsuit_id no sync.
+    // Representam custo "geral" do escritório (folha, aluguel, marketing).
+    const totalCustosSemLawsuit = totalCustos - totalCustosComLawsuit;
+
+    // P1.8 — Rateio dos órfãos proporcionalmente ao volume de processos
+    // de cada fase. Sem isso, Prospecção (que raramente tem custo direto
+    // amarrado) ficaria sempre R$0 e Execução/Rotação inflados.
+    const totalAtivos = qtdAtendimento + qtdProducao + qtdExecucao + qtdArquivados;
+    if (totalAtivos > 0 && totalCustosSemLawsuit > 0) {
+      custoPorFase.atendimento += totalCustosSemLawsuit * (qtdAtendimento / totalAtivos);
+      custoPorFase.producao    += totalCustosSemLawsuit * (qtdProducao    / totalAtivos);
+      custoPorFase.execucao    += totalCustosSemLawsuit * (qtdExecucao    / totalAtivos);
+      custoPorFase.arquivado   += totalCustosSemLawsuit * (qtdArquivados  / totalAtivos);
+    }
+
     console.log(
       `[BI Custos JOIN] despesas_mes=${despesasIds.length} ` +
-      `areas_com_custo=${custoPorArea.size} ` +
-      `total_rateado=${Array.from(custoPorArea.values()).reduce((a, b) => a + b, 0).toFixed(2)}`
+      `com_lawsuit=${despesasComLawsuit.size} sem_lawsuit=${despesasIds.length - despesasComLawsuit.size} ` +
+      `total_custos=${totalCustos.toFixed(2)} ` +
+      `total_custos_com_lawsuit_id=${totalCustosComLawsuit.toFixed(2)} ` +
+      `total_custos_sem_lawsuit_id=${totalCustosSemLawsuit.toFixed(2)} ` +
+      `areas_com_custo=${custoPorArea.size}`
     );
 
-    // 4.5) Custo médio por processo POR FASE = soma_da_fase / count_distinct_lawsuits_da_fase
+    // 4.5) Custo médio por processo POR FASE = soma_total_da_fase / total_de_processos_da_fase
+    // P1.8 — denominador trocado: usa qtd TOTAL de processos da fase
+    // (do ADVBox /managementV2), não só os com custo direto. Isso espelha
+    // a fórmula que o ADVBox usa em Custos > Por Fase.
     const custoMedioFase = {
-      prospeccao: lawsuitsComCustoPorFase.atendimento.size > 0
-        ? custoPorFase.atendimento / lawsuitsComCustoPorFase.atendimento.size : 0,
-      producao: lawsuitsComCustoPorFase.producao.size > 0
-        ? custoPorFase.producao / lawsuitsComCustoPorFase.producao.size : 0,
-      execucao: lawsuitsComCustoPorFase.execucao.size > 0
-        ? custoPorFase.execucao / lawsuitsComCustoPorFase.execucao.size : 0,
+      prospeccao: qtdAtendimento > 0 ? custoPorFase.atendimento / qtdAtendimento : 0,
+      producao:   qtdProducao    > 0 ? custoPorFase.producao    / qtdProducao    : 0,
+      execucao:   qtdExecucao    > 0 ? custoPorFase.execucao    / qtdExecucao    : 0,
       // Rotação = arquivados (proxy: o ADVBox conta custo do ciclo inteiro até arquivar)
-      rotacao: lawsuitsComCustoPorFase.arquivado.size > 0
-        ? custoPorFase.arquivado / lawsuitsComCustoPorFase.arquivado.size : 0,
+      rotacao:    qtdArquivados  > 0 ? custoPorFase.arquivado   / qtdArquivados  : 0,
     };
 
     console.log(
-      `[BI Custos] processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
+      `[BI Custos] qtd_processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
       `execucao=${qtdExecucao} arquivados=${qtdArquivados} | ` +
       `lawsuits_com_custo atendimento=${lawsuitsComCustoPorFase.atendimento.size} ` +
       `producao=${lawsuitsComCustoPorFase.producao.size} ` +
       `execucao=${lawsuitsComCustoPorFase.execucao.size} ` +
       `arquivado=${lawsuitsComCustoPorFase.arquivado.size} | ` +
-      `total_despesas_mes=${despesas?.length || 0} total_custos=${totalCustos.toFixed(2)} | ` +
-      `soma_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
+      `SUM_custos_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
       `producao=${custoPorFase.producao.toFixed(2)} ` +
       `execucao=${custoPorFase.execucao.toFixed(2)} ` +
-      `arquivado=${custoPorFase.arquivado.toFixed(2)}`
+      `arquivado=${custoPorFase.arquivado.toFixed(2)} | ` +
+      `custo_medio_fase prosp=${custoMedioFase.prospeccao.toFixed(2)} ` +
+      `prod=${custoMedioFase.producao.toFixed(2)} ` +
+      `exec=${custoMedioFase.execucao.toFixed(2)} ` +
+      `rot=${custoMedioFase.rotacao.toFixed(2)}`
     );
 
     // Total de pontos do mês para custo/ponto
@@ -958,7 +1007,9 @@ Deno.serve(async (req) => {
         const pctGanho = fechados > 0 ? (v.ganhos / fechados) * 100 : 0;
         return { area, ganhos: v.ganhos, perdas: v.perdas, total: v.total, fechados, percentual_ganho: pctGanho };
       })
-      .filter((g) => g.fechados >= 5)
+      // P1.8 — filtro mínimo 30 fechados (corta áreas com n<15 que são ruído estatístico,
+      // ex.: CivelMil 9, AdmMil 10, Sucessoes 11). Alvo ADVBox aparece com áreas robustas.
+      .filter((g) => g.fechados >= 30)
       .sort((a, b) => b.percentual_ganho - a.percentual_ganho)
       .slice(0, 4);
 
