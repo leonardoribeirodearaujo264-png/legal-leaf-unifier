@@ -675,13 +675,18 @@ Deno.serve(async (req) => {
         rotacao_completa: rotacaoCompleta,
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
-        .map(([grupo, v]) => ({
-          grupo,
-          media_meses: v.tempoCount > 0 ? v.tempoTotal / v.tempoCount : 0,
-          media_honorario: v.count > 0 ? v.total / v.count : 0,
-          mensal: v.tempoCount > 0 && v.count > 0 ? (v.total / v.count) / (v.tempoTotal / v.tempoCount) : 0,
-          count: v.count,
-        }))
+        .map(([grupo, v]) => {
+          // Mediana por grupo (mantém consistência com KPIs principais)
+          const medTempo = median(v.tempo);
+          const medFee = median(v.fees);
+          return {
+            grupo,
+            media_meses: medTempo,
+            media_honorario: medFee,
+            mensal: medTempo > 0 ? medFee / medTempo : 0,
+            count: v.fees.length,
+          };
+        })
         .filter((g) => g.count >= 5)
         .sort((a, b) => b.count - a.count)
         .slice(0, 15),
