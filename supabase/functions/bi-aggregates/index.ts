@@ -717,10 +717,15 @@ Deno.serve(async (req) => {
     const rotacaoTurnsAno = stages.rotacao > 0 ? 12 / stages.rotacao : 0;
 
     console.log(
-      `[BI Tempo] coorte=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados_coorte=${descartadosCoorteTempo} ` +
-      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)} rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(1)} ` +
-      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
+      `[BI Tempo POR-FASE] cohort_dias=${JSON.stringify(cohortDaysByPhase)} ` +
+      `medianas_meses=${JSON.stringify(stages)} ` +
+      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length} ` +
+      `rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(2)} ` +
+      `(NOTA: se turns_ano <1, ADVBox usa metodologia diferente — ciclos completos do mesmo processo)`
+    );
+    console.log(
+      `[BI Tempo] coorte_global=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados=${descartadosCoorteTempo} ` +
+      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)}`
     );
 
     // ====================================================================
