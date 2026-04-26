@@ -1092,8 +1092,8 @@ export default function TarefasAdvbox() {
           <CardHeader>
             <CardTitle>{isAdmin ? 'Todas as Tarefas' : 'Suas Tarefas'}</CardTitle>
             <CardDescription>
-              Mostrando {paginatedTasks.length} de {filteredTasks.length} tarefas
-              {filteredTasks.length !== visibleTasks.length && ` (${visibleTasks.length} total)`}
+              Mostrando {paginatedTasks.length} de {totalCount} tarefas
+              {pageLoading && ' — atualizando…'}
               {totalPages > 1 && ` — Página ${currentPage} de ${totalPages}`}
             </CardDescription>
           </CardHeader>
