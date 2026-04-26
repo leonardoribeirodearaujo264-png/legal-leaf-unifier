@@ -563,16 +563,26 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // CRÍTICO: usar AVG (não SUM) e meses (não dias)
+    // P1.6 — usar MEDIANA (não média) e filtrar por COORTE RECENTE
+    // (last_movement >= now() - 365d). Mediana reduz peso de outliers
+    // antigos (processos zumbis com gaps de 80+ meses). Se ainda diver-
+    // gir muito, restringimos a 180d na variável COORTE_DIAS.
     // =================================================================
-    let tProsp = 0, tProd = 0, tExec = 0, tRot = 0;
-    let cProsp = 0, cProd = 0, cExec = 0, cRot = 0;
-    let totalFees = 0, countFees = 0;
-    let somaTempoTotal = 0, countTempoTotal = 0;
-    const honorariosPorGrupo = new Map<string, { total: number; count: number; tempoTotal: number; tempoCount: number }>();
+    const COORTE_DIAS = 365; // janela: 365 -> 180 se precisar afunilar
+    const limiteCoorte = new Date(now.getTime() - COORTE_DIAS * 24 * 60 * 60 * 1000);
+
+    // último marco temporal do processo (proxy de last_movement)
+    const lastMov = (l: Lawsuit): Date | null => {
+      const candidatos = [l.status_closure, l.exit_execution, l.exit_production, l.process_date, l.created_at]
+        .filter(Boolean) as string[];
+      for (const c of candidatos) {
+        const d = new Date(c);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
 
     // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
-    // Lawsuits com process_date legado/zerado geram valores absurdos (ex: 81 meses em produção).
     const MAX_M = 120;
     const safeMonths = (a: string | null, b: string | null): number | null => {
       const v = monthsBetween(a, b);
@@ -580,56 +590,80 @@ Deno.serve(async (req) => {
       return v;
     };
 
-    // CORREÇÃO P1.6: usar AVG e arredondar para meses inteiros (ADVBox).
-    // Considerar apenas lawsuits CONCLUÍDOS (status_closure preenchido) para ter coortes comparáveis.
-    // "Tempo perdido" = soma das esperas mortas entre fases (gaps).
+    // Mediana auxiliar
+    const median = (arr: number[]): number => {
+      if (arr.length === 0) return 0;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    };
+
+    // Buckets para mediana por fase + total
+    const bucketProsp: number[] = [];
+    const bucketProd: number[] = [];
+    const bucketExec: number[] = [];
+    const bucketRot: number[] = [];
+    const bucketTotal: number[] = [];
+    const bucketFees: number[] = [];
     let tempoPerdido = 0;
+    let countTempoPerdido = 0;
+    const honorariosPorGrupo = new Map<string, { fees: number[]; tempo: number[] }>();
+
     for (const l of lawsuitsFiltradas) {
+      // Filtro de coorte recente — descarta processos sem movimentação
+      // dentro da janela COORTE_DIAS (default 365d).
+      const lm = lastMov(l);
+      if (!lm || lm < limiteCoorte) continue;
+
       const fee = Number(l.fees_money || 0);
-      if (fee > 0) {
-        totalFees += fee;
-        countFees++;
-      }
+      if (fee > 0) bucketFees.push(fee);
 
       const v1 = safeMonths(l.created_at, l.process_date);
-      if (v1 !== null) { tProsp += v1; cProsp++; }
+      if (v1 !== null) bucketProsp.push(v1);
       const v2 = safeMonths(l.process_date, l.exit_production);
-      if (v2 !== null) { tProd += v2; cProd++; }
+      if (v2 !== null) bucketProd.push(v2);
       const v3 = safeMonths(l.exit_production, l.exit_execution);
-      if (v3 !== null) { tExec += v3; cExec++; }
+      if (v3 !== null) bucketExec.push(v3);
       const v4 = safeMonths(l.exit_execution, l.status_closure);
-      if (v4 !== null) { tRot += v4; cRot++; }
+      if (v4 !== null) bucketRot.push(v4);
 
       const vTot = safeMonths(l.created_at, l.status_closure);
       if (vTot !== null) {
-        somaTempoTotal += vTot;
-        countTempoTotal++;
-        // Tempo perdido = total - soma das fases efetivas
+        bucketTotal.push(vTot);
         const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
-        if (vTot > efetivo) tempoPerdido += (vTot - efetivo);
+        if (vTot > efetivo) {
+          tempoPerdido += (vTot - efetivo);
+          countTempoPerdido++;
+        }
       }
 
       const grp = l.group || "Outros";
-      const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
-      if (fee > 0) { cur.total += fee; cur.count++; }
-      if (vTot !== null) { cur.tempoTotal += vTot; cur.tempoCount++; }
+      const cur = honorariosPorGrupo.get(grp) || { fees: [], tempo: [] };
+      if (fee > 0) cur.fees.push(fee);
+      if (vTot !== null) cur.tempo.push(vTot);
       honorariosPorGrupo.set(grp, cur);
     }
 
-    const honorarioMedio = countFees > 0 ? totalFees / countFees : 0;
-    const tempoMedio = countTempoTotal > 0 ? somaTempoTotal / countTempoTotal : 0;
-    // Honorário mensal = honorário médio / tempo médio (em meses)
+    // Honorário e tempo via MEDIANA da coorte recente
+    const honorarioMedio = median(bucketFees);
+    const tempoMedio = median(bucketTotal);
     const honorarioMes = tempoMedio > 0 ? honorarioMedio / tempoMedio : 0;
 
-    // Médias REAIS por estágio — em meses inteiros (espelha ADVBox)
+    // Medianas por estágio — meses inteiros (espelha ADVBox)
     const stages = {
-      prospeccao: cProsp > 0 ? Math.round(tProsp / cProsp) : 0,
-      producao: cProd > 0 ? Math.round(tProd / cProd) : 0,
-      execucao: cExec > 0 ? Math.round(tExec / cExec) : 0,
-      rotacao: cRot > 0 ? Math.round(tRot / cRot) : 0,
+      prospeccao: Math.round(median(bucketProsp)),
+      producao: Math.round(median(bucketProd)),
+      execucao: Math.round(median(bucketExec)),
+      rotacao: Math.round(median(bucketRot)),
     };
     // Rotação completa = soma das fases (espelha ADVBox)
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
+
+    console.log(
+      `[BI Tempo] coorte=${COORTE_DIAS}d total=${bucketTotal.length} ` +
+      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
+      `stages=${JSON.stringify(stages)}`
+    );
 
     const tempo = {
       stages,
