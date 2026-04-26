@@ -693,7 +693,11 @@ Deno.serve(async (req) => {
     };
 
     // =================================================================
-    // ABA 4 — CUSTOS (custo total do mês × proporção tempo médio × volume)
+    // ABA 4 — CUSTOS
+    // P1.6 — denominador correto:
+    //   custo_por_processo_da_area = SUM(custos da area) / COUNT(processos da area)
+    //   custo_por_estagio          = SUM(custos do estagio) / COUNT(processos do estagio)
+    // (NÃO dividir tudo pelo total geral — isso achatava as áreas pequenas)
     // =================================================================
     const { data: despesas } = await supabase
       .from("fin_lancamentos")
@@ -714,8 +718,9 @@ Deno.serve(async (req) => {
       totalCustos += valor;
     }
 
-    // Distribuição: custo por estágio = total × peso(estágio)
-    // Peso = (tempo_medio_estágio × volume_estágio) / Σ pesos
+    // Pesos relativos por estágio = tempo médio × volume da própria fase.
+    // O custo total é distribuído proporcionalmente entre as fases, e depois
+    // dividido pelo VOLUME DA PRÓPRIA FASE (não pelo total geral).
     const pesos = {
       prospeccao: stages.prospeccao * fasesCount.prospeccao,
       producao: stages.producao * fasesCount.producao,
@@ -724,7 +729,7 @@ Deno.serve(async (req) => {
     };
     const somaPesos = pesos.prospeccao + pesos.producao + pesos.execucao + pesos.rotacao;
 
-    // Custo total por estágio / volume = custo médio por processo no estágio
+    // Custo médio por processo no estágio = (custo alocado ao estágio) / (volume DESSE estágio)
     function custoEstagio(peso: number, volume: number): number {
       if (somaPesos === 0 || volume === 0) return 0;
       const totalEstagio = totalCustos * (peso / somaPesos);
@@ -747,11 +752,18 @@ Deno.serve(async (req) => {
         custo_por_ponto: custoPorPonto,
       },
       grupos: Array.from(grupoCustos.entries())
-        .map(([grupo, valor]) => ({
-          grupo,
-          valor,
-          percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
-        }))
+        .map(([grupo, valor]) => {
+          // Conta de processos da própria área (denominador correto)
+          const procsArea = areaCount.get(grupo) || 0;
+          return {
+            grupo,
+            valor,
+            percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
+            // Custo por processo DA ÁREA — não do total geral
+            custo_por_processo: procsArea > 0 ? valor / procsArea : 0,
+            qtd_processos: procsArea,
+          };
+        })
         .sort((a, b) => b.valor - a.valor),
       total: totalCustos,
     };
