@@ -232,7 +232,18 @@ Deno.serve(async (req) => {
         .eq('id', syncId);
     }
 
-    console.log(`Sync ${finalStatus}: ${upsertedCount} movements upserted (offset=${offset}/${totalCount})`);
+    // Auditoria de paridade ADVBox vs local
+    const { count: localCount } = await supabase
+      .from('advbox_movements')
+      .select('*', { count: 'exact', head: true });
+    await supabase.from('advbox_sync_audit').insert({
+      entity: 'movements',
+      advbox_count: totalCount,
+      local_count: localCount ?? 0,
+      notes: `sync_type=${syncType}, status=${finalStatus}, offset=${offset}, cursor=${cursor ?? ''}`,
+    });
+
+    console.log(`Sync ${finalStatus}: ${upsertedCount} movements upserted (offset=${offset}/${totalCount}, local=${localCount})`);
 
     return new Response(JSON.stringify({
       success: true,
