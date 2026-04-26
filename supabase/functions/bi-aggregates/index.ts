@@ -770,14 +770,17 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 5 — SAFRA & QUALIDADE
-    // CRÍTICO: top 4 áreas por % de GANHO (não volume absoluto)
-    // P1.6 — fees_money cobre só ~3% das lawsuits arquivadas. Usamos `stage`
-    // (texto semântico do ADVBox) como proxy de resultado:
-    //   GANHOS  = stage indica decisão favorável / pagamento / trânsito julgado
-    //   PERDAS  = stage indica perda de contrato / inviabilidade / desinteresse
-    //   NEUTRO  = arquivado mas sem desfecho explícito (não conta em nenhum)
-    // Mantemos fallback por fees_money quando stage estiver vazio.
+    // P1.6 — heurística inferida (independe de stage textual cobrir tudo):
+    //   GANHO  = arquivado COM fees_money > 0
+    //   PERDA  = arquivado SEM fees_money (0 ou null)
+    //   COORTE = últimos 24 meses (last_movement >= now() - 730d)
+    // Top 4 áreas por % de ganho com mínimo 5 fechamentos para entrar.
+    // Mantemos fallback por stage textual quando o campo estiver presente.
     // =================================================================
+    const COORTE_SAFRA_DIAS = 730; // 24 meses
+    const limiteSafra = new Date(now.getTime() - COORTE_SAFRA_DIAS * 24 * 60 * 60 * 1000);
+
+    // Stages textuais (override quando presente — evita falso positivo)
     const STAGE_GANHO = new Set([
       "TRÂNSITO EM JULGADO", "TRANSITADO EM JULGADO", "RECURSO JULGADO",
       "DECISÃO PROFERIDA", "AGUARDANDO PAGAMENTO DO PRECATÓRIO",
@@ -789,38 +792,53 @@ Deno.serve(async (req) => {
       "ANALISADO E NÃO DISTRIBUÍDO - INVIÁVEL OU DESINTERESSE DO CLIENTE",
     ]);
 
+    // Classificador heurístico: ganho/perda só fazem sentido se o processo
+    // estiver arquivado. Para arquivados, fees_money>0 = ganho (advogado
+    // recebeu honorário) e fees_money==0/null = perda (não houve recebimento).
     function classifyOutcome(l: Lawsuit): "ganho" | "perda" | "neutro" {
       const stg = (l.stage || "").trim().toUpperCase();
       if (STAGE_GANHO.has(stg)) return "ganho";
       if (STAGE_PERDA.has(stg)) return "perda";
-      // Fallback por fees_money quando temos valor real registrado
-      if (Number(l.fees_money || 0) > 0) return "ganho";
-      return "neutro";
+      // Heurística: arquivado COM fee = ganho; SEM fee = perda
+      const fee = Number(l.fees_money || 0);
+      return fee > 0 ? "ganho" : "perda";
     }
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
+    let descartadosForaCoorte = 0;
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
       cur.total++;
-      // Só conta resultado em arquivados (step ARQUIVAMENTO ou status_closure)
+
       const isArquivado = classifyByStep(l.step) === "arquivado" || !!l.status_closure;
       if (isArquivado) {
-        const o = classifyOutcome(l);
-        if (o === "ganho") cur.ganhos++;
-        else if (o === "perda") cur.perdas++;
+        // Filtro de coorte recente — só conta arquivamentos dos últimos 24m
+        const lm = lastMov(l);
+        if (!lm || lm < limiteSafra) {
+          descartadosForaCoorte++;
+        } else {
+          const o = classifyOutcome(l);
+          if (o === "ganho") cur.ganhos++;
+          else if (o === "perda") cur.perdas++;
+        }
       }
       safraPorArea.set(grp, cur);
     }
 
-    // Top 4 ordenado por % de ganho (= ganhos / (ganhos+perdas)), exigindo no mínimo 5 fechamentos
+    console.log(
+      `[BI Safra] coorte=${COORTE_SAFRA_DIAS}d areas=${safraPorArea.size} ` +
+      `descartados_fora_coorte=${descartadosForaCoorte}`
+    );
+
+    // Top 4 ordenado por % de ganho (= ganhos / (ganhos+perdas)), mínimo 5 fechamentos
     const areasQualidade = Array.from(safraPorArea.entries())
       .map(([area, v]) => {
         const fechados = v.ganhos + v.perdas;
         const pctGanho = fechados > 0 ? (v.ganhos / fechados) * 100 : 0;
         return { area, ganhos: v.ganhos, perdas: v.perdas, total: v.total, fechados, percentual_ganho: pctGanho };
       })
-      .filter((g) => g.fechados >= 5) // só áreas com volume mínimo
+      .filter((g) => g.fechados >= 5)
       .sort((a, b) => b.percentual_ganho - a.percentual_ganho)
       .slice(0, 4);
 
