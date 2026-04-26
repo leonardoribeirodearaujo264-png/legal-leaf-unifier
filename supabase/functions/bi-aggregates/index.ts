@@ -1007,7 +1007,9 @@ Deno.serve(async (req) => {
         const pctGanho = fechados > 0 ? (v.ganhos / fechados) * 100 : 0;
         return { area, ganhos: v.ganhos, perdas: v.perdas, total: v.total, fechados, percentual_ganho: pctGanho };
       })
-      .filter((g) => g.fechados >= 5)
+      // P1.8 — filtro mínimo 30 fechados (corta áreas com n<15 que são ruído estatístico,
+      // ex.: CivelMil 9, AdmMil 10, Sucessoes 11). Alvo ADVBox aparece com áreas robustas.
+      .filter((g) => g.fechados >= 30)
       .sort((a, b) => b.percentual_ganho - a.percentual_ganho)
       .slice(0, 4);
 
