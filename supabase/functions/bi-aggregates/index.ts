@@ -717,20 +717,53 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 4 — CUSTOS
-    // P1.6 — denominador correto:
-    //   custo_por_processo_da_area = SUM(custos da area) / COUNT(processos da area)
-    //   custo_por_estagio          = SUM(custos do estagio) / COUNT(processos do estagio)
-    // (NÃO dividir tudo pelo total geral — isso achatava as áreas pequenas)
+    // P1.7 (correção solicitada pelo cliente):
+    //   custo_medio_por_fase = SUM(despesas com lawsuit em fase X)
+    //                          / COUNT(DISTINCT lawsuits em fase X)
+    //   Aritmética pura: pega despesas pagas no MÊS, faz JOIN com
+    //   advbox_financial_sync (que tem lawsuit_id no JSONB advbox_data)
+    //   e classifica via classifyByStep(lawsuit.step).
+    //
+    // Antes da agregação loga o COUNT por fase para auditoria — se
+    // execucao/rotacao vierem zeradas, o problema é o classificador
+    // ou o JOIN (transactions sem lawsuit_id).
     // =================================================================
-    const { data: despesas } = await supabase
-      .from("fin_lancamentos")
-      .select("valor, categoria_id, fin_categorias!fin_lancamentos_categoria_id_fkey(nome, grupo)")
-      .eq("tipo", "despesa")
-      .eq("status", "pago")
-      .gte("data_pagamento", inicio.toISOString().slice(0, 10))
-      .lte("data_pagamento", fim.toISOString().slice(0, 10))
-      .is("deleted_at", null);
 
+    // 4.1) Mapa rápido lawsuit_id -> fase (a partir do cache JSONB)
+    const lawsuitFase = new Map<number, FaseUI>();
+    const lawsuitGrupo = new Map<number, string>();
+    for (const l of lawsuits) {
+      lawsuitFase.set(l.id, classifyByStep(l.step));
+      lawsuitGrupo.set(l.id, l.group || "Outros");
+    }
+
+    // 4.2) Despesas pagas no MÊS — busca todas paginadas
+    async function fetchAllDespesas(): Promise<any[]> {
+      const all: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_lancamentos")
+          .select("id, valor, categoria_id, fin_categorias!fin_lancamentos_categoria_id_fkey(nome, grupo)")
+          .eq("tipo", "despesa")
+          .eq("status", "pago")
+          .gte("data_pagamento", inicio.toISOString().slice(0, 10))
+          .lte("data_pagamento", fim.toISOString().slice(0, 10))
+          .is("deleted_at", null)
+          .range(offset, offset + pageSize - 1);
+        if (error) { console.error("[BI Custos] fetchAllDespesas erro:", error); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+        if (offset > 50000) break;
+      }
+      return all;
+    }
+    const despesas = await fetchAllDespesas();
+
+    // 4.3) Total geral de custos no mês + agregação por grupo financeiro
     const grupoCustos = new Map<string, number>();
     let totalCustos = 0;
     for (const d of despesas || []) {
@@ -741,23 +774,66 @@ Deno.serve(async (req) => {
       totalCustos += valor;
     }
 
-    // Pesos relativos por estágio = tempo médio × volume da própria fase.
-    // O custo total é distribuído proporcionalmente entre as fases, e depois
-    // dividido pelo VOLUME DA PRÓPRIA FASE (não pelo total geral).
-    const pesos = {
-      prospeccao: stages.prospeccao * fasesCount.prospeccao,
-      producao: stages.producao * fasesCount.producao,
-      execucao: stages.execucao * fasesCount.execucao,
-      rotacao: stages.rotacao * fasesCount.rotacao,
+    // 4.4) JOIN despesas <-> lawsuits via advbox_financial_sync
+    // Buscamos só os syncs cujos lancamento_id estão na lista de despesas do mês
+    const despesasIds = (despesas || []).map((d: any) => d.id);
+    let custoPorFase = { atendimento: 0, producao: 0, execucao: 0, arquivado: 0, outro: 0 };
+    let lawsuitsComCustoPorFase = {
+      atendimento: new Set<number>(),
+      producao: new Set<number>(),
+      execucao: new Set<number>(),
+      arquivado: new Set<number>(),
+      outro: new Set<number>(),
     };
-    const somaPesos = pesos.prospeccao + pesos.producao + pesos.execucao + pesos.rotacao;
 
-    // Custo médio por processo no estágio = (custo alocado ao estágio) / (volume DESSE estágio)
-    function custoEstagio(peso: number, volume: number): number {
-      if (somaPesos === 0 || volume === 0) return 0;
-      const totalEstagio = totalCustos * (peso / somaPesos);
-      return totalEstagio / volume;
+    if (despesasIds.length > 0) {
+      // Busca em chunks de 500 (limite de IN do PostgREST)
+      const CHUNK = 500;
+      for (let i = 0; i < despesasIds.length; i += CHUNK) {
+        const slice = despesasIds.slice(i, i + CHUNK);
+        const { data: syncs, error: syncErr } = await supabase
+          .from("advbox_financial_sync")
+          .select("lancamento_id, advbox_data")
+          .in("lancamento_id", slice);
+        if (syncErr) { console.error("[BI Custos] sync chunk erro:", syncErr); continue; }
+        for (const s of syncs || []) {
+          const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
+          if (!lawsuitId) continue;
+          const fase = lawsuitFase.get(lawsuitId) || "outro";
+          // valor do lançamento original (vamos usar amount do JSONB para preservar precisão)
+          const amount = Number((s.advbox_data as any)?.amount || 0);
+          custoPorFase[fase] += amount;
+          lawsuitsComCustoPorFase[fase].add(lawsuitId);
+        }
+      }
     }
+
+    // 4.5) Custo médio por processo POR FASE = soma_da_fase / count_distinct_lawsuits_da_fase
+    const custoMedioFase = {
+      prospeccao: lawsuitsComCustoPorFase.atendimento.size > 0
+        ? custoPorFase.atendimento / lawsuitsComCustoPorFase.atendimento.size : 0,
+      producao: lawsuitsComCustoPorFase.producao.size > 0
+        ? custoPorFase.producao / lawsuitsComCustoPorFase.producao.size : 0,
+      execucao: lawsuitsComCustoPorFase.execucao.size > 0
+        ? custoPorFase.execucao / lawsuitsComCustoPorFase.execucao.size : 0,
+      // Rotação = arquivados (proxy: o ADVBox conta custo do ciclo inteiro até arquivar)
+      rotacao: lawsuitsComCustoPorFase.arquivado.size > 0
+        ? custoPorFase.arquivado / lawsuitsComCustoPorFase.arquivado.size : 0,
+    };
+
+    console.log(
+      `[BI Custos] processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
+      `execucao=${qtdExecucao} arquivados=${qtdArquivados} | ` +
+      `lawsuits_com_custo atendimento=${lawsuitsComCustoPorFase.atendimento.size} ` +
+      `producao=${lawsuitsComCustoPorFase.producao.size} ` +
+      `execucao=${lawsuitsComCustoPorFase.execucao.size} ` +
+      `arquivado=${lawsuitsComCustoPorFase.arquivado.size} | ` +
+      `total_despesas_mes=${despesas?.length || 0} total_custos=${totalCustos.toFixed(2)} | ` +
+      `soma_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
+      `producao=${custoPorFase.producao.toFixed(2)} ` +
+      `execucao=${custoPorFase.execucao.toFixed(2)} ` +
+      `arquivado=${custoPorFase.arquivado.toFixed(2)}`
+    );
 
     // Total de pontos do mês para custo/ponto
     let pontosMes = 0;
@@ -768,10 +844,10 @@ Deno.serve(async (req) => {
 
     const custos = {
       kpis: {
-        prospeccao: custoEstagio(pesos.prospeccao, fasesCount.prospeccao),
-        producao: custoEstagio(pesos.producao, fasesCount.producao),
-        execucao: custoEstagio(pesos.execucao, fasesCount.execucao),
-        rotacao: custoEstagio(pesos.rotacao, fasesCount.rotacao),
+        prospeccao: custoMedioFase.prospeccao,
+        producao: custoMedioFase.producao,
+        execucao: custoMedioFase.execucao,
+        rotacao: custoMedioFase.rotacao,
         custo_por_ponto: custoPorPonto,
       },
       grupos: Array.from(grupoCustos.entries())
