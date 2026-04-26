@@ -763,19 +763,21 @@ Deno.serve(async (req) => {
     }
     const despesas = await fetchAllDespesas();
 
-    // 4.3) Total geral de custos no mês + agregação por grupo financeiro
-    const grupoCustos = new Map<string, number>();
+    // 4.3) Total geral de custos no mês
     let totalCustos = 0;
     for (const d of despesas || []) {
-      const valor = Number(d.valor || 0);
-      // @ts-ignore
-      const grupo = d.fin_categorias?.grupo || "Outros";
-      grupoCustos.set(grupo, (grupoCustos.get(grupo) || 0) + valor);
-      totalCustos += valor;
+      totalCustos += Number(d.valor || 0);
     }
 
     // 4.4) JOIN despesas <-> lawsuits via advbox_financial_sync
-    // Buscamos só os syncs cujos lancamento_id estão na lista de despesas do mês
+    // Mapeamento lawsuit_id -> { area, fase } via cache
+    const lawsuitArea = new Map<number, string>();
+    for (const l of lawsuits) {
+      lawsuitArea.set(l.id, (l.group || "GERAL").toUpperCase());
+    }
+
+    // 4.4.1) Buscar TODOS os syncs do mês (não filtrar por lancamento_id pois muitas
+    // despesas podem ter sido sincronizadas com lawsuit_id válido)
     const despesasIds = (despesas || []).map((d: any) => d.id);
     let custoPorFase = { atendimento: 0, producao: 0, execucao: 0, arquivado: 0, outro: 0 };
     let lawsuitsComCustoPorFase = {
@@ -785,9 +787,11 @@ Deno.serve(async (req) => {
       arquivado: new Set<number>(),
       outro: new Set<number>(),
     };
+    // Custos rateados por ÁREA do processo (denominador real para Aba 4)
+    const custoPorArea = new Map<string, number>();
+    const lawsuitsComCustoPorArea = new Map<string, Set<number>>();
 
     if (despesasIds.length > 0) {
-      // Busca em chunks de 500 (limite de IN do PostgREST)
       const CHUNK = 500;
       for (let i = 0; i < despesasIds.length; i += CHUNK) {
         const slice = despesasIds.slice(i, i + CHUNK);
@@ -800,13 +804,22 @@ Deno.serve(async (req) => {
           const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
           if (!lawsuitId) continue;
           const fase = lawsuitFase.get(lawsuitId) || "outro";
-          // valor do lançamento original (vamos usar amount do JSONB para preservar precisão)
           const amount = Number((s.advbox_data as any)?.amount || 0);
           custoPorFase[fase] += amount;
           lawsuitsComCustoPorFase[fase].add(lawsuitId);
+          // Agrega por ÁREA também
+          const area = lawsuitArea.get(lawsuitId) || "GERAL";
+          custoPorArea.set(area, (custoPorArea.get(area) || 0) + amount);
+          if (!lawsuitsComCustoPorArea.has(area)) lawsuitsComCustoPorArea.set(area, new Set());
+          lawsuitsComCustoPorArea.get(area)!.add(lawsuitId);
         }
       }
     }
+    console.log(
+      `[BI Custos JOIN] despesas_mes=${despesasIds.length} ` +
+      `areas_com_custo=${custoPorArea.size} ` +
+      `total_rateado=${Array.from(custoPorArea.values()).reduce((a, b) => a + b, 0).toFixed(2)}`
+    );
 
     // 4.5) Custo médio por processo POR FASE = soma_da_fase / count_distinct_lawsuits_da_fase
     const custoMedioFase = {
@@ -850,15 +863,15 @@ Deno.serve(async (req) => {
         rotacao: custoMedioFase.rotacao,
         custo_por_ponto: custoPorPonto,
       },
-      grupos: Array.from(grupoCustos.entries())
+      // Grupos = ÁREAS do processo com custo rateado real (via JOIN advbox_financial_sync)
+      // Antes usava grupo financeiro (Clientes/Pessoal/etc) — errado pois não bate com áreas
+      grupos: Array.from(custoPorArea.entries())
         .map(([grupo, valor]) => {
-          // Conta de processos da própria área (denominador correto)
-          const procsArea = areaCount.get(grupo) || 0;
+          const procsArea = lawsuitsComCustoPorArea.get(grupo)?.size || 0;
           return {
             grupo,
             valor,
             percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
-            // Custo por processo DA ÁREA — não do total geral
             custo_por_processo: procsArea > 0 ? valor / procsArea : 0,
             qtd_processos: procsArea,
           };
@@ -905,19 +918,13 @@ Deno.serve(async (req) => {
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     let descartadosForaCoorte = 0;
-    // P1.7 — DEBUG SHAPE: loga 1 arquivado com fee>0 e 1 com fee=0 pra
-    // identificar o campo correto de outcome no ADVBox.
-    let amostraComFee: Lawsuit | null = null;
-    let amostraSemFee: Lawsuit | null = null;
-    for (const l of lawsuitsFiltradas) {
-      if (classifyByStep(l.step) !== "arquivado") continue;
-      const fee = Number(l.fees_money || 0);
-      if (fee > 0 && !amostraComFee) amostraComFee = l;
-      if (fee <= 0 && !amostraSemFee) amostraSemFee = l;
-      if (amostraComFee && amostraSemFee) break;
-    }
-    console.log("[BI Safra DEBUG shape] arquivado COM fees_money>0:", JSON.stringify(amostraComFee));
-    console.log("[BI Safra DEBUG shape] arquivado SEM fees_money:", JSON.stringify(amostraSemFee));
+    // Shape do ADVBox confirmado: NÃO há campo nativo de outcome (win/loss).
+    // Campos disponíveis no JSONB: id, step, stage, group, type, customers,
+    // created_at, process_date, exit_production, exit_execution, status_closure,
+    // fees_money (preenchido em ~0,6% dos arquivados), fees_expec, contingency,
+    // responsible, notes (sempre null nas amostras), folder.
+    // Heurística atual fees_money>0=ganho é o melhor proxy possível sem
+    // mudar a coleta no ADVBox para incluir archive_reason ou outcome custom.
 
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";

@@ -870,9 +870,12 @@ function SafraTab({ data }: { data: any }) {
     <div className="space-y-4">
       {/* Top 4 áreas por % vitória */}
       <div>
-        <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">
+        <h3 className="text-sm font-medium text-muted-foreground mb-1 uppercase tracking-wide">
           Top 4 áreas por taxa de vitória
         </h3>
+        <p className="text-xs text-muted-foreground mb-3 italic">
+          Critério: arquivado com fees_money &gt; 0 = ganho (ajustar quando ADVBox confirmar campo nativo de outcome).
+        </p>
         {(data?.areas || []).length === 0 ? (
           <Card>
             <CardContent className="p-6 text-center text-sm text-muted-foreground">
