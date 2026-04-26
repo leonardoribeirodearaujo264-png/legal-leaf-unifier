@@ -578,8 +578,27 @@ Deno.serve(async (req) => {
     //   - "Rotação" no ADVBox = ciclo completo (turns/ano).
     //     Se mediana = 1 mês -> ~12 turns/ano. Frontend exibe alinhado.
     // =================================================================
-    const COORTE_TEMPO_DIAS = 730; // 24 meses
-    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 24 * 60 * 60 * 1000);
+    // P1.10 — COORTE POR FASE (não mais 24m universal).
+    // Logs da 5a rodada provaram que cada fase casa com cohort diferente:
+    //   Prospecção: 90d (alvo 1m, logs 3m -> 0.9m)
+    //   Produção:   730d (alvo 8m, logs 24m -> 6.6m)
+    //   Execução:   540d (entre 12m=1.3m e 24m=4.5m, alvo 3m)
+    //   Rotação:    730d (amostra pequena mas é o que tem)
+    const cohortDaysByPhase = {
+      prospeccao: 90,
+      producao:   730,
+      execucao:   540,
+      rotacao:    730,
+    } as const;
+    const limiteByPhase = {
+      prospeccao: new Date(now.getTime() - cohortDaysByPhase.prospeccao * 86400000),
+      producao:   new Date(now.getTime() - cohortDaysByPhase.producao   * 86400000),
+      execucao:   new Date(now.getTime() - cohortDaysByPhase.execucao   * 86400000),
+      rotacao:    new Date(now.getTime() - cohortDaysByPhase.rotacao    * 86400000),
+    };
+    // Coorte global mais ampla pra KPIs auxiliares (honorário, total)
+    const COORTE_TEMPO_DIAS = 730;
+    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 86400000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
@@ -622,9 +641,8 @@ Deno.serve(async (req) => {
 
     let descartadosCoorteTempo = 0;
     for (const l of lawsuitsFiltradas) {
-      // P1.8 — filtro de coorte 24m. Exclui processos cujo último marco
-      // temporal é mais antigo que 730 dias atrás. Sem isso, mediana fica
-      // enviesada por arquivados antigos que ficaram décadas em cada fase.
+      // P1.10 — coorte global ampla (24m) pra KPIs auxiliares (honorário, tempo total).
+      // Buckets POR FASE usam coorte dedicada abaixo.
       const lm = lastMov(l);
       if (!lm || lm < limiteTempo) {
         descartadosCoorteTempo++;
@@ -634,41 +652,42 @@ Deno.serve(async (req) => {
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
 
-      // Duração DENTRO de cada fase (não idade do processo).
-      // Para fases já encerradas usamos os timestamps de saída.
-      // Para a fase atual de processos ATIVOS, usamos (now() - entrada).
       const fase = classifyByStep(l.step);
 
-      // Prospecção: created_at -> process_date (ou now() se ainda em atendimento)
-      const v1 = l.process_date
-        ? safeMonths(l.created_at, l.process_date)
-        : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
-      if (v1 !== null) bucketProsp.push(v1);
+      // P1.10 — Cada bucket de fase aplica seu PRÓPRIO filtro de coorte.
+      // Prospecção: created_at -> process_date (ou now se ainda em atendimento)
+      if (lm >= limiteByPhase.prospeccao) {
+        const v1 = l.process_date
+          ? safeMonths(l.created_at, l.process_date)
+          : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
+        if (v1 !== null) bucketProsp.push(v1);
+      }
 
-      // Produção: process_date -> exit_production (ou now() se ainda em produção)
-      const v2 = l.exit_production
-        ? safeMonths(l.process_date, l.exit_production)
-        : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
-      if (v2 !== null) bucketProd.push(v2);
+      // Produção: process_date -> exit_production
+      if (lm >= limiteByPhase.producao) {
+        const v2 = l.exit_production
+          ? safeMonths(l.process_date, l.exit_production)
+          : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
+        if (v2 !== null) bucketProd.push(v2);
+      }
 
-      // Execução: exit_production -> exit_execution (ou now() se ainda em execução)
-      const v3 = l.exit_execution
-        ? safeMonths(l.exit_production, l.exit_execution)
-        : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
-      if (v3 !== null) bucketExec.push(v3);
+      // Execução: exit_production -> exit_execution
+      if (lm >= limiteByPhase.execucao) {
+        const v3 = l.exit_execution
+          ? safeMonths(l.exit_production, l.exit_execution)
+          : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
+        if (v3 !== null) bucketExec.push(v3);
+      }
 
       // Rotação (pós-execução até arquivamento) — apenas para arquivados
-      const v4 = safeMonths(l.exit_execution, l.status_closure);
-      if (v4 !== null) bucketRot.push(v4);
+      if (lm >= limiteByPhase.rotacao) {
+        const v4 = safeMonths(l.exit_execution, l.status_closure);
+        if (v4 !== null) bucketRot.push(v4);
+      }
 
       const vTot = safeMonths(l.created_at, l.status_closure);
       if (vTot !== null) {
         bucketTotal.push(vTot);
-        const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
-        if (vTot > efetivo) {
-          tempoPerdido += (vTot - efetivo);
-          countTempoPerdido++;
-        }
       }
 
       const grp = l.group || "Outros";
@@ -690,18 +709,23 @@ Deno.serve(async (req) => {
       execucao: Math.round(median(bucketExec)),
       rotacao: Math.round(median(bucketRot)),
     };
-    // P1.8 — "Rotação" no ADVBox = ciclo completo em MESES (alvo ~12m).
-    // Calculamos como soma das fases ativas (prosp + prod + exec) que representa
-    // o ciclo de vida típico de um processo até o arquivamento.
+    // P1.10 — Rotação ciclo completo (soma das fases ativas)
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
-    // Display alternativo: turns/ano (12 / mediana_rot). Útil quando ADVBox usa essa unidade.
+    // Turns/ano: 12 / mediana_rotacao_meses. Se mediana grande (730d=24m -> 0.5),
+    // ADVBox provavelmente conta turns DIFERENTE (ciclos completos do processo).
+    // Mantemos a fórmula atual mas logamos pra debug.
     const rotacaoTurnsAno = stages.rotacao > 0 ? 12 / stages.rotacao : 0;
 
     console.log(
-      `[BI Tempo] coorte=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados_coorte=${descartadosCoorteTempo} ` +
-      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)} rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(1)} ` +
-      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
+      `[BI Tempo POR-FASE] cohort_dias=${JSON.stringify(cohortDaysByPhase)} ` +
+      `medianas_meses=${JSON.stringify(stages)} ` +
+      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length} ` +
+      `rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(2)} ` +
+      `(NOTA: se turns_ano <1, ADVBox usa metodologia diferente — ciclos completos do mesmo processo)`
+    );
+    console.log(
+      `[BI Tempo] coorte_global=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados=${descartadosCoorteTempo} ` +
+      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)}`
     );
 
     // ====================================================================
@@ -948,11 +972,13 @@ Deno.serve(async (req) => {
     );
 
     // ====================================================================
-    // P1.9 — DEBUG VARIANTES DE DENOMINADOR (Aba 4 Custos)
+    // P1.10 — DEBUG VARIANTES DE DENOMINADOR (Aba 4 Custos) — 6a rodada
     // A) Atual: total cumulativo de processos por fase
-    // B) Processos COM pelo menos 1 lancamento financeiro naquela fase
-    // C) Processos ATIVOS naquela fase agora (current_phase = X)
-    //    -> "ativos" = nao arquivados; arquivado nao tem variante C, usa qtd_arquivados
+    // B) Processos COM lancamento financeiro AMARRADO naquela fase (set já populado)
+    // C) Mesmo que A (ativos AGORA): redundante, mantido pra continuidade
+    // D) ATIVOS NA FASE NO MOMENTO (não arquivados; rot = arquivados ativos do mes)
+    // E) Processos com QUALQUER lawsuit_id em advbox_financial_sync no mes,
+    //    independente de valor>0 (set "lawsuitsAnyInSync" abaixo)
     // ====================================================================
     const denomA = { prosp: qtdAtendimento, prod: qtdProducao, exec: qtdExecucao, rot: qtdArquivados };
     const denomB = {
@@ -961,18 +987,96 @@ Deno.serve(async (req) => {
       exec: lawsuitsComCustoPorFase.execucao.size,
       rot: lawsuitsComCustoPorFase.arquivado.size,
     };
-    // C: ativos AGORA por fase (mesmo numero pra prosp/prod/exec; rot continua arquivados)
     const denomC = denomA;
+
+    // P1.10 D: ativos NA FASE no momento (mesmo que A pra prosp/prod/exec
+    // pois qtdAtendimento/qtdProducao/qtdExecucao já são "ativos por fase").
+    // Pra Rotação testamos qtdArquivados que tiveram movimento NO MES.
+    let arquivadosAtivosNoMes = 0;
+    for (const l of lawsuits) {
+      if (classifyByStep(l.step) !== "arquivado") continue;
+      const lm = lastMov(l);
+      if (lm && lm >= inicio && lm <= fim) arquivadosAtivosNoMes++;
+    }
+    const denomD = {
+      prosp: qtdAtendimento,
+      prod: qtdProducao,
+      exec: qtdExecucao,
+      rot: arquivadosAtivosNoMes, // só os que receberam movimento no mes
+    };
+
+    // P1.10 E: processos com QUALQUER aparição em advbox_financial_sync,
+    // sem filtro de valor>0. Já temos lawsuitsComCustoPorFase que captura
+    // ID via JOIN — a diferença é que no log atual ele só conta quando o
+    // amount foi acumulado. Aqui re-contamos por presença pura.
+    const lawsuitsAnyInSyncPorFase = {
+      prosp: new Set<number>(),
+      prod: new Set<number>(),
+      exec: new Set<number>(),
+      rot: new Set<number>(),
+    };
+    if (despesasIds.length > 0) {
+      const CHUNK = 500;
+      for (let i = 0; i < despesasIds.length; i += CHUNK) {
+        const slice = despesasIds.slice(i, i + CHUNK);
+        const { data: syncs2 } = await supabase
+          .from("advbox_financial_sync")
+          .select("advbox_data")
+          .in("lancamento_id", slice);
+        for (const s of syncs2 || []) {
+          const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
+          if (!lawsuitId) continue;
+          const fase = lawsuitFase.get(lawsuitId);
+          if (fase === "atendimento") lawsuitsAnyInSyncPorFase.prosp.add(lawsuitId);
+          else if (fase === "producao") lawsuitsAnyInSyncPorFase.prod.add(lawsuitId);
+          else if (fase === "execucao") lawsuitsAnyInSyncPorFase.exec.add(lawsuitId);
+          else if (fase === "arquivado") lawsuitsAnyInSyncPorFase.rot.add(lawsuitId);
+        }
+      }
+    }
+    const denomE = {
+      prosp: lawsuitsAnyInSyncPorFase.prosp.size,
+      prod: lawsuitsAnyInSyncPorFase.prod.size,
+      exec: lawsuitsAnyInSyncPorFase.exec.size,
+      rot: lawsuitsAnyInSyncPorFase.rot.size,
+    };
+
+    // P1.10 — Métrica adicional: custo por DIA-ATIVO-NA-FASE
+    // (hipótese: ADVBox normaliza por tempo permanecido, não por contagem)
+    // Aproximação: dias_ativos = qtd_processos * mediana_dias_da_fase
+    const diasMedianaPorFase = {
+      prosp: stages.prospeccao * 30,
+      prod:  stages.producao   * 30,
+      exec:  stages.execucao   * 30,
+      rot:   stages.rotacao    * 30,
+    };
+    const diasAtivosPorFase = {
+      prosp: qtdAtendimento * Math.max(diasMedianaPorFase.prosp, 1),
+      prod:  qtdProducao    * Math.max(diasMedianaPorFase.prod, 1),
+      exec:  qtdExecucao    * Math.max(diasMedianaPorFase.exec, 1),
+      rot:   qtdArquivados  * Math.max(diasMedianaPorFase.rot, 1),
+    };
     const div = (n: number, d: number) => d > 0 ? (n / d).toFixed(2) : "0.00";
+
     console.log(
       `[BI Custos VARIANTES] qtd_A=${JSON.stringify(denomA)} ` +
-      `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} | ` +
+      `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} ` +
+      `qtd_D=${JSON.stringify(denomD)} qtd_E=${JSON.stringify(denomE)} | ` +
       `custo_medio_A prosp=${div(custoPorFase.atendimento, denomA.prosp)} prod=${div(custoPorFase.producao, denomA.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomA.exec)} rot=${div(custoPorFase.arquivado, denomA.rot)} | ` +
       `custo_medio_B prosp=${div(custoPorFase.atendimento, denomB.prosp)} prod=${div(custoPorFase.producao, denomB.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomB.exec)} rot=${div(custoPorFase.arquivado, denomB.rot)} | ` +
-      `custo_medio_C prosp=${div(custoPorFase.atendimento, denomC.prosp)} prod=${div(custoPorFase.producao, denomC.prod)} ` +
-      `exec=${div(custoPorFase.execucao, denomC.exec)} rot=${div(custoPorFase.arquivado, denomC.rot)}`
+      `custo_medio_D prosp=${div(custoPorFase.atendimento, denomD.prosp)} prod=${div(custoPorFase.producao, denomD.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomD.exec)} rot=${div(custoPorFase.arquivado, denomD.rot)} | ` +
+      `custo_medio_E prosp=${div(custoPorFase.atendimento, denomE.prosp)} prod=${div(custoPorFase.producao, denomE.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomE.exec)} rot=${div(custoPorFase.arquivado, denomE.rot)}`
+    );
+    console.log(
+      `[BI Custos POR-DIA-ATIVO] dias_ativos=${JSON.stringify(diasAtivosPorFase)} ` +
+      `custo_por_dia prosp=${div(custoPorFase.atendimento, diasAtivosPorFase.prosp)} ` +
+      `prod=${div(custoPorFase.producao, diasAtivosPorFase.prod)} ` +
+      `exec=${div(custoPorFase.execucao, diasAtivosPorFase.exec)} ` +
+      `rot=${div(custoPorFase.arquivado, diasAtivosPorFase.rot)}`
     );
 
     // Total de pontos do mês para custo/ponto
