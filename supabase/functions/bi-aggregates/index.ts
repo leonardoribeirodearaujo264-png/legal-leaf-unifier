@@ -352,49 +352,49 @@ Deno.serve(async (req) => {
     // ABA 2 — ESTOQUE & PROSPECÇÃO
     // KPIs ADVBox: oportunidades do mês, processos ativos, arquivados, +120d parados
     // =================================================================
+    // CORREÇÃO P1.6:
+    //  - "Em atendimento" = ativos SEM process_date (prospecção pura)
+    //  - "Em produção"    = ativos COM process_date e SEM exit_production
+    //  - "Em execução"    = ativos COM exit_production e SEM exit_execution
+    //  - "Arquivado"      = status_closure preenchido (fechado/concluído)
+    //  - %carteira tem como denominador SOMA das 3 fases ativas (= 100%)
+    //  - +120d = ativos cujo último marco temporal é > 120 dias atrás
 
-    // Oportunidades do mês = lawsuits criadas no mês
-    let oportunidadesMes = 0;
-    // Mês anterior para delta %
     const mesAntInicio = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth() - 1, 1));
     const mesAntFim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), 0, 23, 59, 59));
-    let oportunidadesMesAnt = 0;
 
-    let processosAtivos = 0;
-    let processosArquivados = 0;
-    let processos120Parados = 0;
+    let oportunidadesMes = 0;
+    let oportunidadesMesAnt = 0;
     let fechamentosMes = 0;
     let fechamentosMesAnt = 0;
+
+    // Contagens de carteira (espelham ADVBox /managementV2)
+    let qtdAtendimento = 0; // prospecção pura
+    let qtdProducao = 0;
+    let qtdExecucao = 0;
+    let qtdArquivados = 0;
+    let qtdParados120 = 0;
+
+    const areaCount = new Map<string, number>();
+    const grupoMap = new Map<string, { oportunidades: number; fechamentos: number }>();
     const limite120 = new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000);
 
-    // Contadores por fase
-    const fasesCount = { prospeccao: 0, producao: 0, execucao: 0, rotacao: 0, concluido: 0 };
-    const areaCount = new Map<string, number>();
-
-    // Para "oportunidades por grupo" e "oportunidades por período"
-    const grupoMap = new Map<string, { oportunidades: number; fechamentos: number }>();
-
     for (const l of lawsuitsFiltradas) {
-      const stage = getStage(l);
-      fasesCount[stage]++;
       const area = l.group || "Outros";
       areaCount.set(area, (areaCount.get(area) || 0) + 1);
 
       // Oportunidades do mês (created_at)
-      if (l.created_at) {
-        const d = new Date(l.created_at);
-        if (dentroDoMes(l.created_at, inicio, fim)) {
-          oportunidadesMes++;
-          const cur = grupoMap.get(area) || { oportunidades: 0, fechamentos: 0 };
-          cur.oportunidades++;
-          grupoMap.set(area, cur);
-        }
-        if (dentroDoMes(l.created_at, mesAntInicio, mesAntFim)) {
-          oportunidadesMesAnt++;
-        }
+      if (dentroDoMes(l.created_at, inicio, fim)) {
+        oportunidadesMes++;
+        const cur = grupoMap.get(area) || { oportunidades: 0, fechamentos: 0 };
+        cur.oportunidades++;
+        grupoMap.set(area, cur);
+      }
+      if (dentroDoMes(l.created_at, mesAntInicio, mesAntFim)) {
+        oportunidadesMesAnt++;
       }
 
-      // Fechamentos = lawsuits encerradas no mês
+      // Fechamentos = lawsuits encerradas no mês (status_closure)
       if (l.status_closure) {
         if (dentroDoMes(l.status_closure, inicio, fim)) {
           fechamentosMes++;
@@ -405,22 +405,41 @@ Deno.serve(async (req) => {
         if (dentroDoMes(l.status_closure, mesAntInicio, mesAntFim)) {
           fechamentosMesAnt++;
         }
+        qtdArquivados++;
+        continue; // arquivado não entra em ativos
       }
 
-      // Processos ativos = não concluídos e não arquivados
-      const arquivado = l.archived === true || l.archived === 1 || l.state === "arquivado";
-      if (!l.status_closure && !arquivado) processosAtivos++;
-      if (arquivado || l.status_closure) processosArquivados++;
+      // ATIVO — classifica em uma das 3 fases (sem sobreposição)
+      if (l.exit_production && !l.exit_execution) {
+        qtdExecucao++;
+      } else if (l.process_date) {
+        qtdProducao++;
+      } else {
+        qtdAtendimento++;
+      }
 
-      // +120 dias parados (sem movimento — usamos exit_production/exit_execution mais recente)
+      // +120 dias parados (último marco temporal)
       const ultimaMov = l.exit_execution || l.exit_production || l.process_date || l.created_at;
-      if (ultimaMov && new Date(ultimaMov) < limite120 && !l.status_closure && !arquivado) {
-        processos120Parados++;
+      if (ultimaMov && new Date(ultimaMov) < limite120) {
+        qtdParados120++;
       }
     }
 
-    const totalAtivo = fasesCount.prospeccao + fasesCount.producao + fasesCount.execucao + fasesCount.rotacao;
-    const pct = (n: number) => totalAtivo > 0 ? (n / totalAtivo) * 100 : 0;
+    const processosAtivos = qtdAtendimento + qtdProducao + qtdExecucao;
+    const processosArquivados = qtdArquivados;
+    const processos120Parados = qtdParados120;
+
+    // Percentuais de carteira (somam 100% sobre processos ATIVOS)
+    const pctCarteira = (n: number) => processosAtivos > 0 ? (n / processosAtivos) * 100 : 0;
+
+    // Manter fasesCount para reuso em custos/safra (incluindo concluídos)
+    const fasesCount = {
+      prospeccao: qtdAtendimento,
+      producao: qtdProducao,
+      execucao: qtdExecucao,
+      rotacao: 0, // ADVBox não usa fase "rotação" separada — agregado em arquivados
+      concluido: qtdArquivados,
+    };
 
     const areas = Array.from(areaCount.entries())
       .map(([area, qtd]) => ({ area, qtd }))
@@ -460,18 +479,18 @@ Deno.serve(async (req) => {
       resumo_carteira: {
         fechamentos: { valor: fechamentosMes, delta: deltaPercent(fechamentosMes, fechamentosMesAnt) },
         em_atendimento: {
-          valor: fasesCount.prospeccao,
-          percentual: pct(fasesCount.prospeccao),
-          delta: 0, // não temos histórico de fase
+          valor: qtdAtendimento,
+          percentual: pctCarteira(qtdAtendimento),
+          delta: 0,
         },
         em_producao: {
-          valor: fasesCount.producao,
-          percentual: pct(fasesCount.producao),
+          valor: qtdProducao,
+          percentual: pctCarteira(qtdProducao),
           delta: 0,
         },
         em_execucao: {
-          valor: fasesCount.execucao,
-          percentual: pct(fasesCount.execucao),
+          valor: qtdExecucao,
+          percentual: pctCarteira(qtdExecucao),
           delta: 0,
         },
       },
@@ -479,14 +498,13 @@ Deno.serve(async (req) => {
         .map(([grupo, v]) => ({ grupo, ...v }))
         .sort((a, b) => b.oportunidades + b.fechamentos - (a.oportunidades + a.fechamentos))
         .slice(0, 10),
-      por_periodo: evolucao, // reusa a série de 12 meses
+      por_periodo: evolucao,
       taxa_conversao: oportunidadesMes > 0 ? (fechamentosMes / oportunidadesMes) * 100 : 0,
       areas,
       composicao: [
-        { fase: "Prospecção", qtd: fasesCount.prospeccao, cor: STAGE_COLORS.prospeccao },
-        { fase: "Produção", qtd: fasesCount.producao, cor: STAGE_COLORS.producao },
-        { fase: "Execução", qtd: fasesCount.execucao, cor: STAGE_COLORS.execucao },
-        { fase: "Rotação", qtd: fasesCount.rotacao, cor: STAGE_COLORS.rotacao },
+        { fase: "Em atendimento", qtd: qtdAtendimento, cor: STAGE_COLORS.prospeccao },
+        { fase: "Em produção", qtd: qtdProducao, cor: STAGE_COLORS.producao },
+        { fase: "Em execução", qtd: qtdExecucao, cor: STAGE_COLORS.execucao },
       ],
     };
 
@@ -509,6 +527,10 @@ Deno.serve(async (req) => {
       return v;
     };
 
+    // CORREÇÃO P1.6: usar AVG e arredondar para meses inteiros (ADVBox).
+    // Considerar apenas lawsuits CONCLUÍDOS (status_closure preenchido) para ter coortes comparáveis.
+    // "Tempo perdido" = soma das esperas mortas entre fases (gaps).
+    let tempoPerdido = 0;
     for (const l of lawsuitsFiltradas) {
       const fee = Number(l.fees_money || 0);
       if (fee > 0) {
@@ -526,7 +548,13 @@ Deno.serve(async (req) => {
       if (v4 !== null) { tRot += v4; cRot++; }
 
       const vTot = safeMonths(l.created_at, l.status_closure);
-      if (vTot !== null) { somaTempoTotal += vTot; countTempoTotal++; }
+      if (vTot !== null) {
+        somaTempoTotal += vTot;
+        countTempoTotal++;
+        // Tempo perdido = total - soma das fases efetivas
+        const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
+        if (vTot > efetivo) tempoPerdido += (vTot - efetivo);
+      }
 
       const grp = l.group || "Outros";
       const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
@@ -537,15 +565,18 @@ Deno.serve(async (req) => {
 
     const honorarioMedio = countFees > 0 ? totalFees / countFees : 0;
     const tempoMedio = countTempoTotal > 0 ? somaTempoTotal / countTempoTotal : 0;
+    // Honorário mensal = honorário médio / tempo médio (em meses)
     const honorarioMes = tempoMedio > 0 ? honorarioMedio / tempoMedio : 0;
 
-    // Médias REAIS por estágio
+    // Médias REAIS por estágio — em meses inteiros (espelha ADVBox)
     const stages = {
-      prospeccao: cProsp > 0 ? tProsp / cProsp : 0,
-      producao: cProd > 0 ? tProd / cProd : 0,
-      execucao: cExec > 0 ? tExec / cExec : 0,
-      rotacao: cRot > 0 ? tRot / cRot : 0,
+      prospeccao: cProsp > 0 ? Math.round(tProsp / cProsp) : 0,
+      producao: cProd > 0 ? Math.round(tProd / cProd) : 0,
+      execucao: cExec > 0 ? Math.round(tExec / cExec) : 0,
+      rotacao: cRot > 0 ? Math.round(tRot / cRot) : 0,
     };
+    // Rotação completa = soma das fases (espelha ADVBox)
+    const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
 
     const tempo = {
       stages,
@@ -553,6 +584,8 @@ Deno.serve(async (req) => {
         honorario_medio: honorarioMedio,
         honorario_mes: honorarioMes,
         tempo_medio_meses: tempoMedio,
+        tempo_perdido_meses: Math.round(tempoPerdido),
+        rotacao_completa: rotacaoCompleta,
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
         .map(([grupo, v]) => ({
