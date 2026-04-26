@@ -47,12 +47,46 @@ interface Lawsuit {
   customers: Array<{ name: string }> | null;
   archived?: boolean | number | null;
   state?: string | null;
+  // P1.6 — campos crus do ADVBox (raw step/stage)
+  step?: string | null;
+  stage?: string | null;
+  steps_id?: number | null;
+  stages_id?: number | null;
+  notes?: string | null;
+  contingency?: string | null;
 }
 
 // ---------- helpers ----------
 
-// Stage atual do processo conforme regra ADVBox
+// P1.6 — Classificação por STEP cru do ADVBox (campo "step" do JSONB de cache).
+// Mapeia o step cru (ex.: "NEGOCIAÇÃO") para a fase visível na UI ADVBox.
+// Esta é a fonte de verdade canonica — sem heurísticas baseadas em datas.
+type FaseUI = "atendimento" | "producao" | "execucao" | "arquivado" | "outro";
+function classifyByStep(step: string | null | undefined): FaseUI {
+  if (!step) return "outro";
+  const s = step.trim().toUpperCase();
+  // Arquivado: ADVBox UI conta tudo que está em ARQUIVAMENTO.
+  if (s === "ARQUIVAMENTO") return "arquivado";
+  // Em atendimento / Negociação (carteira pré-judicial)
+  if (s === "NEGOCIAÇÃO" || s === "NEGOCIACAO") return "atendimento";
+  // Em produção (fase judicial / recursal)
+  if (s === "JUDICIAL" || s === "RECURSAL") return "producao";
+  // Em execução / cobrança
+  if (s === "EXECUÇÃO/COBRANÇA" || s === "EXECUCAO/COBRANCA" || s.startsWith("EXECU")) return "execucao";
+  // Steps satélites (ADMINISTRATIVO, CONSULTORIA, RH/FINANCEIRO, MARKETING)
+  // — não entram em ATIVOS nem em ARQUIVADOS por padrão (filtro defensivo).
+  return "outro";
+}
+
+// Stage atual do processo (mantido para Safra & Tempo) — agora prioriza step cru,
+// caindo em heurística por datas só quando step não estiver presente.
 function getStage(l: Lawsuit): "prospeccao" | "producao" | "execucao" | "rotacao" | "concluido" {
+  const fase = classifyByStep(l.step);
+  if (fase === "arquivado") return "concluido";
+  if (fase === "atendimento") return "prospeccao";
+  if (fase === "producao") return "producao";
+  if (fase === "execucao") return "execucao";
+  // Fallback para lawsuits sem step (cache antigo) — usa heurística clássica.
   if (l.status_closure) return "concluido";
   if (l.exit_execution) return "rotacao";
   if (l.exit_production) return "execucao";
