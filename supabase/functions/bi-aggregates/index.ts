@@ -563,9 +563,10 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // P1.7 (correção solicitada pelo cliente):
-    //   - SEM coorte de 365d (estava excluindo arquivados antigos
-    //     justamente os que medem o tempo gasto em cada fase).
+    // P1.8 (correção 26/04 — alinhar com ADVBox /managementV2):
+    //   - COORTE 24m: SOMENTE processos com last_movement >= now() - 730d
+    //     (mediana sem coorte ficou enviesada por arquivados de décadas
+    //     atrás, ex.: Produção 54m vs alvo ADVBox 8m).
     //   - MEDIANA da DURAÇÃO DENTRO de cada fase, calculada via
     //     timestamps de transição cru do ADVBox:
     //       Prospecção = created_at -> process_date
@@ -574,8 +575,11 @@ Deno.serve(async (req) => {
     //       Rotação    = exit_execution -> status_closure  (proxy)
     //   - Para processos ATIVOS sem timestamp de saída ainda,
     //     usamos (now() - timestamp_entrada_da_fase) como proxy.
-    //   - Mediana já absorve outliers; não filtra por gap máximo.
+    //   - "Rotação" no ADVBox = ciclo completo (turns/ano).
+    //     Se mediana = 1 mês -> ~12 turns/ano. Frontend exibe alinhado.
     // =================================================================
+    const COORTE_TEMPO_DIAS = 730; // 24 meses
+    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 24 * 60 * 60 * 1000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
