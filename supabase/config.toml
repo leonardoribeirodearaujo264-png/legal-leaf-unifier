@@ -195,3 +195,6 @@ verify_jwt = true
 
 [functions.create-commercial-demand]
 verify_jwt = false
+
+[functions.advbox-probe]
+verify_jwt = false
