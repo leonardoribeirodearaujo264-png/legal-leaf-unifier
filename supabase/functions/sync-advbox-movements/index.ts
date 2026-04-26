@@ -119,17 +119,42 @@ Deno.serve(async (req) => {
     const maxIterations = 200;
     const DELAY_BETWEEN_REQUESTS = 2100;
 
+    // Cursor pagination: ADVBox bloqueia offset > 10000.
+    // Quando ultrapassamos, alternamos para `cursor` retornado pela API.
+    let cursor: string | null = null;
+    {
+      const { data: lastIncomplete } = await supabase
+        .from('advbox_movements_sync_status')
+        .select('last_cursor')
+        .in('status', ['running', 'partial'])
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      cursor = lastIncomplete?.last_cursor ?? null;
+    }
+    const useCursor = () => offset >= 10000 || cursor !== null;
+
     while (hasMore && iterations < maxIterations) {
       if (Date.now() - startTime > MAX_RUNTIME_MS) {
-        console.log(`Approaching timeout, stopping at offset=${offset}`);
+        console.log(`Approaching timeout, stopping at offset=${offset} cursor=${cursor}`);
         break;
       }
       if (iterations > 0) await sleep(DELAY_BETWEEN_REQUESTS);
 
-      console.log(`Fetching movements offset=${offset}...`);
-      const response = await makeAdvboxRequest(`/last_movements?limit=${limit}&offset=${offset}`);
+      // Monta endpoint conforme estratégia de paginação
+      let endpoint: string;
+      if (useCursor()) {
+        endpoint = `/last_movements?limit=${limit}` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '');
+        console.log(`Fetching movements via cursor=${cursor ?? '(initial)'}...`);
+      } else {
+        endpoint = `/last_movements?limit=${limit}&offset=${offset}`;
+        console.log(`Fetching movements offset=${offset}...`);
+      }
+      const response = await makeAdvboxRequest(endpoint);
       const items = response.data || [];
       totalCount = response.totalCount || totalCount || items.length;
+      // Cursor para próxima página (nomes possíveis na API ADVBox v1.2)
+      const nextCursor: string | null = response.next_cursor ?? response.cursor ?? response.meta?.next_cursor ?? null;
 
       if (items.length === 0) {
         hasMore = false;
@@ -138,11 +163,20 @@ Deno.serve(async (req) => {
         offset += items.length;
         iterations++;
         if (items.length < limit) hasMore = false;
+        // Quando estamos em cursor mode, hasMore depende do nextCursor existir
+        if (useCursor() && !nextCursor) hasMore = false;
+        cursor = nextCursor;
       }
 
       if (syncId) {
         await supabase.from('advbox_movements_sync_status')
-          .update({ last_offset: offset, total_synced: allMovements.length, total_count: totalCount })
+          .update({
+            last_offset: offset,
+            last_cursor: cursor,
+            use_cursor: useCursor(),
+            total_synced: allMovements.length,
+            total_count: totalCount,
+          })
           .eq('id', syncId);
       }
     }
