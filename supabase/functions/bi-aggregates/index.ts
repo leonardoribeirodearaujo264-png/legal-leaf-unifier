@@ -704,6 +704,56 @@ Deno.serve(async (req) => {
       `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
     );
 
+    // ====================================================================
+    // P1.9 — DEBUG MULTI-COORTE para Aba 3 (Tempo)
+    // Recalcula medianas em DIAS para coortes 24m, 12m, 6m, 3m
+    // pra identificar qual coorte ADVBox usa em Prospeccao/Rotacao.
+    // ====================================================================
+    const coortesDebug = [
+      { label: "24m", dias: 730 },
+      { label: "12m", dias: 365 },
+      { label: "6m",  dias: 180 },
+      { label: "3m",  dias: 90  },
+    ];
+    const safeDays = (a: string | null, b: string | null): number | null => {
+      if (!a || !b) return null;
+      const da = new Date(a).getTime();
+      const db = new Date(b).getTime();
+      if (isNaN(da) || isNaN(db)) return null;
+      const v = (db - da) / (1000 * 60 * 60 * 24);
+      return v > 0 ? v : null;
+    };
+    for (const c of coortesDebug) {
+      const lim = new Date(now.getTime() - c.dias * 24 * 60 * 60 * 1000);
+      const bP: number[] = [], bD: number[] = [], bE: number[] = [], bR: number[] = [];
+      for (const l of lawsuitsFiltradas) {
+        const lm = lastMov(l);
+        if (!lm || lm < lim) continue;
+        const fase = classifyByStep(l.step);
+        const v1 = l.process_date
+          ? safeDays(l.created_at, l.process_date)
+          : (fase === "atendimento" ? safeDays(l.created_at, nowIso) : null);
+        if (v1 !== null) bP.push(v1);
+        const v2 = l.exit_production
+          ? safeDays(l.process_date, l.exit_production)
+          : (fase === "producao" ? safeDays(l.process_date, nowIso) : null);
+        if (v2 !== null) bD.push(v2);
+        const v3 = l.exit_execution
+          ? safeDays(l.exit_production, l.exit_execution)
+          : (fase === "execucao" ? safeDays(l.exit_production, nowIso) : null);
+        if (v3 !== null) bE.push(v3);
+        const v4 = safeDays(l.exit_execution, l.status_closure);
+        if (v4 !== null) bR.push(v4);
+      }
+      console.log(
+        `[BI Tempo MULTICOORTE ${c.label}] n_total=${bP.length + bD.length + bE.length + bR.length} ` +
+        `prosp_dias=${median(bP).toFixed(1)} (n=${bP.length}) ` +
+        `prod_dias=${median(bD).toFixed(1)} (n=${bD.length}) ` +
+        `exec_dias=${median(bE).toFixed(1)} (n=${bE.length}) ` +
+        `rot_dias=${median(bR).toFixed(1)} (n=${bR.length})`
+      );
+    }
+
     const tempo = {
       stages,
       kpis: {
