@@ -793,9 +793,14 @@ Deno.serve(async (req) => {
       lawsuitArea.set(l.id, (l.group || "GERAL").toUpperCase());
     }
 
-    // 4.4.1) Buscar TODOS os syncs do mês (não filtrar por lancamento_id pois muitas
-    // despesas podem ter sido sincronizadas com lawsuit_id válido)
+    // 4.4.1) Buscar TODOS os syncs do mês. Acumulamos custos por fase
+    // e identificamos os "órfãos" (despesas sem lawsuit_id no JSONB),
+    // que serão rateados proporcionalmente entre as fases ativas.
     const despesasIds = (despesas || []).map((d: any) => d.id);
+    const despesaValor = new Map<string, number>();
+    for (const d of despesas || []) {
+      despesaValor.set(d.id, Number(d.valor || 0));
+    }
     let custoPorFase = { atendimento: 0, producao: 0, execucao: 0, arquivado: 0, outro: 0 };
     let lawsuitsComCustoPorFase = {
       atendimento: new Set<number>(),
@@ -807,6 +812,9 @@ Deno.serve(async (req) => {
     // Custos rateados por ÁREA do processo (denominador real para Aba 4)
     const custoPorArea = new Map<string, number>();
     const lawsuitsComCustoPorArea = new Map<string, Set<number>>();
+    // P1.8 — controle de órfãos (despesas sem lawsuit_id no sync)
+    const despesasComLawsuit = new Set<string>();
+    let totalCustosComLawsuit = 0;
 
     if (despesasIds.length > 0) {
       const CHUNK = 500;
@@ -820,8 +828,10 @@ Deno.serve(async (req) => {
         for (const s of syncs || []) {
           const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
           if (!lawsuitId) continue;
+          // Usa o valor REAL do lançamento (campo amount do JSONB às vezes vem nulo).
+          // Preferimos despesaValor[lancamento_id] como fonte de verdade.
+          const amount = despesaValor.get(s.lancamento_id) ?? Number((s.advbox_data as any)?.amount || 0);
           const fase = lawsuitFase.get(lawsuitId) || "outro";
-          const amount = Number((s.advbox_data as any)?.amount || 0);
           custoPorFase[fase] += amount;
           lawsuitsComCustoPorFase[fase].add(lawsuitId);
           // Agrega por ÁREA também
@@ -829,40 +839,62 @@ Deno.serve(async (req) => {
           custoPorArea.set(area, (custoPorArea.get(area) || 0) + amount);
           if (!lawsuitsComCustoPorArea.has(area)) lawsuitsComCustoPorArea.set(area, new Set());
           lawsuitsComCustoPorArea.get(area)!.add(lawsuitId);
+          despesasComLawsuit.add(s.lancamento_id);
+          totalCustosComLawsuit += amount;
         }
       }
     }
+    // Custos órfãos = despesas pagas no mês que não têm lawsuit_id no sync.
+    // Representam custo "geral" do escritório (folha, aluguel, marketing).
+    const totalCustosSemLawsuit = totalCustos - totalCustosComLawsuit;
+
+    // P1.8 — Rateio dos órfãos proporcionalmente ao volume de processos
+    // de cada fase. Sem isso, Prospecção (que raramente tem custo direto
+    // amarrado) ficaria sempre R$0 e Execução/Rotação inflados.
+    const totalAtivos = qtdAtendimento + qtdProducao + qtdExecucao + qtdArquivados;
+    if (totalAtivos > 0 && totalCustosSemLawsuit > 0) {
+      custoPorFase.atendimento += totalCustosSemLawsuit * (qtdAtendimento / totalAtivos);
+      custoPorFase.producao    += totalCustosSemLawsuit * (qtdProducao    / totalAtivos);
+      custoPorFase.execucao    += totalCustosSemLawsuit * (qtdExecucao    / totalAtivos);
+      custoPorFase.arquivado   += totalCustosSemLawsuit * (qtdArquivados  / totalAtivos);
+    }
+
     console.log(
       `[BI Custos JOIN] despesas_mes=${despesasIds.length} ` +
-      `areas_com_custo=${custoPorArea.size} ` +
-      `total_rateado=${Array.from(custoPorArea.values()).reduce((a, b) => a + b, 0).toFixed(2)}`
+      `com_lawsuit=${despesasComLawsuit.size} sem_lawsuit=${despesasIds.length - despesasComLawsuit.size} ` +
+      `total_custos=${totalCustos.toFixed(2)} ` +
+      `total_custos_com_lawsuit_id=${totalCustosComLawsuit.toFixed(2)} ` +
+      `total_custos_sem_lawsuit_id=${totalCustosSemLawsuit.toFixed(2)} ` +
+      `areas_com_custo=${custoPorArea.size}`
     );
 
-    // 4.5) Custo médio por processo POR FASE = soma_da_fase / count_distinct_lawsuits_da_fase
+    // 4.5) Custo médio por processo POR FASE = soma_total_da_fase / total_de_processos_da_fase
+    // P1.8 — denominador trocado: usa qtd TOTAL de processos da fase
+    // (do ADVBox /managementV2), não só os com custo direto. Isso espelha
+    // a fórmula que o ADVBox usa em Custos > Por Fase.
     const custoMedioFase = {
-      prospeccao: lawsuitsComCustoPorFase.atendimento.size > 0
-        ? custoPorFase.atendimento / lawsuitsComCustoPorFase.atendimento.size : 0,
-      producao: lawsuitsComCustoPorFase.producao.size > 0
-        ? custoPorFase.producao / lawsuitsComCustoPorFase.producao.size : 0,
-      execucao: lawsuitsComCustoPorFase.execucao.size > 0
-        ? custoPorFase.execucao / lawsuitsComCustoPorFase.execucao.size : 0,
+      prospeccao: qtdAtendimento > 0 ? custoPorFase.atendimento / qtdAtendimento : 0,
+      producao:   qtdProducao    > 0 ? custoPorFase.producao    / qtdProducao    : 0,
+      execucao:   qtdExecucao    > 0 ? custoPorFase.execucao    / qtdExecucao    : 0,
       // Rotação = arquivados (proxy: o ADVBox conta custo do ciclo inteiro até arquivar)
-      rotacao: lawsuitsComCustoPorFase.arquivado.size > 0
-        ? custoPorFase.arquivado / lawsuitsComCustoPorFase.arquivado.size : 0,
+      rotacao:    qtdArquivados  > 0 ? custoPorFase.arquivado   / qtdArquivados  : 0,
     };
 
     console.log(
-      `[BI Custos] processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
+      `[BI Custos] qtd_processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
       `execucao=${qtdExecucao} arquivados=${qtdArquivados} | ` +
       `lawsuits_com_custo atendimento=${lawsuitsComCustoPorFase.atendimento.size} ` +
       `producao=${lawsuitsComCustoPorFase.producao.size} ` +
       `execucao=${lawsuitsComCustoPorFase.execucao.size} ` +
       `arquivado=${lawsuitsComCustoPorFase.arquivado.size} | ` +
-      `total_despesas_mes=${despesas?.length || 0} total_custos=${totalCustos.toFixed(2)} | ` +
-      `soma_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
+      `SUM_custos_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
       `producao=${custoPorFase.producao.toFixed(2)} ` +
       `execucao=${custoPorFase.execucao.toFixed(2)} ` +
-      `arquivado=${custoPorFase.arquivado.toFixed(2)}`
+      `arquivado=${custoPorFase.arquivado.toFixed(2)} | ` +
+      `custo_medio_fase prosp=${custoMedioFase.prospeccao.toFixed(2)} ` +
+      `prod=${custoMedioFase.producao.toFixed(2)} ` +
+      `exec=${custoMedioFase.execucao.toFixed(2)} ` +
+      `rot=${custoMedioFase.rotacao.toFixed(2)}`
     );
 
     // Total de pontos do mês para custo/ponto
