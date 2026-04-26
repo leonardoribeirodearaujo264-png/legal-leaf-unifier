@@ -918,19 +918,13 @@ Deno.serve(async (req) => {
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     let descartadosForaCoorte = 0;
-    // P1.7 — DEBUG SHAPE: loga 1 arquivado com fee>0 e 1 com fee=0 pra
-    // identificar o campo correto de outcome no ADVBox.
-    let amostraComFee: Lawsuit | null = null;
-    let amostraSemFee: Lawsuit | null = null;
-    for (const l of lawsuitsFiltradas) {
-      if (classifyByStep(l.step) !== "arquivado") continue;
-      const fee = Number(l.fees_money || 0);
-      if (fee > 0 && !amostraComFee) amostraComFee = l;
-      if (fee <= 0 && !amostraSemFee) amostraSemFee = l;
-      if (amostraComFee && amostraSemFee) break;
-    }
-    console.log("[BI Safra DEBUG shape] arquivado COM fees_money>0:", JSON.stringify(amostraComFee));
-    console.log("[BI Safra DEBUG shape] arquivado SEM fees_money:", JSON.stringify(amostraSemFee));
+    // Shape do ADVBox confirmado: NÃO há campo nativo de outcome (win/loss).
+    // Campos disponíveis no JSONB: id, step, stage, group, type, customers,
+    // created_at, process_date, exit_production, exit_execution, status_closure,
+    // fees_money (preenchido em ~0,6% dos arquivados), fees_expec, contingency,
+    // responsible, notes (sempre null nas amostras), folder.
+    // Heurística atual fees_money>0=ganho é o melhor proxy possível sem
+    // mudar a coleta no ADVBox para incluir archive_reason ou outcome custom.
 
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
