@@ -74,6 +74,11 @@ export async function requireApprovedUser(
   const result = await requireUser(req, corsHeaders);
   if (result instanceof Response) return result;
 
+  // Bypass para chamadas internas com service-role
+  if (result.user.id === "00000000-0000-0000-0000-000000000000") {
+    return { user: result.user };
+  }
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
