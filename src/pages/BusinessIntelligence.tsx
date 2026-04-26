@@ -880,7 +880,7 @@ function SafraTab({ data }: { data: any }) {
           Top 4 áreas por taxa de vitória
         </h3>
         <p className="text-xs text-muted-foreground mb-3 italic">
-          Critério: arquivado com fees_money &gt; 0 = ganho (ajustar quando ADVBox confirmar campo nativo de outcome).
+          Win-rate baseado em fees_money &gt; 0 (proxy — ADVBox não expõe outcome nativo). Cobertura: ~0,65% dos arquivados têm fee preenchido. Filtro: áreas com ≥ 30 fechados.
         </p>
         {(data?.areas || []).length === 0 ? (
           <Card>
