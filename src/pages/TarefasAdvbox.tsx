@@ -115,6 +115,8 @@ export default function TarefasAdvbox() {
 
   // TODOS OS useMemo DEVEM VIR ANTES DOS RETURNS CONDICIONAIS
   // Tarefas visíveis de acordo com o papel do usuário
+  // visibleTasks (do NOT use for list view — list comes from pageTasks server-paginated).
+  // Mantido só para o calendário e o hook de notificações.
   const visibleTasks = useMemo(() => {
     if (isAdmin) return tasks;
     if (!profile?.full_name) return [];
@@ -124,10 +126,11 @@ export default function TarefasAdvbox() {
     );
   }, [tasks, isAdmin, profile?.full_name]);
 
-  // Extrair lista única de responsáveis (usado apenas por admins)
+  // Lista de responsáveis para o filtro (admin) — derivada da página atual + tarefas leves
   const assignedUsers = useMemo(() => {
     const users = new Set<string>();
-    visibleTasks.forEach((task) => {
+    const source = isAdmin ? [...pageTasks, ...tasks] : pageTasks;
+    source.forEach((task) => {
       if (task.assigned_to) {
         task.assigned_to
           .split(',')
@@ -137,103 +140,23 @@ export default function TarefasAdvbox() {
       }
     });
     return Array.from(users).sort();
-  }, [visibleTasks]);
+  }, [pageTasks, tasks, isAdmin]);
 
-  // Filtrar e ordenar tarefas
-  const filteredTasks = useMemo(() => {
-    let filtered = visibleTasks.filter((task) => {
-      // Hide deletion alerts by default
-      if (!showDeletionAlerts) {
-        const titleLower = (task.title || '').toLowerCase();
-        if (titleLower.includes('alerta') && (titleLower.includes('exclu') || titleLower.includes('delet'))) return false;
-        if (titleLower.includes('tarefa excluída') || titleLower.includes('tarefa excluida')) return false;
-        if (titleLower.includes('deleted') || titleLower.includes('exclusão') || titleLower.includes('exclusao')) return false;
-      }
+  // Server-side: pageTasks já vem filtrado e paginado. filteredTasks = pageTasks.
+  const filteredTasks = pageTasks;
+  const paginatedTasks = pageTasks;
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
 
-      // Hide stale tasks by default unless explicitly filtered
-      // Usa normalizeStatus pra capturar variações ("stale" / "obsoleta" / "deleted").
-      const normalized = normalizeStatus(task.status);
-      if (statusFilter !== 'stale' && normalized === 'stale') return false;
-
-      if (statusFilter !== 'all') {
-        // Comparação canônica — não compara strings cruas
-        if (normalized !== statusFilter) return false;
-      }
-      if (assignedFilter !== 'all') {
-        const names = (task.assigned_to || '').split(',').map((n: string) => n.trim());
-        if (!names.includes(assignedFilter)) return false;
-      }
-      if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
-
-      // BUG #4 FIX: filtro 'overdue' agora usa isOverdueTask, que checa
-      // status (não pega concluída/obsoleta) ALÉM da data.
-      // BUG #3: novos filtros 'specific' (dia exato) e 'range' (período).
-      if (dueDateFilter !== 'all') {
-        if (dueDateFilter === 'overdue') {
-          if (!isOverdueTask(task)) return false;
-        } else {
-          // Demais filtros precisam de due_date
-          if (!task.due_date) return false;
-          const dueDate = new Date(task.due_date);
-
-          switch (dueDateFilter) {
-            case 'today':
-              if (!isToday(dueDate)) return false;
-              break;
-            case 'week':
-              if (!isThisWeek(dueDate, { weekStartsOn: 0 })) return false;
-              break;
-            case 'month':
-              if (!isThisMonth(dueDate)) return false;
-              break;
-            case 'specific': {
-              if (!specificDate) return false;
-              const target = parseISO(specificDate);
-              const dueDay = startOfDay(dueDate);
-              if (!isEqual(dueDay, startOfDay(target))) return false;
-              break;
-            }
-            case 'range': {
-              if (!rangeStartDate && !rangeEndDate) return false;
-              const dueDay = startOfDay(dueDate);
-              if (rangeStartDate) {
-                const start = startOfDay(parseISO(rangeStartDate));
-                if (isBefore(dueDay, start)) return false;
-              }
-              if (rangeEndDate) {
-                const end = startOfDay(parseISO(rangeEndDate));
-                if (isAfter(dueDay, end)) return false;
-              }
-              break;
-            }
-          }
-        }
-      }
-
-      return true;
-    });
-
-    const priorityOrder = { alta: 0, media: 1, baixa: 2 };
-    filtered.sort((a, b) => {
-      const aPriority = a.priority ? priorityOrder[a.priority] : 999;
-      const bPriority = b.priority ? priorityOrder[b.priority] : 999;
-      return aPriority - bPriority;
-    });
-
-    return filtered;
-  }, [visibleTasks, statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredTasks.length / ITEMS_PER_PAGE);
-  const paginatedTasks = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredTasks.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredTasks, currentPage]);
+  // Debounce do campo de busca (300ms) para reduzir requests ao digitar
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
+  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts, debouncedSearch]);
 
   // TODAS AS FUNÇÕES DEVEM SER DEFINIDAS ANTES DOS RETURNS CONDICIONAIS
   const fetchUsers = async () => {
