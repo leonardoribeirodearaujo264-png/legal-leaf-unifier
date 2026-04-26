@@ -47,12 +47,46 @@ interface Lawsuit {
   customers: Array<{ name: string }> | null;
   archived?: boolean | number | null;
   state?: string | null;
+  // P1.6 — campos crus do ADVBox (raw step/stage)
+  step?: string | null;
+  stage?: string | null;
+  steps_id?: number | null;
+  stages_id?: number | null;
+  notes?: string | null;
+  contingency?: string | null;
 }
 
 // ---------- helpers ----------
 
-// Stage atual do processo conforme regra ADVBox
+// P1.6 — Classificação por STEP cru do ADVBox (campo "step" do JSONB de cache).
+// Mapeia o step cru (ex.: "NEGOCIAÇÃO") para a fase visível na UI ADVBox.
+// Esta é a fonte de verdade canonica — sem heurísticas baseadas em datas.
+type FaseUI = "atendimento" | "producao" | "execucao" | "arquivado" | "outro";
+function classifyByStep(step: string | null | undefined): FaseUI {
+  if (!step) return "outro";
+  const s = step.trim().toUpperCase();
+  // Arquivado: ADVBox UI conta tudo que está em ARQUIVAMENTO.
+  if (s === "ARQUIVAMENTO") return "arquivado";
+  // Em atendimento / Negociação (carteira pré-judicial)
+  if (s === "NEGOCIAÇÃO" || s === "NEGOCIACAO") return "atendimento";
+  // Em produção (fase judicial / recursal)
+  if (s === "JUDICIAL" || s === "RECURSAL") return "producao";
+  // Em execução / cobrança
+  if (s === "EXECUÇÃO/COBRANÇA" || s === "EXECUCAO/COBRANCA" || s.startsWith("EXECU")) return "execucao";
+  // Steps satélites (ADMINISTRATIVO, CONSULTORIA, RH/FINANCEIRO, MARKETING)
+  // — não entram em ATIVOS nem em ARQUIVADOS por padrão (filtro defensivo).
+  return "outro";
+}
+
+// Stage atual do processo (mantido para Safra & Tempo) — agora prioriza step cru,
+// caindo em heurística por datas só quando step não estiver presente.
 function getStage(l: Lawsuit): "prospeccao" | "producao" | "execucao" | "rotacao" | "concluido" {
+  const fase = classifyByStep(l.step);
+  if (fase === "arquivado") return "concluido";
+  if (fase === "atendimento") return "prospeccao";
+  if (fase === "producao") return "producao";
+  if (fase === "execucao") return "execucao";
+  // Fallback para lawsuits sem step (cache antigo) — usa heurística clássica.
   if (l.status_closure) return "concluido";
   if (l.exit_execution) return "rotacao";
   if (l.exit_production) return "execucao";
@@ -352,13 +386,16 @@ Deno.serve(async (req) => {
     // ABA 2 — ESTOQUE & PROSPECÇÃO
     // KPIs ADVBox: oportunidades do mês, processos ativos, arquivados, +120d parados
     // =================================================================
-    // CORREÇÃO P1.6:
-    //  - "Em atendimento" = ativos SEM process_date (prospecção pura)
-    //  - "Em produção"    = ativos COM process_date e SEM exit_production
-    //  - "Em execução"    = ativos COM exit_production e SEM exit_execution
-    //  - "Arquivado"      = status_closure preenchido (fechado/concluído)
-    //  - %carteira tem como denominador SOMA das 3 fases ativas (= 100%)
-    //  - +120d = ativos cujo último marco temporal é > 120 dias atrás
+    // CORREÇÃO P1.6 — classificação por STEP cru do ADVBox.
+    // O ADVBox /managementV2 usa o campo `step` para classificar a carteira:
+    //   - "ARQUIVAMENTO"     -> Arquivados        (alvo: 9.514)
+    //   - "NEGOCIAÇÃO"       -> Em atendimento    (alvo: 630)
+    //   - "JUDICIAL" + "RECURSAL" -> Em produção  (alvo: 1.184; UI ADVBox: 1.257)
+    //   - "EXECUÇÃO/COBRANÇA" -> Em execução      (alvo: 588)
+    //   - Steps administrativos (CONSULTORIA, ADMINISTRATIVO, RH/FINANCEIRO, MARKETING)
+    //     são EXCLUÍDOS de ATIVOS por padrão (filtro defensivo). Lo­gados separadamente.
+    // %carteira tem como denominador SOMA das 3 fases ativas (= 100%)
+    // +120d = ativos cujo último marco temporal é > 120 dias atrás
 
     const mesAntInicio = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth() - 1, 1));
     const mesAntFim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), 0, 23, 59, 59));
@@ -369,10 +406,12 @@ Deno.serve(async (req) => {
     let fechamentosMesAnt = 0;
 
     // Contagens de carteira (espelham ADVBox /managementV2)
-    let qtdAtendimento = 0; // prospecção pura
+    let qtdAtendimento = 0;
     let qtdProducao = 0;
     let qtdExecucao = 0;
     let qtdArquivados = 0;
+    let qtdOutros = 0; // steps satélites — registrados mas fora dos ATIVOS
+    let qtdSemStep = 0; // sem step (cache antigo / inconsistência)
     let qtdParados120 = 0;
 
     const areaCount = new Map<string, number>();
@@ -405,25 +444,39 @@ Deno.serve(async (req) => {
         if (dentroDoMes(l.status_closure, mesAntInicio, mesAntFim)) {
           fechamentosMesAnt++;
         }
+      }
+
+      // Classificação canônica por STEP cru
+      const fase = classifyByStep(l.step);
+
+      if (fase === "arquivado") {
         qtdArquivados++;
-        continue; // arquivado não entra em ativos
+        continue; // arquivado não entra em ativos nem em +120d
       }
 
-      // ATIVO — classifica em uma das 3 fases (sem sobreposição)
-      if (l.exit_production && !l.exit_execution) {
-        qtdExecucao++;
-      } else if (l.process_date) {
-        qtdProducao++;
-      } else {
-        qtdAtendimento++;
+      if (fase === "atendimento") qtdAtendimento++;
+      else if (fase === "producao") qtdProducao++;
+      else if (fase === "execucao") qtdExecucao++;
+      else {
+        // outro: ADMINISTRATIVO/CONSULTORIA/RH/MARKETING ou step nulo
+        if (!l.step) qtdSemStep++;
+        else qtdOutros++;
+        continue; // não conta como ativo
       }
 
-      // +120 dias parados (último marco temporal)
+      // +120 dias parados (último marco temporal) — apenas para ATIVOS reais
       const ultimaMov = l.exit_execution || l.exit_production || l.process_date || l.created_at;
       if (ultimaMov && new Date(ultimaMov) < limite120) {
         qtdParados120++;
       }
     }
+
+    // Log de calibração — útil para conferir com a UI ADVBox
+    console.log(
+      `[BI Estoque] atendimento=${qtdAtendimento} producao=${qtdProducao} execucao=${qtdExecucao} ` +
+      `arquivados=${qtdArquivados} outros=${qtdOutros} sem_step=${qtdSemStep} ` +
+      `total_classificado=${qtdAtendimento + qtdProducao + qtdExecucao + qtdArquivados + qtdOutros + qtdSemStep}`
+    );
 
     const processosAtivos = qtdAtendimento + qtdProducao + qtdExecucao;
     const processosArquivados = qtdArquivados;
@@ -667,15 +720,44 @@ Deno.serve(async (req) => {
     // =================================================================
     // ABA 5 — SAFRA & QUALIDADE
     // CRÍTICO: top 4 áreas por % de GANHO (não volume absoluto)
+    // P1.6 — fees_money cobre só ~3% das lawsuits arquivadas. Usamos `stage`
+    // (texto semântico do ADVBox) como proxy de resultado:
+    //   GANHOS  = stage indica decisão favorável / pagamento / trânsito julgado
+    //   PERDAS  = stage indica perda de contrato / inviabilidade / desinteresse
+    //   NEUTRO  = arquivado mas sem desfecho explícito (não conta em nenhum)
+    // Mantemos fallback por fees_money quando stage estiver vazio.
     // =================================================================
+    const STAGE_GANHO = new Set([
+      "TRÂNSITO EM JULGADO", "TRANSITADO EM JULGADO", "RECURSO JULGADO",
+      "DECISÃO PROFERIDA", "AGUARDANDO PAGAMENTO DO PRECATÓRIO",
+      "AGUARDANDO PAGAMENTO DE CONDENAÇÃO", "PROCESSO SENTENCIADO",
+      "FORMAÇÃO DO PRECATÓRIO/RPV", "LIQUIDAÇÃO DE SENTENÇA",
+    ]);
+    const STAGE_PERDA = new Set([
+      "PERDA DO CONTRATO", "ARQUIVADO / LEAD NÃO FECHOU",
+      "ANALISADO E NÃO DISTRIBUÍDO - INVIÁVEL OU DESINTERESSE DO CLIENTE",
+    ]);
+
+    function classifyOutcome(l: Lawsuit): "ganho" | "perda" | "neutro" {
+      const stg = (l.stage || "").trim().toUpperCase();
+      if (STAGE_GANHO.has(stg)) return "ganho";
+      if (STAGE_PERDA.has(stg)) return "perda";
+      // Fallback por fees_money quando temos valor real registrado
+      if (Number(l.fees_money || 0) > 0) return "ganho";
+      return "neutro";
+    }
+
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
       cur.total++;
-      if (l.status_closure) {
-        if (Number(l.fees_money || 0) > 0) cur.ganhos++;
-        else cur.perdas++;
+      // Só conta resultado em arquivados (step ARQUIVAMENTO ou status_closure)
+      const isArquivado = classifyByStep(l.step) === "arquivado" || !!l.status_closure;
+      if (isArquivado) {
+        const o = classifyOutcome(l);
+        if (o === "ganho") cur.ganhos++;
+        else if (o === "perda") cur.perdas++;
       }
       safraPorArea.set(grp, cur);
     }
@@ -706,8 +788,9 @@ Deno.serve(async (req) => {
           if (stage === "execucao") exec++;
           if (stage === "concluido") {
             conc++;
-            if (Number(l.fees_money || 0) > 0) gan++;
-            else per++;
+            const o = classifyOutcome(l);
+            if (o === "ganho") gan++;
+            else if (o === "perda") per++;
           }
         }
       }
