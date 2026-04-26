@@ -216,52 +216,147 @@ export default function TarefasAdvbox() {
     }
   };
 
-  const fetchTasks = async () => {
-    if (tasks.length === 0) {
-      setLoading(true);
-    }
-
+  // Lightweight fetch: pega APENAS tarefas pendentes/em andamento (sem raw_data, sem description longa)
+  // Usado pelo hook de notificações e pelo calendário. Limite generoso de 5000 para cobrir o calendário,
+  // já que tarefas concluídas/obsoletas são a maioria do volume e não precisam aqui.
+  const fetchLightweightTasks = async () => {
     try {
-      // Buscar todas as tarefas em batches, SEM raw_data (campo pesado, ~70% do payload)
-      // raw_data é carregado sob demanda apenas no detalhe da tarefa.
-      const allDbTasks: any[] = [];
-      const batchSize = 1000;
-      let offset = 0;
-      let hasMore = true;
+      const { data: lite, error } = await supabase
+        .from('advbox_tasks')
+        .select('advbox_id, title, due_date, status, assigned_users, completed_at, created_at')
+        .in('status', ['pending', 'in_progress', 'pendente'])
+        .order('due_date', { ascending: false })
+        .limit(5000);
 
-      while (hasMore) {
-        const { data: batch, error: batchError } = await supabase
-          .from('advbox_tasks')
-          .select('advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, client_name')
-          .order('due_date', { ascending: false })
-          .range(offset, offset + batchSize - 1);
+      if (error) throw error;
 
-        if (batchError) throw batchError;
+      const liteTasks: Task[] = (lite || []).map((t: any) => ({
+        id: String(t.advbox_id),
+        title: t.title || 'Sem título',
+        description: '',
+        due_date: t.due_date,
+        status: t.status || 'pending',
+        assigned_to: t.assigned_users || '',
+        process_number: '',
+        category: '',
+        task_type: '',
+        completed_at: t.completed_at,
+        created_at: t.created_at,
+        client_name: '',
+      }));
 
-        if (batch && batch.length > 0) {
-          allDbTasks.push(...batch);
-          offset += batchSize;
-          hasMore = batch.length === batchSize;
-        } else {
-          hasMore = false;
-        }
+      setTasks(liteTasks);
+    } catch (e) {
+      console.error('Error fetching lightweight tasks:', e);
+    }
+  };
+
+  // Server-side paginated fetch: aplica TODOS os filtros (status, prioridade, vencimento, responsável, busca)
+  // direto no Supabase via .eq/.gte/.lte/.ilike. Retorna só a página atual + count total.
+  const fetchPageTasks = async () => {
+    setPageLoading(true);
+    try {
+      const from = (currentPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+
+      let query = supabase
+        .from('advbox_tasks')
+        .select(
+          'advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, client_name',
+          { count: 'exact' }
+        );
+
+      // ── Filtro de status ────────────────────────────────────────────
+      if (statusFilter === 'all') {
+        // Por padrão, esconde stale (mantém comportamento original)
+        query = query.not('status', 'in', '(stale,obsoleta,deleted)');
+      } else if (statusFilter === 'pending') {
+        query = query.in('status', ['pending', 'pendente']);
+      } else if (statusFilter === 'in_progress') {
+        query = query.eq('status', 'in_progress');
+      } else if (statusFilter === 'completed') {
+        query = query.in('status', ['completed', 'concluída', 'concluida']);
+      } else if (statusFilter === 'stale') {
+        query = query.in('status', ['stale', 'obsoleta', 'deleted']);
       }
 
-      const dbTasks = allDbTasks;
+      // ── Filtro de responsável (admin) ───────────────────────────────
+      if (assignedFilter !== 'all') {
+        query = query.ilike('assigned_users', `%${assignedFilter}%`);
+      } else if (!isAdmin && profile?.full_name) {
+        // Não-admin vê só as próprias tarefas
+        query = query.ilike('assigned_users', `%${profile.full_name}%`);
+      }
 
-      // Fetch priorities (poucos registros — Map para lookup O(1) em vez de find O(n))
-      const { data: priorities } = await supabase
-        .from('task_priorities')
-        .select('task_id, priority');
+      // ── Filtro de vencimento ────────────────────────────────────────
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayISO = today.toISOString().slice(0, 10);
 
+      if (dueDateFilter === 'overdue') {
+        query = query.lt('due_date', todayISO).in('status', ['pending', 'pendente', 'in_progress']);
+      } else if (dueDateFilter === 'today') {
+        query = query.gte('due_date', todayISO).lte('due_date', todayISO);
+      } else if (dueDateFilter === 'week') {
+        const sunday = new Date(today);
+        sunday.setDate(today.getDate() - today.getDay());
+        const saturday = new Date(sunday);
+        saturday.setDate(sunday.getDate() + 6);
+        query = query
+          .gte('due_date', sunday.toISOString().slice(0, 10))
+          .lte('due_date', saturday.toISOString().slice(0, 10));
+      } else if (dueDateFilter === 'month') {
+        const first = new Date(today.getFullYear(), today.getMonth(), 1);
+        const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        query = query
+          .gte('due_date', first.toISOString().slice(0, 10))
+          .lte('due_date', last.toISOString().slice(0, 10));
+      } else if (dueDateFilter === 'specific' && specificDate) {
+        query = query.gte('due_date', specificDate).lte('due_date', specificDate);
+      } else if (dueDateFilter === 'range') {
+        if (rangeStartDate) query = query.gte('due_date', rangeStartDate);
+        if (rangeEndDate) query = query.lte('due_date', rangeEndDate);
+      }
+
+      // ── Busca livre (title / process_number / client_name / assigned_users) ──
+      if (debouncedSearch) {
+        const safe = debouncedSearch.replace(/[%,()]/g, ' ');
+        query = query.or(
+          `title.ilike.%${safe}%,process_number.ilike.%${safe}%,client_name.ilike.%${safe}%,assigned_users.ilike.%${safe}%`
+        );
+      }
+
+      // ── Esconder alertas de exclusão (default) ──────────────────────
+      if (!showDeletionAlerts) {
+        query = query
+          .not('title', 'ilike', '%alerta%exclu%')
+          .not('title', 'ilike', '%alerta%delet%')
+          .not('title', 'ilike', '%tarefa excluída%')
+          .not('title', 'ilike', '%tarefa excluida%');
+      }
+
+      const { data: dbTasks, error, count } = await query
+        .order('due_date', { ascending: false, nullsFirst: false })
+        .range(from, to);
+
+      if (error) throw error;
+
+      // Buscar prioridades só dos IDs visíveis (lookup leve)
+      const ids = (dbTasks || []).map((t: any) => String(t.advbox_id));
       const priorityMap = new Map<string, 'alta' | 'media' | 'baixa'>();
-      if (priorities) {
-        for (const p of priorities) {
-          priorityMap.set(String(p.task_id), p.priority as 'alta' | 'media' | 'baixa');
+      if (ids.length > 0) {
+        const { data: priorities } = await supabase
+          .from('task_priorities')
+          .select('task_id, priority')
+          .in('task_id', ids);
+        if (priorities) {
+          for (const p of priorities) {
+            priorityMap.set(String(p.task_id), p.priority as 'alta' | 'media' | 'baixa');
+          }
         }
       }
 
-      const tasksData: Task[] = (dbTasks || []).map((t: any) => ({
+      let mapped: Task[] = (dbTasks || []).map((t: any) => ({
         id: String(t.advbox_id),
         title: t.title || 'Sem título',
         description: t.description || '',
@@ -278,26 +373,44 @@ export default function TarefasAdvbox() {
         client_name: t.client_name || '',
       }));
 
-      setTasks(tasksData);
-
-      // Se DB vazio, dispara sync inicial
-      if (tasksData.length === 0) {
-        console.log('No tasks in DB, triggering initial sync...');
-        handleSyncTasks();
-        return;
+      // Filtro de prioridade aplicado client-side (prioridade está em outra tabela)
+      if (priorityFilter !== 'all') {
+        mapped = mapped.filter((t) => t.priority === priorityFilter);
       }
 
-      // Last update do synced_at mais recente
+      // Ordena prioridade alta primeiro dentro da página
+      const priorityOrder = { alta: 0, media: 1, baixa: 2 } as const;
+      mapped.sort((a, b) => {
+        const aP = a.priority ? priorityOrder[a.priority] : 999;
+        const bP = b.priority ? priorityOrder[b.priority] : 999;
+        return aP - bP;
+      });
+
+      setPageTasks(mapped);
+      setTotalCount(count || 0);
+
+      // last update
       if (dbTasks && dbTasks.length > 0) {
-        const mostRecent = dbTasks.reduce((max: any, t: any) =>
+        const mostRecent = (dbTasks as any[]).reduce((max: any, t: any) =>
           !max || (t.synced_at && t.synced_at > max) ? t.synced_at : max, null);
         if (mostRecent) setLastUpdate(new Date(mostRecent));
       }
 
       setMetadata({ fromCache: false });
+
+      // Trigger sync inicial se DB estiver vazio
+      if ((count || 0) === 0 && currentPage === 1 && !debouncedSearch && statusFilter === 'all') {
+        const { count: anyCount } = await supabase
+          .from('advbox_tasks')
+          .select('advbox_id', { count: 'exact', head: true });
+        if (!anyCount) {
+          console.log('No tasks in DB, triggering initial sync...');
+          handleSyncTasks();
+        }
+      }
     } catch (error) {
-      console.error('Error fetching tasks from DB:', error);
-      if (tasks.length === 0) {
+      console.error('Error fetching page tasks:', error);
+      if (pageTasks.length === 0) {
         toast({
           title: 'Erro ao carregar tarefas',
           description: 'Não foi possível carregar as tarefas.',
@@ -305,9 +418,16 @@ export default function TarefasAdvbox() {
         });
       }
     } finally {
+      setPageLoading(false);
       setLoading(false);
     }
   };
+
+  // Wrapper para compatibilidade (usado em handlers já existentes)
+  const fetchTasks = async () => {
+    await Promise.all([fetchPageTasks(), fetchLightweightTasks()]);
+  };
+
 
   const handleSyncTasks = async () => {
     setSyncing(true);
