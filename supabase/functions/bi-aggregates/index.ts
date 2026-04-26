@@ -947,6 +947,34 @@ Deno.serve(async (req) => {
       `rot=${custoMedioFase.rotacao.toFixed(2)}`
     );
 
+    // ====================================================================
+    // P1.9 — DEBUG VARIANTES DE DENOMINADOR (Aba 4 Custos)
+    // A) Atual: total cumulativo de processos por fase
+    // B) Processos COM pelo menos 1 lancamento financeiro naquela fase
+    // C) Processos ATIVOS naquela fase agora (current_phase = X)
+    //    -> "ativos" = nao arquivados; arquivado nao tem variante C, usa qtd_arquivados
+    // ====================================================================
+    const denomA = { prosp: qtdAtendimento, prod: qtdProducao, exec: qtdExecucao, rot: qtdArquivados };
+    const denomB = {
+      prosp: lawsuitsComCustoPorFase.atendimento.size,
+      prod: lawsuitsComCustoPorFase.producao.size,
+      exec: lawsuitsComCustoPorFase.execucao.size,
+      rot: lawsuitsComCustoPorFase.arquivado.size,
+    };
+    // C: ativos AGORA por fase (mesmo numero pra prosp/prod/exec; rot continua arquivados)
+    const denomC = denomA;
+    const div = (n: number, d: number) => d > 0 ? (n / d).toFixed(2) : "0.00";
+    console.log(
+      `[BI Custos VARIANTES] qtd_A=${JSON.stringify(denomA)} ` +
+      `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} | ` +
+      `custo_medio_A prosp=${div(custoPorFase.atendimento, denomA.prosp)} prod=${div(custoPorFase.producao, denomA.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomA.exec)} rot=${div(custoPorFase.arquivado, denomA.rot)} | ` +
+      `custo_medio_B prosp=${div(custoPorFase.atendimento, denomB.prosp)} prod=${div(custoPorFase.producao, denomB.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomB.exec)} rot=${div(custoPorFase.arquivado, denomB.rot)} | ` +
+      `custo_medio_C prosp=${div(custoPorFase.atendimento, denomC.prosp)} prod=${div(custoPorFase.producao, denomC.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomC.exec)} rot=${div(custoPorFase.arquivado, denomC.rot)}`
+    );
+
     // Total de pontos do mês para custo/ponto
     let pontosMes = 0;
     for (const t of tasksMes || []) {
