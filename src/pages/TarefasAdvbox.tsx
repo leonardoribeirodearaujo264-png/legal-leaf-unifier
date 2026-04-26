@@ -61,10 +61,17 @@ interface Task {
 export default function TarefasAdvbox() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'produtividade' ? 'produtividade' : 'list';
+  // tasks: lightweight set used by notification hook + calendar (only pending/in_progress)
   const [tasks, setTasks] = useState<Task[]>([]);
+  // pageTasks: server-paginated rows for the list view
+  const [pageTasks, setPageTasks] = useState<Task[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [showDeletionAlerts, setShowDeletionAlerts] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const ITEMS_PER_PAGE = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -108,6 +115,8 @@ export default function TarefasAdvbox() {
 
   // TODOS OS useMemo DEVEM VIR ANTES DOS RETURNS CONDICIONAIS
   // Tarefas visíveis de acordo com o papel do usuário
+  // visibleTasks (do NOT use for list view — list comes from pageTasks server-paginated).
+  // Mantido só para o calendário e o hook de notificações.
   const visibleTasks = useMemo(() => {
     if (isAdmin) return tasks;
     if (!profile?.full_name) return [];
@@ -117,10 +126,11 @@ export default function TarefasAdvbox() {
     );
   }, [tasks, isAdmin, profile?.full_name]);
 
-  // Extrair lista única de responsáveis (usado apenas por admins)
+  // Lista de responsáveis para o filtro (admin) — derivada da página atual + tarefas leves
   const assignedUsers = useMemo(() => {
     const users = new Set<string>();
-    visibleTasks.forEach((task) => {
+    const source = isAdmin ? [...pageTasks, ...tasks] : pageTasks;
+    source.forEach((task) => {
       if (task.assigned_to) {
         task.assigned_to
           .split(',')
@@ -130,103 +140,23 @@ export default function TarefasAdvbox() {
       }
     });
     return Array.from(users).sort();
-  }, [visibleTasks]);
+  }, [pageTasks, tasks, isAdmin]);
 
-  // Filtrar e ordenar tarefas
-  const filteredTasks = useMemo(() => {
-    let filtered = visibleTasks.filter((task) => {
-      // Hide deletion alerts by default
-      if (!showDeletionAlerts) {
-        const titleLower = (task.title || '').toLowerCase();
-        if (titleLower.includes('alerta') && (titleLower.includes('exclu') || titleLower.includes('delet'))) return false;
-        if (titleLower.includes('tarefa excluída') || titleLower.includes('tarefa excluida')) return false;
-        if (titleLower.includes('deleted') || titleLower.includes('exclusão') || titleLower.includes('exclusao')) return false;
-      }
+  // Server-side: pageTasks já vem filtrado e paginado. filteredTasks = pageTasks.
+  const filteredTasks = pageTasks;
+  const paginatedTasks = pageTasks;
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
 
-      // Hide stale tasks by default unless explicitly filtered
-      // Usa normalizeStatus pra capturar variações ("stale" / "obsoleta" / "deleted").
-      const normalized = normalizeStatus(task.status);
-      if (statusFilter !== 'stale' && normalized === 'stale') return false;
-
-      if (statusFilter !== 'all') {
-        // Comparação canônica — não compara strings cruas
-        if (normalized !== statusFilter) return false;
-      }
-      if (assignedFilter !== 'all') {
-        const names = (task.assigned_to || '').split(',').map((n: string) => n.trim());
-        if (!names.includes(assignedFilter)) return false;
-      }
-      if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
-
-      // BUG #4 FIX: filtro 'overdue' agora usa isOverdueTask, que checa
-      // status (não pega concluída/obsoleta) ALÉM da data.
-      // BUG #3: novos filtros 'specific' (dia exato) e 'range' (período).
-      if (dueDateFilter !== 'all') {
-        if (dueDateFilter === 'overdue') {
-          if (!isOverdueTask(task)) return false;
-        } else {
-          // Demais filtros precisam de due_date
-          if (!task.due_date) return false;
-          const dueDate = new Date(task.due_date);
-
-          switch (dueDateFilter) {
-            case 'today':
-              if (!isToday(dueDate)) return false;
-              break;
-            case 'week':
-              if (!isThisWeek(dueDate, { weekStartsOn: 0 })) return false;
-              break;
-            case 'month':
-              if (!isThisMonth(dueDate)) return false;
-              break;
-            case 'specific': {
-              if (!specificDate) return false;
-              const target = parseISO(specificDate);
-              const dueDay = startOfDay(dueDate);
-              if (!isEqual(dueDay, startOfDay(target))) return false;
-              break;
-            }
-            case 'range': {
-              if (!rangeStartDate && !rangeEndDate) return false;
-              const dueDay = startOfDay(dueDate);
-              if (rangeStartDate) {
-                const start = startOfDay(parseISO(rangeStartDate));
-                if (isBefore(dueDay, start)) return false;
-              }
-              if (rangeEndDate) {
-                const end = startOfDay(parseISO(rangeEndDate));
-                if (isAfter(dueDay, end)) return false;
-              }
-              break;
-            }
-          }
-        }
-      }
-
-      return true;
-    });
-
-    const priorityOrder = { alta: 0, media: 1, baixa: 2 };
-    filtered.sort((a, b) => {
-      const aPriority = a.priority ? priorityOrder[a.priority] : 999;
-      const bPriority = b.priority ? priorityOrder[b.priority] : 999;
-      return aPriority - bPriority;
-    });
-
-    return filtered;
-  }, [visibleTasks, statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredTasks.length / ITEMS_PER_PAGE);
-  const paginatedTasks = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredTasks.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredTasks, currentPage]);
+  // Debounce do campo de busca (300ms) para reduzir requests ao digitar
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts]);
+  }, [statusFilter, assignedFilter, priorityFilter, dueDateFilter, specificDate, rangeStartDate, rangeEndDate, showDeletionAlerts, debouncedSearch]);
 
   // TODAS AS FUNÇÕES DEVEM SER DEFINIDAS ANTES DOS RETURNS CONDICIONAIS
   const fetchUsers = async () => {
@@ -286,52 +216,147 @@ export default function TarefasAdvbox() {
     }
   };
 
-  const fetchTasks = async () => {
-    if (tasks.length === 0) {
-      setLoading(true);
-    }
-
+  // Lightweight fetch: pega APENAS tarefas pendentes/em andamento (sem raw_data, sem description longa)
+  // Usado pelo hook de notificações e pelo calendário. Limite generoso de 5000 para cobrir o calendário,
+  // já que tarefas concluídas/obsoletas são a maioria do volume e não precisam aqui.
+  const fetchLightweightTasks = async () => {
     try {
-      // Buscar todas as tarefas em batches, SEM raw_data (campo pesado, ~70% do payload)
-      // raw_data é carregado sob demanda apenas no detalhe da tarefa.
-      const allDbTasks: any[] = [];
-      const batchSize = 1000;
-      let offset = 0;
-      let hasMore = true;
+      const { data: lite, error } = await supabase
+        .from('advbox_tasks')
+        .select('advbox_id, title, due_date, status, assigned_users, completed_at, created_at')
+        .in('status', ['pending', 'in_progress', 'pendente'])
+        .order('due_date', { ascending: false })
+        .limit(5000);
 
-      while (hasMore) {
-        const { data: batch, error: batchError } = await supabase
-          .from('advbox_tasks')
-          .select('advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, client_name')
-          .order('due_date', { ascending: false })
-          .range(offset, offset + batchSize - 1);
+      if (error) throw error;
 
-        if (batchError) throw batchError;
+      const liteTasks: Task[] = (lite || []).map((t: any) => ({
+        id: String(t.advbox_id),
+        title: t.title || 'Sem título',
+        description: '',
+        due_date: t.due_date,
+        status: t.status || 'pending',
+        assigned_to: t.assigned_users || '',
+        process_number: '',
+        category: '',
+        task_type: '',
+        completed_at: t.completed_at,
+        created_at: t.created_at,
+        client_name: '',
+      }));
 
-        if (batch && batch.length > 0) {
-          allDbTasks.push(...batch);
-          offset += batchSize;
-          hasMore = batch.length === batchSize;
-        } else {
-          hasMore = false;
-        }
+      setTasks(liteTasks);
+    } catch (e) {
+      console.error('Error fetching lightweight tasks:', e);
+    }
+  };
+
+  // Server-side paginated fetch: aplica TODOS os filtros (status, prioridade, vencimento, responsável, busca)
+  // direto no Supabase via .eq/.gte/.lte/.ilike. Retorna só a página atual + count total.
+  const fetchPageTasks = async () => {
+    setPageLoading(true);
+    try {
+      const from = (currentPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+
+      let query = supabase
+        .from('advbox_tasks')
+        .select(
+          'advbox_id, title, description, due_date, completed_at, status, assigned_users, process_number, task_type, task_type_id, lawsuit_id, points, synced_at, created_at, client_name',
+          { count: 'exact' }
+        );
+
+      // ── Filtro de status ────────────────────────────────────────────
+      if (statusFilter === 'all') {
+        // Por padrão, esconde stale (mantém comportamento original)
+        query = query.not('status', 'in', '(stale,obsoleta,deleted)');
+      } else if (statusFilter === 'pending') {
+        query = query.in('status', ['pending', 'pendente']);
+      } else if (statusFilter === 'in_progress') {
+        query = query.eq('status', 'in_progress');
+      } else if (statusFilter === 'completed') {
+        query = query.in('status', ['completed', 'concluída', 'concluida']);
+      } else if (statusFilter === 'stale') {
+        query = query.in('status', ['stale', 'obsoleta', 'deleted']);
       }
 
-      const dbTasks = allDbTasks;
+      // ── Filtro de responsável (admin) ───────────────────────────────
+      if (assignedFilter !== 'all') {
+        query = query.ilike('assigned_users', `%${assignedFilter}%`);
+      } else if (!isAdmin && profile?.full_name) {
+        // Não-admin vê só as próprias tarefas
+        query = query.ilike('assigned_users', `%${profile.full_name}%`);
+      }
 
-      // Fetch priorities (poucos registros — Map para lookup O(1) em vez de find O(n))
-      const { data: priorities } = await supabase
-        .from('task_priorities')
-        .select('task_id, priority');
+      // ── Filtro de vencimento ────────────────────────────────────────
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayISO = today.toISOString().slice(0, 10);
 
+      if (dueDateFilter === 'overdue') {
+        query = query.lt('due_date', todayISO).in('status', ['pending', 'pendente', 'in_progress']);
+      } else if (dueDateFilter === 'today') {
+        query = query.gte('due_date', todayISO).lte('due_date', todayISO);
+      } else if (dueDateFilter === 'week') {
+        const sunday = new Date(today);
+        sunday.setDate(today.getDate() - today.getDay());
+        const saturday = new Date(sunday);
+        saturday.setDate(sunday.getDate() + 6);
+        query = query
+          .gte('due_date', sunday.toISOString().slice(0, 10))
+          .lte('due_date', saturday.toISOString().slice(0, 10));
+      } else if (dueDateFilter === 'month') {
+        const first = new Date(today.getFullYear(), today.getMonth(), 1);
+        const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        query = query
+          .gte('due_date', first.toISOString().slice(0, 10))
+          .lte('due_date', last.toISOString().slice(0, 10));
+      } else if (dueDateFilter === 'specific' && specificDate) {
+        query = query.gte('due_date', specificDate).lte('due_date', specificDate);
+      } else if (dueDateFilter === 'range') {
+        if (rangeStartDate) query = query.gte('due_date', rangeStartDate);
+        if (rangeEndDate) query = query.lte('due_date', rangeEndDate);
+      }
+
+      // ── Busca livre (title / process_number / client_name / assigned_users) ──
+      if (debouncedSearch) {
+        const safe = debouncedSearch.replace(/[%,()]/g, ' ');
+        query = query.or(
+          `title.ilike.%${safe}%,process_number.ilike.%${safe}%,client_name.ilike.%${safe}%,assigned_users.ilike.%${safe}%`
+        );
+      }
+
+      // ── Esconder alertas de exclusão (default) ──────────────────────
+      if (!showDeletionAlerts) {
+        query = query
+          .not('title', 'ilike', '%alerta%exclu%')
+          .not('title', 'ilike', '%alerta%delet%')
+          .not('title', 'ilike', '%tarefa excluída%')
+          .not('title', 'ilike', '%tarefa excluida%');
+      }
+
+      const { data: dbTasks, error, count } = await query
+        .order('due_date', { ascending: false, nullsFirst: false })
+        .range(from, to);
+
+      if (error) throw error;
+
+      // Buscar prioridades só dos IDs visíveis (lookup leve)
+      const ids = (dbTasks || []).map((t: any) => String(t.advbox_id));
       const priorityMap = new Map<string, 'alta' | 'media' | 'baixa'>();
-      if (priorities) {
-        for (const p of priorities) {
-          priorityMap.set(String(p.task_id), p.priority as 'alta' | 'media' | 'baixa');
+      if (ids.length > 0) {
+        const { data: priorities } = await supabase
+          .from('task_priorities')
+          .select('task_id, priority')
+          .in('task_id', ids);
+        if (priorities) {
+          for (const p of priorities) {
+            priorityMap.set(String(p.task_id), p.priority as 'alta' | 'media' | 'baixa');
+          }
         }
       }
 
-      const tasksData: Task[] = (dbTasks || []).map((t: any) => ({
+      let mapped: Task[] = (dbTasks || []).map((t: any) => ({
         id: String(t.advbox_id),
         title: t.title || 'Sem título',
         description: t.description || '',
@@ -348,26 +373,44 @@ export default function TarefasAdvbox() {
         client_name: t.client_name || '',
       }));
 
-      setTasks(tasksData);
-
-      // Se DB vazio, dispara sync inicial
-      if (tasksData.length === 0) {
-        console.log('No tasks in DB, triggering initial sync...');
-        handleSyncTasks();
-        return;
+      // Filtro de prioridade aplicado client-side (prioridade está em outra tabela)
+      if (priorityFilter !== 'all') {
+        mapped = mapped.filter((t) => t.priority === priorityFilter);
       }
 
-      // Last update do synced_at mais recente
+      // Ordena prioridade alta primeiro dentro da página
+      const priorityOrder = { alta: 0, media: 1, baixa: 2 } as const;
+      mapped.sort((a, b) => {
+        const aP = a.priority ? priorityOrder[a.priority] : 999;
+        const bP = b.priority ? priorityOrder[b.priority] : 999;
+        return aP - bP;
+      });
+
+      setPageTasks(mapped);
+      setTotalCount(count || 0);
+
+      // last update
       if (dbTasks && dbTasks.length > 0) {
-        const mostRecent = dbTasks.reduce((max: any, t: any) =>
+        const mostRecent = (dbTasks as any[]).reduce((max: any, t: any) =>
           !max || (t.synced_at && t.synced_at > max) ? t.synced_at : max, null);
         if (mostRecent) setLastUpdate(new Date(mostRecent));
       }
 
       setMetadata({ fromCache: false });
+
+      // Trigger sync inicial se DB estiver vazio
+      if ((count || 0) === 0 && currentPage === 1 && !debouncedSearch && statusFilter === 'all') {
+        const { count: anyCount } = await supabase
+          .from('advbox_tasks')
+          .select('advbox_id', { count: 'exact', head: true });
+        if (!anyCount) {
+          console.log('No tasks in DB, triggering initial sync...');
+          handleSyncTasks();
+        }
+      }
     } catch (error) {
-      console.error('Error fetching tasks from DB:', error);
-      if (tasks.length === 0) {
+      console.error('Error fetching page tasks:', error);
+      if (pageTasks.length === 0) {
         toast({
           title: 'Erro ao carregar tarefas',
           description: 'Não foi possível carregar as tarefas.',
@@ -375,9 +418,16 @@ export default function TarefasAdvbox() {
         });
       }
     } finally {
+      setPageLoading(false);
       setLoading(false);
     }
   };
+
+  // Wrapper para compatibilidade (usado em handlers já existentes)
+  const fetchTasks = async () => {
+    await Promise.all([fetchPageTasks(), fetchLightweightTasks()]);
+  };
+
 
   const handleSyncTasks = async () => {
     setSyncing(true);
@@ -420,17 +470,34 @@ export default function TarefasAdvbox() {
     }
   };
 
-  // useEffect DEVE vir DEPOIS das definições de funções
+  // Carga inicial: lista paginada + dataset leve em paralelo
   useEffect(() => {
-    // Só carregar dados quando permissões estiverem prontas E usuário tiver acesso.
-    // fetchAdvboxTaskTypes e fetchAdvboxUsers são chamados sob demanda quando o dialog "Nova Tarefa" abre.
     if (!isLoading && hasAdvboxAccess && !dataLoaded) {
-      console.log('TarefasAdvbox: Carregando dados...');
+      console.log('TarefasAdvbox: Carregando dados (server-side pagination)...');
       setDataLoaded(true);
-      fetchTasks();
+      fetchPageTasks();
+      fetchLightweightTasks();
       fetchUsers();
     }
   }, [isLoading, hasAdvboxAccess, dataLoaded]);
+
+  // Refetch da página quando filtros, busca ou página mudam (server-side)
+  useEffect(() => {
+    if (!dataLoaded) return;
+    fetchPageTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentPage,
+    statusFilter,
+    assignedFilter,
+    dueDateFilter,
+    specificDate,
+    rangeStartDate,
+    rangeEndDate,
+    showDeletionAlerts,
+    debouncedSearch,
+    priorityFilter,
+  ]);
 
   // CONDITIONAL RETURNS - apenas APÓS todas as funções e hooks
   // Mostrar loading enquanto verifica permissões
@@ -861,6 +928,18 @@ export default function TarefasAdvbox() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* Campo de busca server-side: vasculha em TODOS os registros */}
+                <div className="mb-4">
+                  <Label htmlFor="search-tasks" className="text-sm font-medium">Buscar</Label>
+                  <Input
+                    id="search-tasks"
+                    type="search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por título, processo, cliente ou responsável (em todos os registros)…"
+                    className="mt-1"
+                  />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     {/* BUG #2 FIX: tooltip explica o que é cada status */}
@@ -1013,8 +1092,8 @@ export default function TarefasAdvbox() {
           <CardHeader>
             <CardTitle>{isAdmin ? 'Todas as Tarefas' : 'Suas Tarefas'}</CardTitle>
             <CardDescription>
-              Mostrando {paginatedTasks.length} de {filteredTasks.length} tarefas
-              {filteredTasks.length !== visibleTasks.length && ` (${visibleTasks.length} total)`}
+              Mostrando {paginatedTasks.length} de {totalCount} tarefas
+              {pageLoading && ' — atualizando…'}
               {totalPages > 1 && ` — Página ${currentPage} de ${totalPages}`}
             </CardDescription>
           </CardHeader>
@@ -1178,7 +1257,7 @@ export default function TarefasAdvbox() {
           {/* Aba Calendário */}
           <TabsContent value="calendar">
             <TaskCalendarView 
-              tasks={filteredTasks} 
+              tasks={visibleTasks} 
               onTaskClick={openTaskDetails}
             />
           </TabsContent>
