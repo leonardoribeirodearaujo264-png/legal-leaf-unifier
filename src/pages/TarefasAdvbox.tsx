@@ -928,6 +928,18 @@ export default function TarefasAdvbox() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {/* Campo de busca server-side: vasculha em TODOS os registros */}
+                <div className="mb-4">
+                  <Label htmlFor="search-tasks" className="text-sm font-medium">Buscar</Label>
+                  <Input
+                    id="search-tasks"
+                    type="search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por título, processo, cliente ou responsável (em todos os registros)…"
+                    className="mt-1"
+                  />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
                     {/* BUG #2 FIX: tooltip explica o que é cada status */}
