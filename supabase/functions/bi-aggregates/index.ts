@@ -214,14 +214,18 @@ Deno.serve(async (req) => {
       (t) => t.status === "completed" || t.completed_at
     ).length;
 
-    // 1.2) Atrasadas — pendentes com due_date < hoje (count + amostra para tipos)
-    const now = new Date();
-    // Count exato
+    // 1.2) Atrasadas — pendentes com due_date ESTRITAMENTE ANTERIOR a hoje (Brasília)
+    // BUG FIX 13a rodada: usar string YYYY-MM-DD (não ISO timestamp) para evitar contar
+    //   tarefas com due_date = hoje como atrasadas. Antes: due_date < now() considerava
+    //   '2026-04-26' < '2026-04-26T16:50:00Z' → TRUE (errado). Agora: due_date < '2026-04-26'.
+    // Também adiciona completed_at IS NULL como proteção dupla (regra oficial de taskStatus.ts).
+    const todayBRT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
     let atrasadasCountQ = supabase
       .from("advbox_tasks")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
-      .lt("due_date", now.toISOString());
+      .is("completed_at", null)
+      .lt("due_date", todayBRT);
     if (advogado !== "todos") atrasadasCountQ = atrasadasCountQ.ilike("assigned_users", `%${advogado}%`);
     const { count: atrasadasCount } = await atrasadasCountQ;
 
@@ -230,19 +234,25 @@ Deno.serve(async (req) => {
       .from("advbox_tasks")
       .select("id, title, due_date, assigned_users, client_name, task_type")
       .eq("status", "pending")
-      .lt("due_date", now.toISOString())
+      .is("completed_at", null)
+      .lt("due_date", todayBRT)
       .range(0, 4999);
     if (advogado !== "todos") atrasadasSampleQ = atrasadasSampleQ.ilike("assigned_users", `%${advogado}%`);
     const { data: atrasadasData } = await atrasadasSampleQ;
 
-    // 1.3) Prazo fatal próximos 5 dias
-    const cincoDias = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+    // 1.3) Prazo fatal próximos 5 dias (a partir de hoje, em Brasília)
+    const cincoDiasBRT = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 5);
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(d);
+    })();
     let prazoFatalQuery = supabase
       .from("advbox_tasks")
       .select("id", { count: "exact", head: true })
       .eq("status", "pending")
-      .gte("due_date", now.toISOString())
-      .lte("due_date", cincoDias.toISOString());
+      .is("completed_at", null)
+      .gte("due_date", todayBRT)
+      .lte("due_date", cincoDiasBRT);
     if (advogado !== "todos") {
       prazoFatalQuery = prazoFatalQuery.ilike("assigned_users", `%${advogado}%`);
     }
