@@ -61,10 +61,17 @@ interface Task {
 export default function TarefasAdvbox() {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'produtividade' ? 'produtividade' : 'list';
+  // tasks: lightweight set used by notification hook + calendar (only pending/in_progress)
   const [tasks, setTasks] = useState<Task[]>([]);
+  // pageTasks: server-paginated rows for the list view
+  const [pageTasks, setPageTasks] = useState<Task[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(false);
   const [showDeletionAlerts, setShowDeletionAlerts] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const ITEMS_PER_PAGE = 50;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
