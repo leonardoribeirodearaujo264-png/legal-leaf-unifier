@@ -740,6 +740,8 @@ function MiniCarteira({ label, valor, delta, cor }: { label: string; valor: stri
 function TempoTab({ data }: { data: any }) {
   const stages = data?.stages || {};
   const k = data?.kpis || {};
+  // Rotação: alinhada com ADVBox que exibe "X turns/ano". Mantém meses como secundário.
+  const turnsAno = data?.rotacao_turns_ano ?? (stages.rotacao > 0 ? 12 / stages.rotacao : null);
   return (
     <div className="space-y-4">
       {/* Tempo médio por estágio (em meses) */}
@@ -747,7 +749,11 @@ function TempoTab({ data }: { data: any }) {
         <KpiCard titulo="Prospecção" valor={fmtMeses(stages.prospeccao)} sub="tempo médio" />
         <KpiCard titulo="Produção" valor={fmtMeses(stages.producao)} sub="tempo médio" />
         <KpiCard titulo="Execução" valor={fmtMeses(stages.execucao)} sub="tempo médio" />
-        <KpiCard titulo="Rotação" valor={fmtMeses(stages.rotacao)} sub="tempo médio" />
+        <KpiCard
+          titulo="Rotação"
+          valor={turnsAno != null ? `${turnsAno.toFixed(1)} turns/ano` : "—"}
+          sub={stages.rotacao ? `${fmtMeses(stages.rotacao)} por turn` : "tempo médio"}
+        />
       </div>
 
       {/* KPIs financeiros (média) */}
@@ -874,7 +880,7 @@ function SafraTab({ data }: { data: any }) {
           Top 4 áreas por taxa de vitória
         </h3>
         <p className="text-xs text-muted-foreground mb-3 italic">
-          Critério: arquivado com fees_money &gt; 0 = ganho (ajustar quando ADVBox confirmar campo nativo de outcome).
+          Win-rate baseado em fees_money &gt; 0 (proxy — ADVBox não expõe outcome nativo). Cobertura: ~0,65% dos arquivados têm fee preenchido. Filtro: áreas com ≥ 30 fechados.
         </p>
         {(data?.areas || []).length === 0 ? (
           <Card>
