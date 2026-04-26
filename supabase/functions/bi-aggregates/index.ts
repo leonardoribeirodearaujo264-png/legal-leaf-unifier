@@ -479,18 +479,18 @@ Deno.serve(async (req) => {
       resumo_carteira: {
         fechamentos: { valor: fechamentosMes, delta: deltaPercent(fechamentosMes, fechamentosMesAnt) },
         em_atendimento: {
-          valor: fasesCount.prospeccao,
-          percentual: pct(fasesCount.prospeccao),
-          delta: 0, // não temos histórico de fase
+          valor: qtdAtendimento,
+          percentual: pctCarteira(qtdAtendimento),
+          delta: 0,
         },
         em_producao: {
-          valor: fasesCount.producao,
-          percentual: pct(fasesCount.producao),
+          valor: qtdProducao,
+          percentual: pctCarteira(qtdProducao),
           delta: 0,
         },
         em_execucao: {
-          valor: fasesCount.execucao,
-          percentual: pct(fasesCount.execucao),
+          valor: qtdExecucao,
+          percentual: pctCarteira(qtdExecucao),
           delta: 0,
         },
       },
@@ -498,14 +498,13 @@ Deno.serve(async (req) => {
         .map(([grupo, v]) => ({ grupo, ...v }))
         .sort((a, b) => b.oportunidades + b.fechamentos - (a.oportunidades + a.fechamentos))
         .slice(0, 10),
-      por_periodo: evolucao, // reusa a série de 12 meses
+      por_periodo: evolucao,
       taxa_conversao: oportunidadesMes > 0 ? (fechamentosMes / oportunidadesMes) * 100 : 0,
       areas,
       composicao: [
-        { fase: "Prospecção", qtd: fasesCount.prospeccao, cor: STAGE_COLORS.prospeccao },
-        { fase: "Produção", qtd: fasesCount.producao, cor: STAGE_COLORS.producao },
-        { fase: "Execução", qtd: fasesCount.execucao, cor: STAGE_COLORS.execucao },
-        { fase: "Rotação", qtd: fasesCount.rotacao, cor: STAGE_COLORS.rotacao },
+        { fase: "Em atendimento", qtd: qtdAtendimento, cor: STAGE_COLORS.prospeccao },
+        { fase: "Em produção", qtd: qtdProducao, cor: STAGE_COLORS.producao },
+        { fase: "Em execução", qtd: qtdExecucao, cor: STAGE_COLORS.execucao },
       ],
     };
 
