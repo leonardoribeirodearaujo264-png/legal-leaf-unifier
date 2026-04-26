@@ -834,6 +834,9 @@ function CustosTab({ data }: { data: any }) {
         <KpiCard titulo="Rotação" valor={fmtCurr(k.rotacao)} sub="custo médio" />
         <KpiCard titulo="Custo / ponto" valor={fmtCurr(k.custo_por_ponto)} accent="warning" />
       </div>
+      <p className="text-xs text-muted-foreground italic px-1">
+        Custo médio por fase = rateio proporcional dos lançamentos pagos do mês sobre o total de processos por fase (Pessoal/Folha/Aluguel/Pró-labore excluídos). Diverge do ADVBox porque apenas ~54% das despesas têm <code>lawsuit_id</code> amarrado no sync; o restante (Marketing, Tributos, Tecnologia) entra como overhead rateado proporcionalmente.
+      </p>
 
       {/* Custos por categoria/grupo */}
       <Card>
