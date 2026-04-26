@@ -441,6 +441,189 @@ export type Database = {
           },
         ]
       }
+      advbox_lawsuits: {
+        Row: {
+          advbox_id: number
+          area: string | null
+          court: string | null
+          created_at: string
+          customer_names: string | null
+          customers: Json | null
+          distribution_date: string | null
+          folder: string | null
+          id: string
+          last_synced_at: string
+          lawyer_names: string | null
+          lawyers: Json | null
+          number: string | null
+          raw_data: Json | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          advbox_id: number
+          area?: string | null
+          court?: string | null
+          created_at?: string
+          customer_names?: string | null
+          customers?: Json | null
+          distribution_date?: string | null
+          folder?: string | null
+          id?: string
+          last_synced_at?: string
+          lawyer_names?: string | null
+          lawyers?: Json | null
+          number?: string | null
+          raw_data?: Json | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          advbox_id?: number
+          area?: string | null
+          court?: string | null
+          created_at?: string
+          customer_names?: string | null
+          customers?: Json | null
+          distribution_date?: string | null
+          folder?: string | null
+          id?: string
+          last_synced_at?: string
+          lawyer_names?: string | null
+          lawyers?: Json | null
+          number?: string | null
+          raw_data?: Json | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      advbox_lawsuits_sync_status: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_offset: number | null
+          started_at: string | null
+          status: string
+          sync_type: string
+          total_count: number | null
+          total_synced: number | null
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_offset?: number | null
+          started_at?: string | null
+          status?: string
+          sync_type?: string
+          total_count?: number | null
+          total_synced?: number | null
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_offset?: number | null
+          started_at?: string | null
+          status?: string
+          sync_type?: string
+          total_count?: number | null
+          total_synced?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      advbox_movements: {
+        Row: {
+          advbox_id: number
+          content: string | null
+          created_at: string
+          date: string | null
+          id: string
+          last_synced_at: string
+          lawsuit_id: number | null
+          lawsuit_number: string | null
+          raw_data: Json | null
+          type: string | null
+          updated_at: string
+        }
+        Insert: {
+          advbox_id: number
+          content?: string | null
+          created_at?: string
+          date?: string | null
+          id?: string
+          last_synced_at?: string
+          lawsuit_id?: number | null
+          lawsuit_number?: string | null
+          raw_data?: Json | null
+          type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          advbox_id?: number
+          content?: string | null
+          created_at?: string
+          date?: string | null
+          id?: string
+          last_synced_at?: string
+          lawsuit_id?: number | null
+          lawsuit_number?: string | null
+          raw_data?: Json | null
+          type?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      advbox_movements_sync_status: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_offset: number | null
+          started_at: string | null
+          status: string
+          sync_type: string
+          total_count: number | null
+          total_synced: number | null
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_offset?: number | null
+          started_at?: string | null
+          status?: string
+          sync_type?: string
+          total_count?: number | null
+          total_synced?: number | null
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_offset?: number | null
+          started_at?: string | null
+          status?: string
+          sync_type?: string
+          total_count?: number | null
+          total_synced?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       advbox_report_schedules: {
         Row: {
           created_at: string | null
@@ -10372,6 +10555,8 @@ export type Database = {
         }
         Returns: string
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "user"
