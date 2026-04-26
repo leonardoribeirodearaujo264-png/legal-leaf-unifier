@@ -620,8 +620,16 @@ Deno.serve(async (req) => {
     const nowMs = now.getTime();
     const nowIso = now.toISOString();
 
+    let descartadosCoorteTempo = 0;
     for (const l of lawsuitsFiltradas) {
-      // P1.7 — SEM filtro de coorte. Considera toda a base.
+      // P1.8 — filtro de coorte 24m. Exclui processos cujo último marco
+      // temporal é mais antigo que 730 dias atrás. Sem isso, mediana fica
+      // enviesada por arquivados antigos que ficaram décadas em cada fase.
+      const lm = lastMov(l);
+      if (!lm || lm < limiteTempo) {
+        descartadosCoorteTempo++;
+        continue;
+      }
 
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
