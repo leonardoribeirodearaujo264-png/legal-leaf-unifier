@@ -196,3 +196,9 @@ verify_jwt = true
 [functions.create-commercial-demand]
 verify_jwt = false
 
+[functions.sync-advbox-lawsuits]
+verify_jwt = false
+
+[functions.sync-advbox-movements]
+verify_jwt = false
+
