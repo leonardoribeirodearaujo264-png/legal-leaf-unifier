@@ -964,15 +964,17 @@ Deno.serve(async (req) => {
     // Representam custo "geral" do escritório (folha, aluguel, marketing).
     const totalCustosSemLawsuit = totalCustos - totalCustosComLawsuit;
 
+    // P1.11 — Apenas a parcela FILTRADA (sem Pessoal/Folha/Aluguel) entra no rateio órfão.
+    // Mantém Prospecção != 0 mas evita inflar com overhead estrutural.
+    const totalCustosSemLawsuit_filtrado = totalCustosSemLawsuit * (totalCustos > 0 ? totalCustosFiltrado / totalCustos : 0);
+
     // P1.8 — Rateio dos órfãos proporcionalmente ao volume de processos
-    // de cada fase. Sem isso, Prospecção (que raramente tem custo direto
-    // amarrado) ficaria sempre R$0 e Execução/Rotação inflados.
     const totalAtivos = qtdAtendimento + qtdProducao + qtdExecucao + qtdArquivados;
-    if (totalAtivos > 0 && totalCustosSemLawsuit > 0) {
-      custoPorFase.atendimento += totalCustosSemLawsuit * (qtdAtendimento / totalAtivos);
-      custoPorFase.producao    += totalCustosSemLawsuit * (qtdProducao    / totalAtivos);
-      custoPorFase.execucao    += totalCustosSemLawsuit * (qtdExecucao    / totalAtivos);
-      custoPorFase.arquivado   += totalCustosSemLawsuit * (qtdArquivados  / totalAtivos);
+    if (totalAtivos > 0 && totalCustosSemLawsuit_filtrado > 0) {
+      custoPorFase.atendimento += totalCustosSemLawsuit_filtrado * (qtdAtendimento / totalAtivos);
+      custoPorFase.producao    += totalCustosSemLawsuit_filtrado * (qtdProducao    / totalAtivos);
+      custoPorFase.execucao    += totalCustosSemLawsuit_filtrado * (qtdExecucao    / totalAtivos);
+      custoPorFase.arquivado   += totalCustosSemLawsuit_filtrado * (qtdArquivados  / totalAtivos);
     }
 
     console.log(
