@@ -325,7 +325,8 @@ Deno.serve(async (req) => {
         if ((t.status === "completed" && t.completed_at) || userObj?.completed) {
           cur.concluidas += 1;
         }
-        if (t.status === "pending" && t.due_date && new Date(t.due_date) < now) {
+        // BUG FIX 13a: comparar como string YYYY-MM-DD para evitar contar due_date=hoje como atrasada.
+        if (t.status === "pending" && !t.completed_at && t.due_date && t.due_date < todayBRT) {
           cur.atrasadas += 1;
         }
         if (!cur.primeira || (t.due_date && t.due_date < cur.primeira)) {
