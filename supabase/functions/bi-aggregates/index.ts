@@ -563,13 +563,19 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // P1.6 — usar MEDIANA (não média) e filtrar por COORTE RECENTE
-    // (last_movement >= now() - 365d). Mediana reduz peso de outliers
-    // antigos (processos zumbis com gaps de 80+ meses). Se ainda diver-
-    // gir muito, restringimos a 180d na variável COORTE_DIAS.
+    // P1.7 (correção solicitada pelo cliente):
+    //   - SEM coorte de 365d (estava excluindo arquivados antigos
+    //     justamente os que medem o tempo gasto em cada fase).
+    //   - MEDIANA da DURAÇÃO DENTRO de cada fase, calculada via
+    //     timestamps de transição cru do ADVBox:
+    //       Prospecção = created_at -> process_date
+    //       Produção   = process_date -> exit_production
+    //       Execução   = exit_production -> exit_execution
+    //       Rotação    = exit_execution -> status_closure  (proxy)
+    //   - Para processos ATIVOS sem timestamp de saída ainda,
+    //     usamos (now() - timestamp_entrada_da_fase) como proxy.
+    //   - Mediana já absorve outliers; não filtra por gap máximo.
     // =================================================================
-    const COORTE_DIAS = 365; // janela: 365 -> 180 se precisar afunilar
-    const limiteCoorte = new Date(now.getTime() - COORTE_DIAS * 24 * 60 * 60 * 1000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
@@ -582,11 +588,10 @@ Deno.serve(async (req) => {
       return null;
     };
 
-    // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
-    const MAX_M = 120;
+    // Sem cap de outliers (mediana cuida) — só descarta valores negativos / inválidos.
     const safeMonths = (a: string | null, b: string | null): number | null => {
       const v = monthsBetween(a, b);
-      if (v <= 0 || v > MAX_M) return null;
+      if (v <= 0) return null;
       return v;
     };
 
@@ -598,7 +603,7 @@ Deno.serve(async (req) => {
       return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     };
 
-    // Buckets para mediana por fase + total
+    // Buckets para mediana por fase + total + honorários
     const bucketProsp: number[] = [];
     const bucketProd: number[] = [];
     const bucketExec: number[] = [];
@@ -608,22 +613,39 @@ Deno.serve(async (req) => {
     let tempoPerdido = 0;
     let countTempoPerdido = 0;
     const honorariosPorGrupo = new Map<string, { fees: number[]; tempo: number[] }>();
+    const nowMs = now.getTime();
+    const nowIso = now.toISOString();
 
     for (const l of lawsuitsFiltradas) {
-      // Filtro de coorte recente — descarta processos sem movimentação
-      // dentro da janela COORTE_DIAS (default 365d).
-      const lm = lastMov(l);
-      if (!lm || lm < limiteCoorte) continue;
+      // P1.7 — SEM filtro de coorte. Considera toda a base.
 
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
 
-      const v1 = safeMonths(l.created_at, l.process_date);
+      // Duração DENTRO de cada fase (não idade do processo).
+      // Para fases já encerradas usamos os timestamps de saída.
+      // Para a fase atual de processos ATIVOS, usamos (now() - entrada).
+      const fase = classifyByStep(l.step);
+
+      // Prospecção: created_at -> process_date (ou now() se ainda em atendimento)
+      const v1 = l.process_date
+        ? safeMonths(l.created_at, l.process_date)
+        : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
       if (v1 !== null) bucketProsp.push(v1);
-      const v2 = safeMonths(l.process_date, l.exit_production);
+
+      // Produção: process_date -> exit_production (ou now() se ainda em produção)
+      const v2 = l.exit_production
+        ? safeMonths(l.process_date, l.exit_production)
+        : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
       if (v2 !== null) bucketProd.push(v2);
-      const v3 = safeMonths(l.exit_production, l.exit_execution);
+
+      // Execução: exit_production -> exit_execution (ou now() se ainda em execução)
+      const v3 = l.exit_execution
+        ? safeMonths(l.exit_production, l.exit_execution)
+        : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
       if (v3 !== null) bucketExec.push(v3);
+
+      // Rotação (pós-execução até arquivamento) — apenas para arquivados
       const v4 = safeMonths(l.exit_execution, l.status_closure);
       if (v4 !== null) bucketRot.push(v4);
 
