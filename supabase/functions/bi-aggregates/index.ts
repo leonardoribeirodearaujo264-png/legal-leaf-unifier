@@ -720,15 +720,44 @@ Deno.serve(async (req) => {
     // =================================================================
     // ABA 5 — SAFRA & QUALIDADE
     // CRÍTICO: top 4 áreas por % de GANHO (não volume absoluto)
+    // P1.6 — fees_money cobre só ~3% das lawsuits arquivadas. Usamos `stage`
+    // (texto semântico do ADVBox) como proxy de resultado:
+    //   GANHOS  = stage indica decisão favorável / pagamento / trânsito julgado
+    //   PERDAS  = stage indica perda de contrato / inviabilidade / desinteresse
+    //   NEUTRO  = arquivado mas sem desfecho explícito (não conta em nenhum)
+    // Mantemos fallback por fees_money quando stage estiver vazio.
     // =================================================================
+    const STAGE_GANHO = new Set([
+      "TRÂNSITO EM JULGADO", "TRANSITADO EM JULGADO", "RECURSO JULGADO",
+      "DECISÃO PROFERIDA", "AGUARDANDO PAGAMENTO DO PRECATÓRIO",
+      "AGUARDANDO PAGAMENTO DE CONDENAÇÃO", "PROCESSO SENTENCIADO",
+      "FORMAÇÃO DO PRECATÓRIO/RPV", "LIQUIDAÇÃO DE SENTENÇA",
+    ]);
+    const STAGE_PERDA = new Set([
+      "PERDA DO CONTRATO", "ARQUIVADO / LEAD NÃO FECHOU",
+      "ANALISADO E NÃO DISTRIBUÍDO - INVIÁVEL OU DESINTERESSE DO CLIENTE",
+    ]);
+
+    function classifyOutcome(l: Lawsuit): "ganho" | "perda" | "neutro" {
+      const stg = (l.stage || "").trim().toUpperCase();
+      if (STAGE_GANHO.has(stg)) return "ganho";
+      if (STAGE_PERDA.has(stg)) return "perda";
+      // Fallback por fees_money quando temos valor real registrado
+      if (Number(l.fees_money || 0) > 0) return "ganho";
+      return "neutro";
+    }
+
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
       cur.total++;
-      if (l.status_closure) {
-        if (Number(l.fees_money || 0) > 0) cur.ganhos++;
-        else cur.perdas++;
+      // Só conta resultado em arquivados (step ARQUIVAMENTO ou status_closure)
+      const isArquivado = classifyByStep(l.step) === "arquivado" || !!l.status_closure;
+      if (isArquivado) {
+        const o = classifyOutcome(l);
+        if (o === "ganho") cur.ganhos++;
+        else if (o === "perda") cur.perdas++;
       }
       safraPorArea.set(grp, cur);
     }
@@ -759,8 +788,9 @@ Deno.serve(async (req) => {
           if (stage === "execucao") exec++;
           if (stage === "concluido") {
             conc++;
-            if (Number(l.fees_money || 0) > 0) gan++;
-            else per++;
+            const o = classifyOutcome(l);
+            if (o === "ganho") gan++;
+            else if (o === "perda") per++;
           }
         }
       }
