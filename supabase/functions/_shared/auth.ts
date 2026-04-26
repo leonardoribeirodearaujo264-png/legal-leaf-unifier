@@ -33,12 +33,21 @@ export async function requireUser(
     );
   }
 
+  const token = authHeader.replace("Bearer ", "").trim();
+
+  // BYPASS: chamadas internas (cron / cache refresh) podem usar SERVICE_ROLE_KEY.
+  // Isso permite que advbox-cache-refresh dispare advbox-integration sem JWT user-level.
+  // O token nunca sai do servidor (gravado em Supabase Secrets), então o risco é zero.
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (serviceRoleKey && token === serviceRoleKey) {
+    return { user: { id: "00000000-0000-0000-0000-000000000000", email: "service-role@internal" } };
+  }
+
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 
-  const token = authHeader.replace("Bearer ", "").trim();
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) {
     return new Response(
@@ -64,6 +73,11 @@ export async function requireApprovedUser(
 ): Promise<{ user: { id: string; email?: string } } | Response> {
   const result = await requireUser(req, corsHeaders);
   if (result instanceof Response) return result;
+
+  // Bypass para chamadas internas com service-role
+  if (result.user.id === "00000000-0000-0000-0000-000000000000") {
+    return { user: result.user };
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

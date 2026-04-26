@@ -599,6 +599,8 @@ Deno.serve(async (req) => {
           });
           
           // Salvar no banco para cache persistente (non-blocking)
+          // P1.6/A: persistir stage, stages_id, step, steps_id, notes (campos brutos
+          // exigidos pelo bi-aggregates para espelhar /managementV2 do ADVBox)
           saveDashboardCacheToDb({
             total_lawsuits: result.totalCount,
             lawsuits_data: result.items.map((l: any) => ({
@@ -609,6 +611,12 @@ Deno.serve(async (req) => {
               status_closure: l.status_closure, exit_production: l.exit_production,
               exit_execution: l.exit_execution, responsible_id: l.responsible_id,
               responsible: l.responsible, customers: l.customers,
+              // === campos brutos para classificação ADVBox ===
+              stage: l.stage ?? null,
+              stages_id: l.stages_id ?? null,
+              step: l.step ?? null,
+              steps_id: l.steps_id ?? null,
+              notes: l.notes ?? null,
             })),
             metadata: { fromCache: false, rateLimited: false, cacheAge: 0 },
           }).catch(() => {});
