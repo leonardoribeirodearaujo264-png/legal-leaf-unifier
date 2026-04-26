@@ -8,38 +8,42 @@ Deno.serve(async (req) => {
   const action = url.searchParams.get('action') || 'sample';
 
   if (action === 'stages') {
-    // Pegar todas as 12000 lawsuits e contar por stage
+    const start = parseInt(url.searchParams.get('start') || '0', 10);
+    const end = parseInt(url.searchParams.get('end') || '12000', 10);
     const stageCounts: Record<string, number> = {};
     const stepCounts: Record<string, number> = {};
     let total = 0;
-    let totalReported = 0;
 
-    for (let offset = 0; offset < 12000; offset += 100) {
-      const r = await fetch(`https://app.advbox.com.br/api/v1/lawsuits?limit=100&offset=${offset}`, {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      });
-      const body = await r.json();
-      const items = body?.data || [];
-      if (offset === 0) totalReported = body?.meta?.total ?? body?.total ?? 0;
-      if (items.length === 0) break;
-
-      for (const it of items) {
-        const s = it.stage ?? '__NULL__';
-        stageCounts[s] = (stageCounts[s] || 0) + 1;
-        const st = it.step ?? '__NULL__';
-        stepCounts[st] = (stepCounts[st] || 0) + 1;
-        total++;
+    // batches of 5 paralelo
+    for (let base = start; base < end; base += 500) {
+      const promises: Promise<any[]>[] = [];
+      for (let off = base; off < base + 500 && off < end; off += 100) {
+        promises.push(
+          fetch(`https://app.advbox.com.br/api/v1/lawsuits?limit=100&offset=${off}`, {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          }).then((r) => r.json()).then((b) => b?.data || [])
+        );
       }
-
-      await new Promise((r) => setTimeout(r, 200));
+      const results = await Promise.all(promises);
+      let batchEmpty = true;
+      for (const items of results) {
+        if (items.length > 0) batchEmpty = false;
+        for (const it of items) {
+          const s = it.stage ?? '__NULL__';
+          stageCounts[s] = (stageCounts[s] || 0) + 1;
+          const st = it.step ?? '__NULL__';
+          stepCounts[st] = (stepCounts[st] || 0) + 1;
+          total++;
+        }
+      }
+      if (batchEmpty) break;
     }
 
-    return new Response(JSON.stringify({ total, totalReported, stageCounts, stepCounts }, null, 2), {
+    return new Response(JSON.stringify({ total, stageCounts, stepCounts }, null, 2), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 
-  // Default: sample one
   const endpoint = url.searchParams.get('endpoint') || '/lawsuits?limit=2&offset=0';
   const r = await fetch(`https://app.advbox.com.br/api/v1${endpoint}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -50,12 +54,7 @@ Deno.serve(async (req) => {
   const items = body?.data || body || [];
   const first = Array.isArray(items) ? items[0] : items;
   const keys = first && typeof first === 'object' ? Object.keys(first) : [];
-  return new Response(JSON.stringify({
-    status: r.status,
-    keys,
-    first_item: first,
-    total: body?.meta?.total ?? body?.total ?? items?.length,
-  }, null, 2), {
+  return new Response(JSON.stringify({ status: r.status, keys, first_item: first, total: items?.length }, null, 2), {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 });
