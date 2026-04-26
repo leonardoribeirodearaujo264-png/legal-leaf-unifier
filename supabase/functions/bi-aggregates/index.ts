@@ -641,9 +641,8 @@ Deno.serve(async (req) => {
 
     let descartadosCoorteTempo = 0;
     for (const l of lawsuitsFiltradas) {
-      // P1.8 — filtro de coorte 24m. Exclui processos cujo último marco
-      // temporal é mais antigo que 730 dias atrás. Sem isso, mediana fica
-      // enviesada por arquivados antigos que ficaram décadas em cada fase.
+      // P1.10 — coorte global ampla (24m) pra KPIs auxiliares (honorário, tempo total).
+      // Buckets POR FASE usam coorte dedicada abaixo.
       const lm = lastMov(l);
       if (!lm || lm < limiteTempo) {
         descartadosCoorteTempo++;
@@ -653,41 +652,42 @@ Deno.serve(async (req) => {
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
 
-      // Duração DENTRO de cada fase (não idade do processo).
-      // Para fases já encerradas usamos os timestamps de saída.
-      // Para a fase atual de processos ATIVOS, usamos (now() - entrada).
       const fase = classifyByStep(l.step);
 
-      // Prospecção: created_at -> process_date (ou now() se ainda em atendimento)
-      const v1 = l.process_date
-        ? safeMonths(l.created_at, l.process_date)
-        : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
-      if (v1 !== null) bucketProsp.push(v1);
+      // P1.10 — Cada bucket de fase aplica seu PRÓPRIO filtro de coorte.
+      // Prospecção: created_at -> process_date (ou now se ainda em atendimento)
+      if (lm >= limiteByPhase.prospeccao) {
+        const v1 = l.process_date
+          ? safeMonths(l.created_at, l.process_date)
+          : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
+        if (v1 !== null) bucketProsp.push(v1);
+      }
 
-      // Produção: process_date -> exit_production (ou now() se ainda em produção)
-      const v2 = l.exit_production
-        ? safeMonths(l.process_date, l.exit_production)
-        : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
-      if (v2 !== null) bucketProd.push(v2);
+      // Produção: process_date -> exit_production
+      if (lm >= limiteByPhase.producao) {
+        const v2 = l.exit_production
+          ? safeMonths(l.process_date, l.exit_production)
+          : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
+        if (v2 !== null) bucketProd.push(v2);
+      }
 
-      // Execução: exit_production -> exit_execution (ou now() se ainda em execução)
-      const v3 = l.exit_execution
-        ? safeMonths(l.exit_production, l.exit_execution)
-        : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
-      if (v3 !== null) bucketExec.push(v3);
+      // Execução: exit_production -> exit_execution
+      if (lm >= limiteByPhase.execucao) {
+        const v3 = l.exit_execution
+          ? safeMonths(l.exit_production, l.exit_execution)
+          : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
+        if (v3 !== null) bucketExec.push(v3);
+      }
 
       // Rotação (pós-execução até arquivamento) — apenas para arquivados
-      const v4 = safeMonths(l.exit_execution, l.status_closure);
-      if (v4 !== null) bucketRot.push(v4);
+      if (lm >= limiteByPhase.rotacao) {
+        const v4 = safeMonths(l.exit_execution, l.status_closure);
+        if (v4 !== null) bucketRot.push(v4);
+      }
 
       const vTot = safeMonths(l.created_at, l.status_closure);
       if (vTot !== null) {
         bucketTotal.push(vTot);
-        const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
-        if (vTot > efetivo) {
-          tempoPerdido += (vTot - efetivo);
-          countTempoPerdido++;
-        }
       }
 
       const grp = l.group || "Outros";
@@ -709,11 +709,11 @@ Deno.serve(async (req) => {
       execucao: Math.round(median(bucketExec)),
       rotacao: Math.round(median(bucketRot)),
     };
-    // P1.8 — "Rotação" no ADVBox = ciclo completo em MESES (alvo ~12m).
-    // Calculamos como soma das fases ativas (prosp + prod + exec) que representa
-    // o ciclo de vida típico de um processo até o arquivamento.
+    // P1.10 — Rotação ciclo completo (soma das fases ativas)
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
-    // Display alternativo: turns/ano (12 / mediana_rot). Útil quando ADVBox usa essa unidade.
+    // Turns/ano: 12 / mediana_rotacao_meses. Se mediana grande (730d=24m -> 0.5),
+    // ADVBox provavelmente conta turns DIFERENTE (ciclos completos do processo).
+    // Mantemos a fórmula atual mas logamos pra debug.
     const rotacaoTurnsAno = stages.rotacao > 0 ? 12 / stages.rotacao : 0;
 
     console.log(
