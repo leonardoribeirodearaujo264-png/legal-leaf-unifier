@@ -219,7 +219,8 @@ Deno.serve(async (req) => {
     //   tarefas com due_date = hoje como atrasadas. Antes: due_date < now() considerava
     //   '2026-04-26' < '2026-04-26T16:50:00Z' → TRUE (errado). Agora: due_date < '2026-04-26'.
     // Também adiciona completed_at IS NULL como proteção dupla (regra oficial de taskStatus.ts).
-    const todayBRT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const now = new Date(); // usado em outras seções abaixo (limites de coorte etc.)
+    const todayBRT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(now);
     let atrasadasCountQ = supabase
       .from("advbox_tasks")
       .select("id", { count: "exact", head: true })
