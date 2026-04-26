@@ -85,20 +85,21 @@ Deno.serve(async (req) => {
 
     console.log(`Starting ${syncType} sync of ADVBox movements...`);
 
-    // Resume from last incomplete sync if exists
+    // Resume from last incomplete sync if exists.
+    // CRITICAL: aplicamos resume tanto para 'full' quanto 'incremental', senão o cron
+    // (que dispara incremental) reinicia sempre do offset 0 e trava em ~3.300 por timeout.
     let resumeOffset = 0;
-    if (syncType === 'full') {
+    {
       const { data: lastIncomplete } = await supabase
         .from('advbox_movements_sync_status')
-        .select('id, last_offset')
-        .eq('sync_type', 'full')
+        .select('id, last_offset, total_count')
         .in('status', ['running', 'partial'])
         .order('started_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (lastIncomplete?.last_offset) {
+      if (lastIncomplete?.last_offset && lastIncomplete.last_offset < (lastIncomplete.total_count ?? Infinity)) {
         resumeOffset = lastIncomplete.last_offset;
-        console.log(`Resuming full sync from offset=${resumeOffset}`);
+        console.log(`Resuming ${syncType} sync from offset=${resumeOffset}`);
       }
     }
 
