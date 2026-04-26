@@ -690,13 +690,17 @@ Deno.serve(async (req) => {
       execucao: Math.round(median(bucketExec)),
       rotacao: Math.round(median(bucketRot)),
     };
-    // Rotação completa = soma das fases (espelha ADVBox)
+    // P1.8 — "Rotação" no ADVBox = ciclo completo em MESES (alvo ~12m).
+    // Calculamos como soma das fases ativas (prosp + prod + exec) que representa
+    // o ciclo de vida típico de um processo até o arquivamento.
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
+    // Display alternativo: turns/ano (12 / mediana_rot). Útil quando ADVBox usa essa unidade.
+    const rotacaoTurnsAno = stages.rotacao > 0 ? 12 / stages.rotacao : 0;
 
     console.log(
-      `[BI Tempo] sem_coorte total=${bucketTotal.length} ` +
+      `[BI Tempo] coorte=${COORTE_TEMPO_DIAS}d total=${bucketTotal.length} descartados_coorte=${descartadosCoorteTempo} ` +
       `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)} ` +
+      `stages=${JSON.stringify(stages)} rotacao_completa=${rotacaoCompleta}m turns_ano=${rotacaoTurnsAno.toFixed(1)} ` +
       `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
     );
 
@@ -708,6 +712,7 @@ Deno.serve(async (req) => {
         tempo_medio_meses: tempoMedio,
         tempo_perdido_meses: Math.round(tempoPerdido),
         rotacao_completa: rotacaoCompleta,
+        rotacao_turns_ano: rotacaoTurnsAno, // P1.8 — para frontend exibir alinhado ADVBox
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
         .map(([grupo, v]) => {
