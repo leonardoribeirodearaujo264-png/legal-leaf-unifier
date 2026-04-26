@@ -527,6 +527,10 @@ Deno.serve(async (req) => {
       return v;
     };
 
+    // CORREÇÃO P1.6: usar AVG e arredondar para meses inteiros (ADVBox).
+    // Considerar apenas lawsuits CONCLUÍDOS (status_closure preenchido) para ter coortes comparáveis.
+    // "Tempo perdido" = soma das esperas mortas entre fases (gaps).
+    let tempoPerdido = 0;
     for (const l of lawsuitsFiltradas) {
       const fee = Number(l.fees_money || 0);
       if (fee > 0) {
@@ -544,7 +548,13 @@ Deno.serve(async (req) => {
       if (v4 !== null) { tRot += v4; cRot++; }
 
       const vTot = safeMonths(l.created_at, l.status_closure);
-      if (vTot !== null) { somaTempoTotal += vTot; countTempoTotal++; }
+      if (vTot !== null) {
+        somaTempoTotal += vTot;
+        countTempoTotal++;
+        // Tempo perdido = total - soma das fases efetivas
+        const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
+        if (vTot > efetivo) tempoPerdido += (vTot - efetivo);
+      }
 
       const grp = l.group || "Outros";
       const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
@@ -555,15 +565,18 @@ Deno.serve(async (req) => {
 
     const honorarioMedio = countFees > 0 ? totalFees / countFees : 0;
     const tempoMedio = countTempoTotal > 0 ? somaTempoTotal / countTempoTotal : 0;
+    // Honorário mensal = honorário médio / tempo médio (em meses)
     const honorarioMes = tempoMedio > 0 ? honorarioMedio / tempoMedio : 0;
 
-    // Médias REAIS por estágio
+    // Médias REAIS por estágio — em meses inteiros (espelha ADVBox)
     const stages = {
-      prospeccao: cProsp > 0 ? tProsp / cProsp : 0,
-      producao: cProd > 0 ? tProd / cProd : 0,
-      execucao: cExec > 0 ? tExec / cExec : 0,
-      rotacao: cRot > 0 ? tRot / cRot : 0,
+      prospeccao: cProsp > 0 ? Math.round(tProsp / cProsp) : 0,
+      producao: cProd > 0 ? Math.round(tProd / cProd) : 0,
+      execucao: cExec > 0 ? Math.round(tExec / cExec) : 0,
+      rotacao: cRot > 0 ? Math.round(tRot / cRot) : 0,
     };
+    // Rotação completa = soma das fases (espelha ADVBox)
+    const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
 
     const tempo = {
       stages,
@@ -571,6 +584,8 @@ Deno.serve(async (req) => {
         honorario_medio: honorarioMedio,
         honorario_mes: honorarioMes,
         tempo_medio_meses: tempoMedio,
+        tempo_perdido_meses: Math.round(tempoPerdido),
+        rotacao_completa: rotacaoCompleta,
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
         .map(([grupo, v]) => ({
