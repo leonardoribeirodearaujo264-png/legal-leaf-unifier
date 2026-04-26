@@ -972,11 +972,13 @@ Deno.serve(async (req) => {
     );
 
     // ====================================================================
-    // P1.9 — DEBUG VARIANTES DE DENOMINADOR (Aba 4 Custos)
+    // P1.10 — DEBUG VARIANTES DE DENOMINADOR (Aba 4 Custos) — 6a rodada
     // A) Atual: total cumulativo de processos por fase
-    // B) Processos COM pelo menos 1 lancamento financeiro naquela fase
-    // C) Processos ATIVOS naquela fase agora (current_phase = X)
-    //    -> "ativos" = nao arquivados; arquivado nao tem variante C, usa qtd_arquivados
+    // B) Processos COM lancamento financeiro AMARRADO naquela fase (set já populado)
+    // C) Mesmo que A (ativos AGORA): redundante, mantido pra continuidade
+    // D) ATIVOS NA FASE NO MOMENTO (não arquivados; rot = arquivados ativos do mes)
+    // E) Processos com QUALQUER lawsuit_id em advbox_financial_sync no mes,
+    //    independente de valor>0 (set "lawsuitsAnyInSync" abaixo)
     // ====================================================================
     const denomA = { prosp: qtdAtendimento, prod: qtdProducao, exec: qtdExecucao, rot: qtdArquivados };
     const denomB = {
@@ -985,18 +987,96 @@ Deno.serve(async (req) => {
       exec: lawsuitsComCustoPorFase.execucao.size,
       rot: lawsuitsComCustoPorFase.arquivado.size,
     };
-    // C: ativos AGORA por fase (mesmo numero pra prosp/prod/exec; rot continua arquivados)
     const denomC = denomA;
+
+    // P1.10 D: ativos NA FASE no momento (mesmo que A pra prosp/prod/exec
+    // pois qtdAtendimento/qtdProducao/qtdExecucao já são "ativos por fase").
+    // Pra Rotação testamos qtdArquivados que tiveram movimento NO MES.
+    let arquivadosAtivosNoMes = 0;
+    for (const l of lawsuits) {
+      if (classifyByStep(l.step) !== "arquivado") continue;
+      const lm = lastMov(l);
+      if (lm && lm >= inicio && lm <= fim) arquivadosAtivosNoMes++;
+    }
+    const denomD = {
+      prosp: qtdAtendimento,
+      prod: qtdProducao,
+      exec: qtdExecucao,
+      rot: arquivadosAtivosNoMes, // só os que receberam movimento no mes
+    };
+
+    // P1.10 E: processos com QUALQUER aparição em advbox_financial_sync,
+    // sem filtro de valor>0. Já temos lawsuitsComCustoPorFase que captura
+    // ID via JOIN — a diferença é que no log atual ele só conta quando o
+    // amount foi acumulado. Aqui re-contamos por presença pura.
+    const lawsuitsAnyInSyncPorFase = {
+      prosp: new Set<number>(),
+      prod: new Set<number>(),
+      exec: new Set<number>(),
+      rot: new Set<number>(),
+    };
+    if (despesasIds.length > 0) {
+      const CHUNK = 500;
+      for (let i = 0; i < despesasIds.length; i += CHUNK) {
+        const slice = despesasIds.slice(i, i + CHUNK);
+        const { data: syncs2 } = await supabase
+          .from("advbox_financial_sync")
+          .select("advbox_data")
+          .in("lancamento_id", slice);
+        for (const s of syncs2 || []) {
+          const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
+          if (!lawsuitId) continue;
+          const fase = lawsuitFase.get(lawsuitId);
+          if (fase === "atendimento") lawsuitsAnyInSyncPorFase.prosp.add(lawsuitId);
+          else if (fase === "producao") lawsuitsAnyInSyncPorFase.prod.add(lawsuitId);
+          else if (fase === "execucao") lawsuitsAnyInSyncPorFase.exec.add(lawsuitId);
+          else if (fase === "arquivado") lawsuitsAnyInSyncPorFase.rot.add(lawsuitId);
+        }
+      }
+    }
+    const denomE = {
+      prosp: lawsuitsAnyInSyncPorFase.prosp.size,
+      prod: lawsuitsAnyInSyncPorFase.prod.size,
+      exec: lawsuitsAnyInSyncPorFase.exec.size,
+      rot: lawsuitsAnyInSyncPorFase.rot.size,
+    };
+
+    // P1.10 — Métrica adicional: custo por DIA-ATIVO-NA-FASE
+    // (hipótese: ADVBox normaliza por tempo permanecido, não por contagem)
+    // Aproximação: dias_ativos = qtd_processos * mediana_dias_da_fase
+    const diasMedianaPorFase = {
+      prosp: stages.prospeccao * 30,
+      prod:  stages.producao   * 30,
+      exec:  stages.execucao   * 30,
+      rot:   stages.rotacao    * 30,
+    };
+    const diasAtivosPorFase = {
+      prosp: qtdAtendimento * Math.max(diasMedianaPorFase.prosp, 1),
+      prod:  qtdProducao    * Math.max(diasMedianaPorFase.prod, 1),
+      exec:  qtdExecucao    * Math.max(diasMedianaPorFase.exec, 1),
+      rot:   qtdArquivados  * Math.max(diasMedianaPorFase.rot, 1),
+    };
     const div = (n: number, d: number) => d > 0 ? (n / d).toFixed(2) : "0.00";
+
     console.log(
       `[BI Custos VARIANTES] qtd_A=${JSON.stringify(denomA)} ` +
-      `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} | ` +
+      `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} ` +
+      `qtd_D=${JSON.stringify(denomD)} qtd_E=${JSON.stringify(denomE)} | ` +
       `custo_medio_A prosp=${div(custoPorFase.atendimento, denomA.prosp)} prod=${div(custoPorFase.producao, denomA.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomA.exec)} rot=${div(custoPorFase.arquivado, denomA.rot)} | ` +
       `custo_medio_B prosp=${div(custoPorFase.atendimento, denomB.prosp)} prod=${div(custoPorFase.producao, denomB.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomB.exec)} rot=${div(custoPorFase.arquivado, denomB.rot)} | ` +
-      `custo_medio_C prosp=${div(custoPorFase.atendimento, denomC.prosp)} prod=${div(custoPorFase.producao, denomC.prod)} ` +
-      `exec=${div(custoPorFase.execucao, denomC.exec)} rot=${div(custoPorFase.arquivado, denomC.rot)}`
+      `custo_medio_D prosp=${div(custoPorFase.atendimento, denomD.prosp)} prod=${div(custoPorFase.producao, denomD.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomD.exec)} rot=${div(custoPorFase.arquivado, denomD.rot)} | ` +
+      `custo_medio_E prosp=${div(custoPorFase.atendimento, denomE.prosp)} prod=${div(custoPorFase.producao, denomE.prod)} ` +
+      `exec=${div(custoPorFase.execucao, denomE.exec)} rot=${div(custoPorFase.arquivado, denomE.rot)}`
+    );
+    console.log(
+      `[BI Custos POR-DIA-ATIVO] dias_ativos=${JSON.stringify(diasAtivosPorFase)} ` +
+      `custo_por_dia prosp=${div(custoPorFase.atendimento, diasAtivosPorFase.prosp)} ` +
+      `prod=${div(custoPorFase.producao, diasAtivosPorFase.prod)} ` +
+      `exec=${div(custoPorFase.execucao, diasAtivosPorFase.exec)} ` +
+      `rot=${div(custoPorFase.arquivado, diasAtivosPorFase.rot)}`
     );
 
     // Total de pontos do mês para custo/ponto
