@@ -1257,7 +1257,7 @@ export default function TarefasAdvbox() {
           {/* Aba Calendário */}
           <TabsContent value="calendar">
             <TaskCalendarView 
-              tasks={filteredTasks} 
+              tasks={visibleTasks} 
               onTaskClick={openTaskDetails}
             />
           </TabsContent>
