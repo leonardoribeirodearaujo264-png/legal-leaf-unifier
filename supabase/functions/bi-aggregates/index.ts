@@ -386,13 +386,16 @@ Deno.serve(async (req) => {
     // ABA 2 — ESTOQUE & PROSPECÇÃO
     // KPIs ADVBox: oportunidades do mês, processos ativos, arquivados, +120d parados
     // =================================================================
-    // CORREÇÃO P1.6:
-    //  - "Em atendimento" = ativos SEM process_date (prospecção pura)
-    //  - "Em produção"    = ativos COM process_date e SEM exit_production
-    //  - "Em execução"    = ativos COM exit_production e SEM exit_execution
-    //  - "Arquivado"      = status_closure preenchido (fechado/concluído)
-    //  - %carteira tem como denominador SOMA das 3 fases ativas (= 100%)
-    //  - +120d = ativos cujo último marco temporal é > 120 dias atrás
+    // CORREÇÃO P1.6 — classificação por STEP cru do ADVBox.
+    // O ADVBox /managementV2 usa o campo `step` para classificar a carteira:
+    //   - "ARQUIVAMENTO"     -> Arquivados        (alvo: 9.514)
+    //   - "NEGOCIAÇÃO"       -> Em atendimento    (alvo: 630)
+    //   - "JUDICIAL" + "RECURSAL" -> Em produção  (alvo: 1.184; UI ADVBox: 1.257)
+    //   - "EXECUÇÃO/COBRANÇA" -> Em execução      (alvo: 588)
+    //   - Steps administrativos (CONSULTORIA, ADMINISTRATIVO, RH/FINANCEIRO, MARKETING)
+    //     são EXCLUÍDOS de ATIVOS por padrão (filtro defensivo). Lo­gados separadamente.
+    // %carteira tem como denominador SOMA das 3 fases ativas (= 100%)
+    // +120d = ativos cujo último marco temporal é > 120 dias atrás
 
     const mesAntInicio = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth() - 1, 1));
     const mesAntFim = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), 0, 23, 59, 59));
@@ -403,10 +406,12 @@ Deno.serve(async (req) => {
     let fechamentosMesAnt = 0;
 
     // Contagens de carteira (espelham ADVBox /managementV2)
-    let qtdAtendimento = 0; // prospecção pura
+    let qtdAtendimento = 0;
     let qtdProducao = 0;
     let qtdExecucao = 0;
     let qtdArquivados = 0;
+    let qtdOutros = 0; // steps satélites — registrados mas fora dos ATIVOS
+    let qtdSemStep = 0; // sem step (cache antigo / inconsistência)
     let qtdParados120 = 0;
 
     const areaCount = new Map<string, number>();
@@ -439,25 +444,39 @@ Deno.serve(async (req) => {
         if (dentroDoMes(l.status_closure, mesAntInicio, mesAntFim)) {
           fechamentosMesAnt++;
         }
+      }
+
+      // Classificação canônica por STEP cru
+      const fase = classifyByStep(l.step);
+
+      if (fase === "arquivado") {
         qtdArquivados++;
-        continue; // arquivado não entra em ativos
+        continue; // arquivado não entra em ativos nem em +120d
       }
 
-      // ATIVO — classifica em uma das 3 fases (sem sobreposição)
-      if (l.exit_production && !l.exit_execution) {
-        qtdExecucao++;
-      } else if (l.process_date) {
-        qtdProducao++;
-      } else {
-        qtdAtendimento++;
+      if (fase === "atendimento") qtdAtendimento++;
+      else if (fase === "producao") qtdProducao++;
+      else if (fase === "execucao") qtdExecucao++;
+      else {
+        // outro: ADMINISTRATIVO/CONSULTORIA/RH/MARKETING ou step nulo
+        if (!l.step) qtdSemStep++;
+        else qtdOutros++;
+        continue; // não conta como ativo
       }
 
-      // +120 dias parados (último marco temporal)
+      // +120 dias parados (último marco temporal) — apenas para ATIVOS reais
       const ultimaMov = l.exit_execution || l.exit_production || l.process_date || l.created_at;
       if (ultimaMov && new Date(ultimaMov) < limite120) {
         qtdParados120++;
       }
     }
+
+    // Log de calibração — útil para conferir com a UI ADVBox
+    console.log(
+      `[BI Estoque] atendimento=${qtdAtendimento} producao=${qtdProducao} execucao=${qtdExecucao} ` +
+      `arquivados=${qtdArquivados} outros=${qtdOutros} sem_step=${qtdSemStep} ` +
+      `total_classificado=${qtdAtendimento + qtdProducao + qtdExecucao + qtdArquivados + qtdOutros + qtdSemStep}`
+    );
 
     const processosAtivos = qtdAtendimento + qtdProducao + qtdExecucao;
     const processosArquivados = qtdArquivados;
