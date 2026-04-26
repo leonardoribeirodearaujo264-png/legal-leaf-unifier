@@ -563,16 +563,26 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // CRÍTICO: usar AVG (não SUM) e meses (não dias)
+    // P1.6 — usar MEDIANA (não média) e filtrar por COORTE RECENTE
+    // (last_movement >= now() - 365d). Mediana reduz peso de outliers
+    // antigos (processos zumbis com gaps de 80+ meses). Se ainda diver-
+    // gir muito, restringimos a 180d na variável COORTE_DIAS.
     // =================================================================
-    let tProsp = 0, tProd = 0, tExec = 0, tRot = 0;
-    let cProsp = 0, cProd = 0, cExec = 0, cRot = 0;
-    let totalFees = 0, countFees = 0;
-    let somaTempoTotal = 0, countTempoTotal = 0;
-    const honorariosPorGrupo = new Map<string, { total: number; count: number; tempoTotal: number; tempoCount: number }>();
+    const COORTE_DIAS = 365; // janela: 365 -> 180 se precisar afunilar
+    const limiteCoorte = new Date(now.getTime() - COORTE_DIAS * 24 * 60 * 60 * 1000);
+
+    // último marco temporal do processo (proxy de last_movement)
+    const lastMov = (l: Lawsuit): Date | null => {
+      const candidatos = [l.status_closure, l.exit_execution, l.exit_production, l.process_date, l.created_at]
+        .filter(Boolean) as string[];
+      for (const c of candidatos) {
+        const d = new Date(c);
+        if (!isNaN(d.getTime())) return d;
+      }
+      return null;
+    };
 
     // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
-    // Lawsuits com process_date legado/zerado geram valores absurdos (ex: 81 meses em produção).
     const MAX_M = 120;
     const safeMonths = (a: string | null, b: string | null): number | null => {
       const v = monthsBetween(a, b);
@@ -580,56 +590,80 @@ Deno.serve(async (req) => {
       return v;
     };
 
-    // CORREÇÃO P1.6: usar AVG e arredondar para meses inteiros (ADVBox).
-    // Considerar apenas lawsuits CONCLUÍDOS (status_closure preenchido) para ter coortes comparáveis.
-    // "Tempo perdido" = soma das esperas mortas entre fases (gaps).
+    // Mediana auxiliar
+    const median = (arr: number[]): number => {
+      if (arr.length === 0) return 0;
+      const sorted = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+    };
+
+    // Buckets para mediana por fase + total
+    const bucketProsp: number[] = [];
+    const bucketProd: number[] = [];
+    const bucketExec: number[] = [];
+    const bucketRot: number[] = [];
+    const bucketTotal: number[] = [];
+    const bucketFees: number[] = [];
     let tempoPerdido = 0;
+    let countTempoPerdido = 0;
+    const honorariosPorGrupo = new Map<string, { fees: number[]; tempo: number[] }>();
+
     for (const l of lawsuitsFiltradas) {
+      // Filtro de coorte recente — descarta processos sem movimentação
+      // dentro da janela COORTE_DIAS (default 365d).
+      const lm = lastMov(l);
+      if (!lm || lm < limiteCoorte) continue;
+
       const fee = Number(l.fees_money || 0);
-      if (fee > 0) {
-        totalFees += fee;
-        countFees++;
-      }
+      if (fee > 0) bucketFees.push(fee);
 
       const v1 = safeMonths(l.created_at, l.process_date);
-      if (v1 !== null) { tProsp += v1; cProsp++; }
+      if (v1 !== null) bucketProsp.push(v1);
       const v2 = safeMonths(l.process_date, l.exit_production);
-      if (v2 !== null) { tProd += v2; cProd++; }
+      if (v2 !== null) bucketProd.push(v2);
       const v3 = safeMonths(l.exit_production, l.exit_execution);
-      if (v3 !== null) { tExec += v3; cExec++; }
+      if (v3 !== null) bucketExec.push(v3);
       const v4 = safeMonths(l.exit_execution, l.status_closure);
-      if (v4 !== null) { tRot += v4; cRot++; }
+      if (v4 !== null) bucketRot.push(v4);
 
       const vTot = safeMonths(l.created_at, l.status_closure);
       if (vTot !== null) {
-        somaTempoTotal += vTot;
-        countTempoTotal++;
-        // Tempo perdido = total - soma das fases efetivas
+        bucketTotal.push(vTot);
         const efetivo = (v1 || 0) + (v2 || 0) + (v3 || 0) + (v4 || 0);
-        if (vTot > efetivo) tempoPerdido += (vTot - efetivo);
+        if (vTot > efetivo) {
+          tempoPerdido += (vTot - efetivo);
+          countTempoPerdido++;
+        }
       }
 
       const grp = l.group || "Outros";
-      const cur = honorariosPorGrupo.get(grp) || { total: 0, count: 0, tempoTotal: 0, tempoCount: 0 };
-      if (fee > 0) { cur.total += fee; cur.count++; }
-      if (vTot !== null) { cur.tempoTotal += vTot; cur.tempoCount++; }
+      const cur = honorariosPorGrupo.get(grp) || { fees: [], tempo: [] };
+      if (fee > 0) cur.fees.push(fee);
+      if (vTot !== null) cur.tempo.push(vTot);
       honorariosPorGrupo.set(grp, cur);
     }
 
-    const honorarioMedio = countFees > 0 ? totalFees / countFees : 0;
-    const tempoMedio = countTempoTotal > 0 ? somaTempoTotal / countTempoTotal : 0;
-    // Honorário mensal = honorário médio / tempo médio (em meses)
+    // Honorário e tempo via MEDIANA da coorte recente
+    const honorarioMedio = median(bucketFees);
+    const tempoMedio = median(bucketTotal);
     const honorarioMes = tempoMedio > 0 ? honorarioMedio / tempoMedio : 0;
 
-    // Médias REAIS por estágio — em meses inteiros (espelha ADVBox)
+    // Medianas por estágio — meses inteiros (espelha ADVBox)
     const stages = {
-      prospeccao: cProsp > 0 ? Math.round(tProsp / cProsp) : 0,
-      producao: cProd > 0 ? Math.round(tProd / cProd) : 0,
-      execucao: cExec > 0 ? Math.round(tExec / cExec) : 0,
-      rotacao: cRot > 0 ? Math.round(tRot / cRot) : 0,
+      prospeccao: Math.round(median(bucketProsp)),
+      producao: Math.round(median(bucketProd)),
+      execucao: Math.round(median(bucketExec)),
+      rotacao: Math.round(median(bucketRot)),
     };
     // Rotação completa = soma das fases (espelha ADVBox)
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
+
+    console.log(
+      `[BI Tempo] coorte=${COORTE_DIAS}d total=${bucketTotal.length} ` +
+      `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
+      `stages=${JSON.stringify(stages)}`
+    );
 
     const tempo = {
       stages,
@@ -641,20 +675,29 @@ Deno.serve(async (req) => {
         rotacao_completa: rotacaoCompleta,
       },
       por_grupo: Array.from(honorariosPorGrupo.entries())
-        .map(([grupo, v]) => ({
-          grupo,
-          media_meses: v.tempoCount > 0 ? v.tempoTotal / v.tempoCount : 0,
-          media_honorario: v.count > 0 ? v.total / v.count : 0,
-          mensal: v.tempoCount > 0 && v.count > 0 ? (v.total / v.count) / (v.tempoTotal / v.tempoCount) : 0,
-          count: v.count,
-        }))
+        .map(([grupo, v]) => {
+          // Mediana por grupo (mantém consistência com KPIs principais)
+          const medTempo = median(v.tempo);
+          const medFee = median(v.fees);
+          return {
+            grupo,
+            media_meses: medTempo,
+            media_honorario: medFee,
+            mensal: medTempo > 0 ? medFee / medTempo : 0,
+            count: v.fees.length,
+          };
+        })
         .filter((g) => g.count >= 5)
         .sort((a, b) => b.count - a.count)
         .slice(0, 15),
     };
 
     // =================================================================
-    // ABA 4 — CUSTOS (custo total do mês × proporção tempo médio × volume)
+    // ABA 4 — CUSTOS
+    // P1.6 — denominador correto:
+    //   custo_por_processo_da_area = SUM(custos da area) / COUNT(processos da area)
+    //   custo_por_estagio          = SUM(custos do estagio) / COUNT(processos do estagio)
+    // (NÃO dividir tudo pelo total geral — isso achatava as áreas pequenas)
     // =================================================================
     const { data: despesas } = await supabase
       .from("fin_lancamentos")
@@ -675,8 +718,9 @@ Deno.serve(async (req) => {
       totalCustos += valor;
     }
 
-    // Distribuição: custo por estágio = total × peso(estágio)
-    // Peso = (tempo_medio_estágio × volume_estágio) / Σ pesos
+    // Pesos relativos por estágio = tempo médio × volume da própria fase.
+    // O custo total é distribuído proporcionalmente entre as fases, e depois
+    // dividido pelo VOLUME DA PRÓPRIA FASE (não pelo total geral).
     const pesos = {
       prospeccao: stages.prospeccao * fasesCount.prospeccao,
       producao: stages.producao * fasesCount.producao,
@@ -685,7 +729,7 @@ Deno.serve(async (req) => {
     };
     const somaPesos = pesos.prospeccao + pesos.producao + pesos.execucao + pesos.rotacao;
 
-    // Custo total por estágio / volume = custo médio por processo no estágio
+    // Custo médio por processo no estágio = (custo alocado ao estágio) / (volume DESSE estágio)
     function custoEstagio(peso: number, volume: number): number {
       if (somaPesos === 0 || volume === 0) return 0;
       const totalEstagio = totalCustos * (peso / somaPesos);
@@ -708,25 +752,35 @@ Deno.serve(async (req) => {
         custo_por_ponto: custoPorPonto,
       },
       grupos: Array.from(grupoCustos.entries())
-        .map(([grupo, valor]) => ({
-          grupo,
-          valor,
-          percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
-        }))
+        .map(([grupo, valor]) => {
+          // Conta de processos da própria área (denominador correto)
+          const procsArea = areaCount.get(grupo) || 0;
+          return {
+            grupo,
+            valor,
+            percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
+            // Custo por processo DA ÁREA — não do total geral
+            custo_por_processo: procsArea > 0 ? valor / procsArea : 0,
+            qtd_processos: procsArea,
+          };
+        })
         .sort((a, b) => b.valor - a.valor),
       total: totalCustos,
     };
 
     // =================================================================
     // ABA 5 — SAFRA & QUALIDADE
-    // CRÍTICO: top 4 áreas por % de GANHO (não volume absoluto)
-    // P1.6 — fees_money cobre só ~3% das lawsuits arquivadas. Usamos `stage`
-    // (texto semântico do ADVBox) como proxy de resultado:
-    //   GANHOS  = stage indica decisão favorável / pagamento / trânsito julgado
-    //   PERDAS  = stage indica perda de contrato / inviabilidade / desinteresse
-    //   NEUTRO  = arquivado mas sem desfecho explícito (não conta em nenhum)
-    // Mantemos fallback por fees_money quando stage estiver vazio.
+    // P1.6 — heurística inferida (independe de stage textual cobrir tudo):
+    //   GANHO  = arquivado COM fees_money > 0
+    //   PERDA  = arquivado SEM fees_money (0 ou null)
+    //   COORTE = últimos 24 meses (last_movement >= now() - 730d)
+    // Top 4 áreas por % de ganho com mínimo 5 fechamentos para entrar.
+    // Mantemos fallback por stage textual quando o campo estiver presente.
     // =================================================================
+    const COORTE_SAFRA_DIAS = 730; // 24 meses
+    const limiteSafra = new Date(now.getTime() - COORTE_SAFRA_DIAS * 24 * 60 * 60 * 1000);
+
+    // Stages textuais (override quando presente — evita falso positivo)
     const STAGE_GANHO = new Set([
       "TRÂNSITO EM JULGADO", "TRANSITADO EM JULGADO", "RECURSO JULGADO",
       "DECISÃO PROFERIDA", "AGUARDANDO PAGAMENTO DO PRECATÓRIO",
@@ -738,38 +792,53 @@ Deno.serve(async (req) => {
       "ANALISADO E NÃO DISTRIBUÍDO - INVIÁVEL OU DESINTERESSE DO CLIENTE",
     ]);
 
+    // Classificador heurístico: ganho/perda só fazem sentido se o processo
+    // estiver arquivado. Para arquivados, fees_money>0 = ganho (advogado
+    // recebeu honorário) e fees_money==0/null = perda (não houve recebimento).
     function classifyOutcome(l: Lawsuit): "ganho" | "perda" | "neutro" {
       const stg = (l.stage || "").trim().toUpperCase();
       if (STAGE_GANHO.has(stg)) return "ganho";
       if (STAGE_PERDA.has(stg)) return "perda";
-      // Fallback por fees_money quando temos valor real registrado
-      if (Number(l.fees_money || 0) > 0) return "ganho";
-      return "neutro";
+      // Heurística: arquivado COM fee = ganho; SEM fee = perda
+      const fee = Number(l.fees_money || 0);
+      return fee > 0 ? "ganho" : "perda";
     }
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
+    let descartadosForaCoorte = 0;
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
       cur.total++;
-      // Só conta resultado em arquivados (step ARQUIVAMENTO ou status_closure)
+
       const isArquivado = classifyByStep(l.step) === "arquivado" || !!l.status_closure;
       if (isArquivado) {
-        const o = classifyOutcome(l);
-        if (o === "ganho") cur.ganhos++;
-        else if (o === "perda") cur.perdas++;
+        // Filtro de coorte recente — só conta arquivamentos dos últimos 24m
+        const lm = lastMov(l);
+        if (!lm || lm < limiteSafra) {
+          descartadosForaCoorte++;
+        } else {
+          const o = classifyOutcome(l);
+          if (o === "ganho") cur.ganhos++;
+          else if (o === "perda") cur.perdas++;
+        }
       }
       safraPorArea.set(grp, cur);
     }
 
-    // Top 4 ordenado por % de ganho (= ganhos / (ganhos+perdas)), exigindo no mínimo 5 fechamentos
+    console.log(
+      `[BI Safra] coorte=${COORTE_SAFRA_DIAS}d areas=${safraPorArea.size} ` +
+      `descartados_fora_coorte=${descartadosForaCoorte}`
+    );
+
+    // Top 4 ordenado por % de ganho (= ganhos / (ganhos+perdas)), mínimo 5 fechamentos
     const areasQualidade = Array.from(safraPorArea.entries())
       .map(([area, v]) => {
         const fechados = v.ganhos + v.perdas;
         const pctGanho = fechados > 0 ? (v.ganhos / fechados) * 100 : 0;
         return { area, ganhos: v.ganhos, perdas: v.perdas, total: v.total, fechados, percentual_ganho: pctGanho };
       })
-      .filter((g) => g.fechados >= 5) // só áreas com volume mínimo
+      .filter((g) => g.fechados >= 5)
       .sort((a, b) => b.percentual_ganho - a.percentual_ganho)
       .slice(0, 4);
 
