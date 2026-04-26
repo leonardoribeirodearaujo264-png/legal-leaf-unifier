@@ -855,10 +855,52 @@ Deno.serve(async (req) => {
     const despesas = await fetchAllDespesas();
 
     // 4.3) Total geral de custos no mês
+    // P1.11 — DUAS VISÕES: bruto (tudo) e filtrado (sem categorias estruturais)
+    // ADVBox em "Custo por Fase" exclui Pessoal/Folha/Aluguel/Pró-labore
+    // pois esses são overhead fixo, não custo direto de processo.
+    const CATEGORIAS_EXCLUIDAS_FASE = new Set([
+      "Pessoal e Folha de Pagamento",
+      "Folha de Pagamento",
+      "Pessoal",
+      "Aluguel",
+      "Pró-labore",
+      "Pro-labore",
+      "Pro labore",
+      "Salários",
+      "Salarios",
+      "Benefícios",
+      "Beneficios",
+      "Distribuição de Lucro",
+      "Distribuicao de Lucro",
+    ]);
+
     let totalCustos = 0;
+    let totalCustosFiltrado = 0;
+    const categoriasFreq = new Map<string, { freq: number; total: number }>();
     for (const d of despesas || []) {
-      totalCustos += Number(d.valor || 0);
+      const v = Number(d.valor || 0);
+      const catNome = (d as any).fin_categorias?.nome || "Sem categoria";
+      const stat = categoriasFreq.get(catNome) || { freq: 0, total: 0 };
+      stat.freq += 1;
+      stat.total += v;
+      categoriasFreq.set(catNome, stat);
+      totalCustos += v;
+      if (!CATEGORIAS_EXCLUIDAS_FASE.has(catNome)) {
+        totalCustosFiltrado += v;
+      }
     }
+    // Marca despesas filtradas (para uso em totalCustosSemLawsuit_filtrado depois)
+    const despesasFiltradasIds = new Set<string>(
+      (despesas || [])
+        .filter((d: any) => !CATEGORIAS_EXCLUIDAS_FASE.has(d.fin_categorias?.nome || "Sem categoria"))
+        .map((d: any) => d.id)
+    );
+    const catsLog = Array.from(categoriasFreq.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 12)
+      .map(([n, s]) => `${n}:${s.freq}/${s.total.toFixed(0)}`)
+      .join(" | ");
+    console.log(`[BI Custos CATEGORIAS-MES] total_bruto=${totalCustos.toFixed(2)} total_filtrado=${totalCustosFiltrado.toFixed(2)} excluido=${(totalCustos - totalCustosFiltrado).toFixed(2)} top12=${catsLog}`);
 
     // 4.4) JOIN despesas <-> lawsuits via advbox_financial_sync
     // Mapeamento lawsuit_id -> { area, fase } via cache
