@@ -905,6 +905,20 @@ Deno.serve(async (req) => {
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     let descartadosForaCoorte = 0;
+    // P1.7 — DEBUG SHAPE: loga 1 arquivado com fee>0 e 1 com fee=0 pra
+    // identificar o campo correto de outcome no ADVBox.
+    let amostraComFee: Lawsuit | null = null;
+    let amostraSemFee: Lawsuit | null = null;
+    for (const l of lawsuitsFiltradas) {
+      if (classifyByStep(l.step) !== "arquivado") continue;
+      const fee = Number(l.fees_money || 0);
+      if (fee > 0 && !amostraComFee) amostraComFee = l;
+      if (fee <= 0 && !amostraSemFee) amostraSemFee = l;
+      if (amostraComFee && amostraSemFee) break;
+    }
+    console.log("[BI Safra DEBUG shape] arquivado COM fees_money>0:", JSON.stringify(amostraComFee));
+    console.log("[BI Safra DEBUG shape] arquivado SEM fees_money:", JSON.stringify(amostraSemFee));
+
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
