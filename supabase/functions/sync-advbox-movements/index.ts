@@ -85,21 +85,20 @@ Deno.serve(async (req) => {
 
     console.log(`Starting ${syncType} sync of ADVBox movements...`);
 
-    // Resume from last incomplete sync if exists.
-    // CRITICAL: aplicamos resume tanto para 'full' quanto 'incremental', senão o cron
-    // (que dispara incremental) reinicia sempre do offset 0 e trava em ~3.300 por timeout.
+    // Resume do MAX(last_offset) entre todos os syncs incompletos/completos.
+    // CRÍTICO: usar MAX evita reset quando múltiplos crons rodaram em paralelo
+    // ou quando um sync mais recente registrou offset menor que outro anterior.
     let resumeOffset = 0;
     {
-      const { data: lastIncomplete } = await supabase
+      const { data: maxOffsetRow } = await supabase
         .from('advbox_movements_sync_status')
-        .select('id, last_offset, total_count')
-        .in('status', ['running', 'partial'])
-        .order('started_at', { ascending: false })
+        .select('last_offset, total_count')
+        .order('last_offset', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
-      if (lastIncomplete?.last_offset && lastIncomplete.last_offset < (lastIncomplete.total_count ?? Infinity)) {
-        resumeOffset = lastIncomplete.last_offset;
-        console.log(`Resuming ${syncType} sync from offset=${resumeOffset}`);
+      if (maxOffsetRow?.last_offset && maxOffsetRow.last_offset < (maxOffsetRow.total_count ?? Infinity)) {
+        resumeOffset = maxOffsetRow.last_offset;
+        console.log(`Resuming ${syncType} sync from MAX(offset)=${resumeOffset}`);
       }
     }
 
@@ -121,16 +120,17 @@ Deno.serve(async (req) => {
 
     // Cursor pagination: ADVBox bloqueia offset > 10000.
     // Quando ultrapassamos, alternamos para `cursor` retornado pela API.
+    // Resume cursor: pega o registro mais recente que tenha last_cursor não-nulo.
     let cursor: string | null = null;
     {
-      const { data: lastIncomplete } = await supabase
+      const { data: lastWithCursor } = await supabase
         .from('advbox_movements_sync_status')
         .select('last_cursor')
-        .in('status', ['running', 'partial'])
-        .order('started_at', { ascending: false })
+        .not('last_cursor', 'is', null)
+        .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      cursor = lastIncomplete?.last_cursor ?? null;
+      cursor = lastWithCursor?.last_cursor ?? null;
     }
     const useCursor = () => offset >= 10000 || cursor !== null;
 
