@@ -211,12 +211,20 @@ Deno.serve(async (req) => {
       console.log(`Upserted ${upsertedCount}/${allLawsuits.length} lawsuits`);
     }
 
-    // Recalcula is_active após o upsert (critério ADVBox "Em andamento")
+    // Recalcula is_active dos registros afetados.
+    // Critério "Em andamento" do ADVBox: step ativo E movimentação <120d.
+    // Como o SDK não permite expressões SQL no update, marcamos em 2 passes server-side:
+    //   1) is_active = false para step arquivado/marketing/RH
+    //   2) is_active = true para steps ativos com movimentação recente
     if (upsertedCount > 0) {
-      await supabase.rpc('exec', {}).catch(() => {/* fallback abaixo */});
-      // Como não temos rpc exec, fazemos via PostgREST update genérico:
-      // is_active = step ativo E (sem movement OU movement <120d)
-      // (executado via tabela com filtro server-side)
+      await supabase.from('advbox_lawsuits')
+        .update({ is_active: false })
+        .in('step', ['ARQUIVAMENTO','MARKETING','RH/FINANCEIRO']);
+      const cutoff = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+      await supabase.from('advbox_lawsuits')
+        .update({ is_active: true })
+        .not('step','in','("ARQUIVAMENTO","MARKETING","RH/FINANCEIRO")')
+        .gte('last_movement_at', cutoff);
     }
 
     const finalStatus = (Date.now() - startTime > MAX_RUNTIME_MS && hasMore) ? 'partial' : 'completed';
