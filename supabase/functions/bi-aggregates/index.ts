@@ -563,13 +563,19 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 3 — TEMPO & HONORÁRIOS
-    // P1.6 — usar MEDIANA (não média) e filtrar por COORTE RECENTE
-    // (last_movement >= now() - 365d). Mediana reduz peso de outliers
-    // antigos (processos zumbis com gaps de 80+ meses). Se ainda diver-
-    // gir muito, restringimos a 180d na variável COORTE_DIAS.
+    // P1.7 (correção solicitada pelo cliente):
+    //   - SEM coorte de 365d (estava excluindo arquivados antigos
+    //     justamente os que medem o tempo gasto em cada fase).
+    //   - MEDIANA da DURAÇÃO DENTRO de cada fase, calculada via
+    //     timestamps de transição cru do ADVBox:
+    //       Prospecção = created_at -> process_date
+    //       Produção   = process_date -> exit_production
+    //       Execução   = exit_production -> exit_execution
+    //       Rotação    = exit_execution -> status_closure  (proxy)
+    //   - Para processos ATIVOS sem timestamp de saída ainda,
+    //     usamos (now() - timestamp_entrada_da_fase) como proxy.
+    //   - Mediana já absorve outliers; não filtra por gap máximo.
     // =================================================================
-    const COORTE_DIAS = 365; // janela: 365 -> 180 se precisar afunilar
-    const limiteCoorte = new Date(now.getTime() - COORTE_DIAS * 24 * 60 * 60 * 1000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
@@ -582,11 +588,10 @@ Deno.serve(async (req) => {
       return null;
     };
 
-    // Anti-outliers: descartar gaps absurdos (>120 meses = 10 anos) que distorcem médias.
-    const MAX_M = 120;
+    // Sem cap de outliers (mediana cuida) — só descarta valores negativos / inválidos.
     const safeMonths = (a: string | null, b: string | null): number | null => {
       const v = monthsBetween(a, b);
-      if (v <= 0 || v > MAX_M) return null;
+      if (v <= 0) return null;
       return v;
     };
 
@@ -598,7 +603,7 @@ Deno.serve(async (req) => {
       return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
     };
 
-    // Buckets para mediana por fase + total
+    // Buckets para mediana por fase + total + honorários
     const bucketProsp: number[] = [];
     const bucketProd: number[] = [];
     const bucketExec: number[] = [];
@@ -608,22 +613,39 @@ Deno.serve(async (req) => {
     let tempoPerdido = 0;
     let countTempoPerdido = 0;
     const honorariosPorGrupo = new Map<string, { fees: number[]; tempo: number[] }>();
+    const nowMs = now.getTime();
+    const nowIso = now.toISOString();
 
     for (const l of lawsuitsFiltradas) {
-      // Filtro de coorte recente — descarta processos sem movimentação
-      // dentro da janela COORTE_DIAS (default 365d).
-      const lm = lastMov(l);
-      if (!lm || lm < limiteCoorte) continue;
+      // P1.7 — SEM filtro de coorte. Considera toda a base.
 
       const fee = Number(l.fees_money || 0);
       if (fee > 0) bucketFees.push(fee);
 
-      const v1 = safeMonths(l.created_at, l.process_date);
+      // Duração DENTRO de cada fase (não idade do processo).
+      // Para fases já encerradas usamos os timestamps de saída.
+      // Para a fase atual de processos ATIVOS, usamos (now() - entrada).
+      const fase = classifyByStep(l.step);
+
+      // Prospecção: created_at -> process_date (ou now() se ainda em atendimento)
+      const v1 = l.process_date
+        ? safeMonths(l.created_at, l.process_date)
+        : (fase === "atendimento" ? safeMonths(l.created_at, nowIso) : null);
       if (v1 !== null) bucketProsp.push(v1);
-      const v2 = safeMonths(l.process_date, l.exit_production);
+
+      // Produção: process_date -> exit_production (ou now() se ainda em produção)
+      const v2 = l.exit_production
+        ? safeMonths(l.process_date, l.exit_production)
+        : (fase === "producao" ? safeMonths(l.process_date, nowIso) : null);
       if (v2 !== null) bucketProd.push(v2);
-      const v3 = safeMonths(l.exit_production, l.exit_execution);
+
+      // Execução: exit_production -> exit_execution (ou now() se ainda em execução)
+      const v3 = l.exit_execution
+        ? safeMonths(l.exit_production, l.exit_execution)
+        : (fase === "execucao" ? safeMonths(l.exit_production, nowIso) : null);
       if (v3 !== null) bucketExec.push(v3);
+
+      // Rotação (pós-execução até arquivamento) — apenas para arquivados
       const v4 = safeMonths(l.exit_execution, l.status_closure);
       if (v4 !== null) bucketRot.push(v4);
 
@@ -660,9 +682,10 @@ Deno.serve(async (req) => {
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
 
     console.log(
-      `[BI Tempo] coorte=${COORTE_DIAS}d total=${bucketTotal.length} ` +
+      `[BI Tempo] sem_coorte total=${bucketTotal.length} ` +
       `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)}`
+      `stages=${JSON.stringify(stages)} ` +
+      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
     );
 
     const tempo = {
@@ -694,20 +717,53 @@ Deno.serve(async (req) => {
 
     // =================================================================
     // ABA 4 — CUSTOS
-    // P1.6 — denominador correto:
-    //   custo_por_processo_da_area = SUM(custos da area) / COUNT(processos da area)
-    //   custo_por_estagio          = SUM(custos do estagio) / COUNT(processos do estagio)
-    // (NÃO dividir tudo pelo total geral — isso achatava as áreas pequenas)
+    // P1.7 (correção solicitada pelo cliente):
+    //   custo_medio_por_fase = SUM(despesas com lawsuit em fase X)
+    //                          / COUNT(DISTINCT lawsuits em fase X)
+    //   Aritmética pura: pega despesas pagas no MÊS, faz JOIN com
+    //   advbox_financial_sync (que tem lawsuit_id no JSONB advbox_data)
+    //   e classifica via classifyByStep(lawsuit.step).
+    //
+    // Antes da agregação loga o COUNT por fase para auditoria — se
+    // execucao/rotacao vierem zeradas, o problema é o classificador
+    // ou o JOIN (transactions sem lawsuit_id).
     // =================================================================
-    const { data: despesas } = await supabase
-      .from("fin_lancamentos")
-      .select("valor, categoria_id, fin_categorias!fin_lancamentos_categoria_id_fkey(nome, grupo)")
-      .eq("tipo", "despesa")
-      .eq("status", "pago")
-      .gte("data_pagamento", inicio.toISOString().slice(0, 10))
-      .lte("data_pagamento", fim.toISOString().slice(0, 10))
-      .is("deleted_at", null);
 
+    // 4.1) Mapa rápido lawsuit_id -> fase (a partir do cache JSONB)
+    const lawsuitFase = new Map<number, FaseUI>();
+    const lawsuitGrupo = new Map<number, string>();
+    for (const l of lawsuits) {
+      lawsuitFase.set(l.id, classifyByStep(l.step));
+      lawsuitGrupo.set(l.id, l.group || "Outros");
+    }
+
+    // 4.2) Despesas pagas no MÊS — busca todas paginadas
+    async function fetchAllDespesas(): Promise<any[]> {
+      const all: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("fin_lancamentos")
+          .select("id, valor, categoria_id, fin_categorias!fin_lancamentos_categoria_id_fkey(nome, grupo)")
+          .eq("tipo", "despesa")
+          .eq("status", "pago")
+          .gte("data_pagamento", inicio.toISOString().slice(0, 10))
+          .lte("data_pagamento", fim.toISOString().slice(0, 10))
+          .is("deleted_at", null)
+          .range(offset, offset + pageSize - 1);
+        if (error) { console.error("[BI Custos] fetchAllDespesas erro:", error); break; }
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+        if (offset > 50000) break;
+      }
+      return all;
+    }
+    const despesas = await fetchAllDespesas();
+
+    // 4.3) Total geral de custos no mês + agregação por grupo financeiro
     const grupoCustos = new Map<string, number>();
     let totalCustos = 0;
     for (const d of despesas || []) {
@@ -718,23 +774,66 @@ Deno.serve(async (req) => {
       totalCustos += valor;
     }
 
-    // Pesos relativos por estágio = tempo médio × volume da própria fase.
-    // O custo total é distribuído proporcionalmente entre as fases, e depois
-    // dividido pelo VOLUME DA PRÓPRIA FASE (não pelo total geral).
-    const pesos = {
-      prospeccao: stages.prospeccao * fasesCount.prospeccao,
-      producao: stages.producao * fasesCount.producao,
-      execucao: stages.execucao * fasesCount.execucao,
-      rotacao: stages.rotacao * fasesCount.rotacao,
+    // 4.4) JOIN despesas <-> lawsuits via advbox_financial_sync
+    // Buscamos só os syncs cujos lancamento_id estão na lista de despesas do mês
+    const despesasIds = (despesas || []).map((d: any) => d.id);
+    let custoPorFase = { atendimento: 0, producao: 0, execucao: 0, arquivado: 0, outro: 0 };
+    let lawsuitsComCustoPorFase = {
+      atendimento: new Set<number>(),
+      producao: new Set<number>(),
+      execucao: new Set<number>(),
+      arquivado: new Set<number>(),
+      outro: new Set<number>(),
     };
-    const somaPesos = pesos.prospeccao + pesos.producao + pesos.execucao + pesos.rotacao;
 
-    // Custo médio por processo no estágio = (custo alocado ao estágio) / (volume DESSE estágio)
-    function custoEstagio(peso: number, volume: number): number {
-      if (somaPesos === 0 || volume === 0) return 0;
-      const totalEstagio = totalCustos * (peso / somaPesos);
-      return totalEstagio / volume;
+    if (despesasIds.length > 0) {
+      // Busca em chunks de 500 (limite de IN do PostgREST)
+      const CHUNK = 500;
+      for (let i = 0; i < despesasIds.length; i += CHUNK) {
+        const slice = despesasIds.slice(i, i + CHUNK);
+        const { data: syncs, error: syncErr } = await supabase
+          .from("advbox_financial_sync")
+          .select("lancamento_id, advbox_data")
+          .in("lancamento_id", slice);
+        if (syncErr) { console.error("[BI Custos] sync chunk erro:", syncErr); continue; }
+        for (const s of syncs || []) {
+          const lawsuitId = Number((s.advbox_data as any)?.lawsuit_id || 0);
+          if (!lawsuitId) continue;
+          const fase = lawsuitFase.get(lawsuitId) || "outro";
+          // valor do lançamento original (vamos usar amount do JSONB para preservar precisão)
+          const amount = Number((s.advbox_data as any)?.amount || 0);
+          custoPorFase[fase] += amount;
+          lawsuitsComCustoPorFase[fase].add(lawsuitId);
+        }
+      }
     }
+
+    // 4.5) Custo médio por processo POR FASE = soma_da_fase / count_distinct_lawsuits_da_fase
+    const custoMedioFase = {
+      prospeccao: lawsuitsComCustoPorFase.atendimento.size > 0
+        ? custoPorFase.atendimento / lawsuitsComCustoPorFase.atendimento.size : 0,
+      producao: lawsuitsComCustoPorFase.producao.size > 0
+        ? custoPorFase.producao / lawsuitsComCustoPorFase.producao.size : 0,
+      execucao: lawsuitsComCustoPorFase.execucao.size > 0
+        ? custoPorFase.execucao / lawsuitsComCustoPorFase.execucao.size : 0,
+      // Rotação = arquivados (proxy: o ADVBox conta custo do ciclo inteiro até arquivar)
+      rotacao: lawsuitsComCustoPorFase.arquivado.size > 0
+        ? custoPorFase.arquivado / lawsuitsComCustoPorFase.arquivado.size : 0,
+    };
+
+    console.log(
+      `[BI Custos] processos_por_fase atendimento=${qtdAtendimento} producao=${qtdProducao} ` +
+      `execucao=${qtdExecucao} arquivados=${qtdArquivados} | ` +
+      `lawsuits_com_custo atendimento=${lawsuitsComCustoPorFase.atendimento.size} ` +
+      `producao=${lawsuitsComCustoPorFase.producao.size} ` +
+      `execucao=${lawsuitsComCustoPorFase.execucao.size} ` +
+      `arquivado=${lawsuitsComCustoPorFase.arquivado.size} | ` +
+      `total_despesas_mes=${despesas?.length || 0} total_custos=${totalCustos.toFixed(2)} | ` +
+      `soma_por_fase atendimento=${custoPorFase.atendimento.toFixed(2)} ` +
+      `producao=${custoPorFase.producao.toFixed(2)} ` +
+      `execucao=${custoPorFase.execucao.toFixed(2)} ` +
+      `arquivado=${custoPorFase.arquivado.toFixed(2)}`
+    );
 
     // Total de pontos do mês para custo/ponto
     let pontosMes = 0;
@@ -745,10 +844,10 @@ Deno.serve(async (req) => {
 
     const custos = {
       kpis: {
-        prospeccao: custoEstagio(pesos.prospeccao, fasesCount.prospeccao),
-        producao: custoEstagio(pesos.producao, fasesCount.producao),
-        execucao: custoEstagio(pesos.execucao, fasesCount.execucao),
-        rotacao: custoEstagio(pesos.rotacao, fasesCount.rotacao),
+        prospeccao: custoMedioFase.prospeccao,
+        producao: custoMedioFase.producao,
+        execucao: custoMedioFase.execucao,
+        rotacao: custoMedioFase.rotacao,
         custo_por_ponto: custoPorPonto,
       },
       grupos: Array.from(grupoCustos.entries())
@@ -806,6 +905,20 @@ Deno.serve(async (req) => {
 
     const safraPorArea = new Map<string, { ganhos: number; perdas: number; total: number }>();
     let descartadosForaCoorte = 0;
+    // P1.7 — DEBUG SHAPE: loga 1 arquivado com fee>0 e 1 com fee=0 pra
+    // identificar o campo correto de outcome no ADVBox.
+    let amostraComFee: Lawsuit | null = null;
+    let amostraSemFee: Lawsuit | null = null;
+    for (const l of lawsuitsFiltradas) {
+      if (classifyByStep(l.step) !== "arquivado") continue;
+      const fee = Number(l.fees_money || 0);
+      if (fee > 0 && !amostraComFee) amostraComFee = l;
+      if (fee <= 0 && !amostraSemFee) amostraSemFee = l;
+      if (amostraComFee && amostraSemFee) break;
+    }
+    console.log("[BI Safra DEBUG shape] arquivado COM fees_money>0:", JSON.stringify(amostraComFee));
+    console.log("[BI Safra DEBUG shape] arquivado SEM fees_money:", JSON.stringify(amostraSemFee));
+
     for (const l of lawsuitsFiltradas) {
       const grp = l.group || "Outros";
       const cur = safraPorArea.get(grp) || { ganhos: 0, perdas: 0, total: 0 };
