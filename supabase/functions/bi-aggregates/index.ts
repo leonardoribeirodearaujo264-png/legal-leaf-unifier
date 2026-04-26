@@ -1100,10 +1100,79 @@ Deno.serve(async (req) => {
     };
     const div = (n: number, d: number) => d > 0 ? (n / d).toFixed(2) : "0.00";
 
+    // P1.11 — VARIANTE F: rolling 12m
+    // Denominador = processos com >=1 despesa nos últimos 365 dias
+    // Numerador = totalCustosFiltrado rateado proporcionalmente por fase
+    const inicio12m = new Date(fim);
+    inicio12m.setDate(inicio12m.getDate() - 365);
+    const lawsuitsComDespesa12mPorFase = {
+      prosp: new Set<number>(),
+      prod: new Set<number>(),
+      exec: new Set<number>(),
+      rot: new Set<number>(),
+    };
+    let totalCustos12mFiltrado = 0;
+    try {
+      // Buscar despesas dos últimos 12m com categoria não-excluída
+      const { data: desp12m } = await supabase
+        .from("fin_lancamentos")
+        .select("id, valor, fin_categorias!fin_lancamentos_categoria_id_fkey(nome)")
+        .eq("tipo", "despesa")
+        .eq("status", "pago")
+        .gte("data_pagamento", inicio12m.toISOString().slice(0, 10))
+        .lte("data_pagamento", fim.toISOString().slice(0, 10))
+        .is("deleted_at", null)
+        .limit(50000);
+      const desp12mFiltradas = (desp12m || []).filter(
+        (d: any) => !CATEGORIAS_EXCLUIDAS_FASE.has(d.fin_categorias?.nome || "Sem categoria")
+      );
+      for (const d of desp12mFiltradas) totalCustos12mFiltrado += Number(d.valor || 0);
+
+      // Buscar lawsuit_id para essas despesas filtradas
+      const ids12m = desp12mFiltradas.map((d: any) => d.id);
+      if (ids12m.length > 0) {
+        const CHUNK = 500;
+        for (let i = 0; i < ids12m.length; i += CHUNK) {
+          const slice = ids12m.slice(i, i + CHUNK);
+          const { data: syncs12m } = await supabase
+            .from("advbox_financial_sync")
+            .select("lancamento_id, advbox_data")
+            .in("lancamento_id", slice);
+          for (const s of syncs12m || []) {
+            const lid = Number((s.advbox_data as any)?.lawsuit_id || 0);
+            if (!lid) continue;
+            const fase = lawsuitFase.get(lid);
+            if (fase === "atendimento") lawsuitsComDespesa12mPorFase.prosp.add(lid);
+            else if (fase === "producao") lawsuitsComDespesa12mPorFase.prod.add(lid);
+            else if (fase === "execucao") lawsuitsComDespesa12mPorFase.exec.add(lid);
+            else if (fase === "arquivado") lawsuitsComDespesa12mPorFase.rot.add(lid);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[BI Custos VARIANTE-F] erro:", e);
+    }
+    const denomF = {
+      prosp: lawsuitsComDespesa12mPorFase.prosp.size,
+      prod: lawsuitsComDespesa12mPorFase.prod.size,
+      exec: lawsuitsComDespesa12mPorFase.exec.size,
+      rot: lawsuitsComDespesa12mPorFase.rot.size,
+    };
+    // Numerador F = custos do MÊS filtrados (sem categorias excluídas), rateado por fase
+    // Como já temos custoPorFase com TUDO incluso, derivamos o filtrado proporcionalmente
+    // pela razão totalCustosFiltrado / totalCustos
+    const ratioFiltro = totalCustos > 0 ? totalCustosFiltrado / totalCustos : 0;
+    const custoFasFiltrado = {
+      prosp: custoPorFase.atendimento * ratioFiltro,
+      prod:  custoPorFase.producao    * ratioFiltro,
+      exec:  custoPorFase.execucao    * ratioFiltro,
+      rot:   custoPorFase.arquivado   * ratioFiltro,
+    };
+
     console.log(
       `[BI Custos VARIANTES] qtd_A=${JSON.stringify(denomA)} ` +
       `qtd_B=${JSON.stringify(denomB)} qtd_C=${JSON.stringify(denomC)} ` +
-      `qtd_D=${JSON.stringify(denomD)} qtd_E=${JSON.stringify(denomE)} | ` +
+      `qtd_D=${JSON.stringify(denomD)} qtd_E=${JSON.stringify(denomE)} qtd_F=${JSON.stringify(denomF)} | ` +
       `custo_medio_A prosp=${div(custoPorFase.atendimento, denomA.prosp)} prod=${div(custoPorFase.producao, denomA.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomA.exec)} rot=${div(custoPorFase.arquivado, denomA.rot)} | ` +
       `custo_medio_B prosp=${div(custoPorFase.atendimento, denomB.prosp)} prod=${div(custoPorFase.producao, denomB.prod)} ` +
@@ -1111,7 +1180,10 @@ Deno.serve(async (req) => {
       `custo_medio_D prosp=${div(custoPorFase.atendimento, denomD.prosp)} prod=${div(custoPorFase.producao, denomD.prod)} ` +
       `exec=${div(custoPorFase.execucao, denomD.exec)} rot=${div(custoPorFase.arquivado, denomD.rot)} | ` +
       `custo_medio_E prosp=${div(custoPorFase.atendimento, denomE.prosp)} prod=${div(custoPorFase.producao, denomE.prod)} ` +
-      `exec=${div(custoPorFase.execucao, denomE.exec)} rot=${div(custoPorFase.arquivado, denomE.rot)}`
+      `exec=${div(custoPorFase.execucao, denomE.exec)} rot=${div(custoPorFase.arquivado, denomE.rot)} | ` +
+      `custo_medio_F[filt] prosp=${div(custoFasFiltrado.prosp, denomF.prosp)} prod=${div(custoFasFiltrado.prod, denomF.prod)} ` +
+      `exec=${div(custoFasFiltrado.exec, denomF.exec)} rot=${div(custoFasFiltrado.rot, denomF.rot)} | ` +
+      `total12m_filt=${totalCustos12mFiltrado.toFixed(2)} ratio_filtro_mes=${ratioFiltro.toFixed(3)}`
     );
     console.log(
       `[BI Custos POR-DIA-ATIVO] dias_ativos=${JSON.stringify(diasAtivosPorFase)} ` +
