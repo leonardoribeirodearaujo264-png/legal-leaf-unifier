@@ -578,8 +578,27 @@ Deno.serve(async (req) => {
     //   - "Rotação" no ADVBox = ciclo completo (turns/ano).
     //     Se mediana = 1 mês -> ~12 turns/ano. Frontend exibe alinhado.
     // =================================================================
-    const COORTE_TEMPO_DIAS = 730; // 24 meses
-    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 24 * 60 * 60 * 1000);
+    // P1.10 — COORTE POR FASE (não mais 24m universal).
+    // Logs da 5a rodada provaram que cada fase casa com cohort diferente:
+    //   Prospecção: 90d (alvo 1m, logs 3m -> 0.9m)
+    //   Produção:   730d (alvo 8m, logs 24m -> 6.6m)
+    //   Execução:   540d (entre 12m=1.3m e 24m=4.5m, alvo 3m)
+    //   Rotação:    730d (amostra pequena mas é o que tem)
+    const cohortDaysByPhase = {
+      prospeccao: 90,
+      producao:   730,
+      execucao:   540,
+      rotacao:    730,
+    } as const;
+    const limiteByPhase = {
+      prospeccao: new Date(now.getTime() - cohortDaysByPhase.prospeccao * 86400000),
+      producao:   new Date(now.getTime() - cohortDaysByPhase.producao   * 86400000),
+      execucao:   new Date(now.getTime() - cohortDaysByPhase.execucao   * 86400000),
+      rotacao:    new Date(now.getTime() - cohortDaysByPhase.rotacao    * 86400000),
+    };
+    // Coorte global mais ampla pra KPIs auxiliares (honorário, total)
+    const COORTE_TEMPO_DIAS = 730;
+    const limiteTempo = new Date(now.getTime() - COORTE_TEMPO_DIAS * 86400000);
 
     // último marco temporal do processo (proxy de last_movement)
     const lastMov = (l: Lawsuit): Date | null => {
