@@ -863,15 +863,15 @@ Deno.serve(async (req) => {
         rotacao: custoMedioFase.rotacao,
         custo_por_ponto: custoPorPonto,
       },
-      grupos: Array.from(grupoCustos.entries())
+      // Grupos = ÁREAS do processo com custo rateado real (via JOIN advbox_financial_sync)
+      // Antes usava grupo financeiro (Clientes/Pessoal/etc) — errado pois não bate com áreas
+      grupos: Array.from(custoPorArea.entries())
         .map(([grupo, valor]) => {
-          // Conta de processos da própria área (denominador correto)
-          const procsArea = areaCount.get(grupo) || 0;
+          const procsArea = lawsuitsComCustoPorArea.get(grupo)?.size || 0;
           return {
             grupo,
             valor,
             percentual: totalCustos > 0 ? (valor / totalCustos) * 100 : 0,
-            // Custo por processo DA ÁREA — não do total geral
             custo_por_processo: procsArea > 0 ? valor / procsArea : 0,
             qtd_processos: procsArea,
           };
