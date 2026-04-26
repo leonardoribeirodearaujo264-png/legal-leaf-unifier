@@ -80,20 +80,19 @@ Deno.serve(async (req) => {
 
     console.log(`Starting ${syncType} sync of ADVBox lawsuits...`);
 
-    // RESUME UNIVERSAL: aplica para qualquer sync_type (igual ao fix de movements).
-    // Sem isso o cron incremental reinicia do offset 0 e nunca chega ao fim.
+    // Resume do MAX(last_offset) entre todos os syncs (não só running/partial).
+    // CRÍTICO: evita reset por concorrência quando múltiplos crons disparam.
     let resumeOffset = 0;
     {
-      const { data: lastIncomplete } = await supabase
+      const { data: maxOffsetRow } = await supabase
         .from('advbox_lawsuits_sync_status')
-        .select('id, last_offset, total_synced, total_count')
-        .in('status', ['running', 'partial'])
-        .order('started_at', { ascending: false })
+        .select('last_offset, total_count')
+        .order('last_offset', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
-      if (lastIncomplete?.last_offset && lastIncomplete.last_offset < (lastIncomplete.total_count ?? Infinity)) {
-        resumeOffset = lastIncomplete.last_offset;
-        console.log(`Resuming ${syncType} sync from offset=${resumeOffset} (was ${lastIncomplete.total_synced}/${lastIncomplete.total_count})`);
+      if (maxOffsetRow?.last_offset && maxOffsetRow.last_offset < (maxOffsetRow.total_count ?? Infinity)) {
+        resumeOffset = maxOffsetRow.last_offset;
+        console.log(`Resuming ${syncType} sync from MAX(offset)=${resumeOffset}`);
       }
     }
 
