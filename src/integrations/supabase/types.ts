@@ -268,6 +268,39 @@ export type Database = {
           },
         ]
       }
+      advbox_crm_substages: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          order_index: number
+          phase: string
+          updated_at: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          order_index?: number
+          phase: string
+          updated_at?: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          order_index?: number
+          phase?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       advbox_customers: {
         Row: {
           advbox_id: number
@@ -445,64 +478,139 @@ export type Database = {
         Row: {
           advbox_id: number
           area: string | null
+          contingency: string | null
           court: string | null
           created_at: string
+          crm_substage_id: string | null
           customer_names: string | null
           customers: Json | null
           distribution_date: string | null
+          exit_execution: string | null
+          exit_production: string | null
+          fees_expec: number | null
+          fees_money: number | null
           folder: string | null
+          group_id: number | null
+          group_name: string | null
           id: string
+          is_active: boolean | null
+          last_movement_at: string | null
           last_synced_at: string
           lawyer_names: string | null
           lawyers: Json | null
+          notes: string | null
           number: string | null
+          parties_text: string | null
+          process_date: string | null
+          protocol_number: string | null
           raw_data: Json | null
+          responsible_id: number | null
+          responsible_name: string | null
+          stage: string | null
+          stage_id: number | null
           status: string | null
+          step: string | null
+          step_id: number | null
+          type_acao: string | null
+          type_lawsuit_id: number | null
           updated_at: string
         }
         Insert: {
           advbox_id: number
           area?: string | null
+          contingency?: string | null
           court?: string | null
           created_at?: string
+          crm_substage_id?: string | null
           customer_names?: string | null
           customers?: Json | null
           distribution_date?: string | null
+          exit_execution?: string | null
+          exit_production?: string | null
+          fees_expec?: number | null
+          fees_money?: number | null
           folder?: string | null
+          group_id?: number | null
+          group_name?: string | null
           id?: string
+          is_active?: boolean | null
+          last_movement_at?: string | null
           last_synced_at?: string
           lawyer_names?: string | null
           lawyers?: Json | null
+          notes?: string | null
           number?: string | null
+          parties_text?: string | null
+          process_date?: string | null
+          protocol_number?: string | null
           raw_data?: Json | null
+          responsible_id?: number | null
+          responsible_name?: string | null
+          stage?: string | null
+          stage_id?: number | null
           status?: string | null
+          step?: string | null
+          step_id?: number | null
+          type_acao?: string | null
+          type_lawsuit_id?: number | null
           updated_at?: string
         }
         Update: {
           advbox_id?: number
           area?: string | null
+          contingency?: string | null
           court?: string | null
           created_at?: string
+          crm_substage_id?: string | null
           customer_names?: string | null
           customers?: Json | null
           distribution_date?: string | null
+          exit_execution?: string | null
+          exit_production?: string | null
+          fees_expec?: number | null
+          fees_money?: number | null
           folder?: string | null
+          group_id?: number | null
+          group_name?: string | null
           id?: string
+          is_active?: boolean | null
+          last_movement_at?: string | null
           last_synced_at?: string
           lawyer_names?: string | null
           lawyers?: Json | null
+          notes?: string | null
           number?: string | null
+          parties_text?: string | null
+          process_date?: string | null
+          protocol_number?: string | null
           raw_data?: Json | null
+          responsible_id?: number | null
+          responsible_name?: string | null
+          stage?: string | null
+          stage_id?: number | null
           status?: string | null
+          step?: string | null
+          step_id?: number | null
+          type_acao?: string | null
+          type_lawsuit_id?: number | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "advbox_lawsuits_crm_substage_id_fkey"
+            columns: ["crm_substage_id"]
+            isOneToOne: false
+            referencedRelation: "advbox_crm_substages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       advbox_lawsuits_sync_status: {
         Row: {
           completed_at: string | null
           created_at: string
           id: string
+          last_cursor: string | null
           last_error: string | null
           last_offset: number | null
           started_at: string | null
@@ -511,11 +619,13 @@ export type Database = {
           total_count: number | null
           total_synced: number | null
           updated_at: string
+          use_cursor: boolean | null
         }
         Insert: {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_cursor?: string | null
           last_error?: string | null
           last_offset?: number | null
           started_at?: string | null
@@ -524,11 +634,13 @@ export type Database = {
           total_count?: number | null
           total_synced?: number | null
           updated_at?: string
+          use_cursor?: boolean | null
         }
         Update: {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_cursor?: string | null
           last_error?: string | null
           last_offset?: number | null
           started_at?: string | null
@@ -537,6 +649,7 @@ export type Database = {
           total_count?: number | null
           total_synced?: number | null
           updated_at?: string
+          use_cursor?: boolean | null
         }
         Relationships: []
       }
@@ -587,6 +700,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           id: string
+          last_cursor: string | null
           last_error: string | null
           last_offset: number | null
           started_at: string | null
@@ -595,11 +709,13 @@ export type Database = {
           total_count: number | null
           total_synced: number | null
           updated_at: string
+          use_cursor: boolean | null
         }
         Insert: {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_cursor?: string | null
           last_error?: string | null
           last_offset?: number | null
           started_at?: string | null
@@ -608,11 +724,13 @@ export type Database = {
           total_count?: number | null
           total_synced?: number | null
           updated_at?: string
+          use_cursor?: boolean | null
         }
         Update: {
           completed_at?: string | null
           created_at?: string
           id?: string
+          last_cursor?: string | null
           last_error?: string | null
           last_offset?: number | null
           started_at?: string | null
@@ -621,6 +739,7 @@ export type Database = {
           total_count?: number | null
           total_synced?: number | null
           updated_at?: string
+          use_cursor?: boolean | null
         }
         Relationships: []
       }
@@ -723,6 +842,39 @@ export type Database = {
           id?: string
           setting_key?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      advbox_sync_audit: {
+        Row: {
+          advbox_count: number | null
+          audited_at: string
+          diff: number | null
+          diff_pct: number | null
+          entity: string
+          id: string
+          local_count: number
+          notes: string | null
+        }
+        Insert: {
+          advbox_count?: number | null
+          audited_at?: string
+          diff?: number | null
+          diff_pct?: number | null
+          entity: string
+          id?: string
+          local_count: number
+          notes?: string | null
+        }
+        Update: {
+          advbox_count?: number | null
+          audited_at?: string
+          diff?: number | null
+          diff_pct?: number | null
+          entity?: string
+          id?: string
+          local_count?: number
+          notes?: string | null
         }
         Relationships: []
       }
@@ -3536,6 +3688,36 @@ export type Database = {
           popup_messages_enabled?: boolean | null
           updated_at?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      escritorio_settings: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          setting_key: string
+          setting_value: Json
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          setting_key: string
+          setting_value?: Json
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          setting_key?: string
+          setting_value?: Json
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
