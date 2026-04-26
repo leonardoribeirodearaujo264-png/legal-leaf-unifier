@@ -470,17 +470,34 @@ export default function TarefasAdvbox() {
     }
   };
 
-  // useEffect DEVE vir DEPOIS das definições de funções
+  // Carga inicial: lista paginada + dataset leve em paralelo
   useEffect(() => {
-    // Só carregar dados quando permissões estiverem prontas E usuário tiver acesso.
-    // fetchAdvboxTaskTypes e fetchAdvboxUsers são chamados sob demanda quando o dialog "Nova Tarefa" abre.
     if (!isLoading && hasAdvboxAccess && !dataLoaded) {
-      console.log('TarefasAdvbox: Carregando dados...');
+      console.log('TarefasAdvbox: Carregando dados (server-side pagination)...');
       setDataLoaded(true);
-      fetchTasks();
+      fetchPageTasks();
+      fetchLightweightTasks();
       fetchUsers();
     }
   }, [isLoading, hasAdvboxAccess, dataLoaded]);
+
+  // Refetch da página quando filtros, busca ou página mudam (server-side)
+  useEffect(() => {
+    if (!dataLoaded) return;
+    fetchPageTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    currentPage,
+    statusFilter,
+    assignedFilter,
+    dueDateFilter,
+    specificDate,
+    rangeStartDate,
+    rangeEndDate,
+    showDeletionAlerts,
+    debouncedSearch,
+    priorityFilter,
+  ]);
 
   // CONDITIONAL RETURNS - apenas APÓS todas as funções e hooks
   // Mostrar loading enquanto verifica permissões
