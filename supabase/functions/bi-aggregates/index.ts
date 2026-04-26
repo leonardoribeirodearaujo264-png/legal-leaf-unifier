@@ -682,9 +682,10 @@ Deno.serve(async (req) => {
     const rotacaoCompleta = stages.prospeccao + stages.producao + stages.execucao;
 
     console.log(
-      `[BI Tempo] coorte=${COORTE_DIAS}d total=${bucketTotal.length} ` +
+      `[BI Tempo] sem_coorte total=${bucketTotal.length} ` +
       `mediana_total=${tempoMedio.toFixed(1)}m honorario_mediano=${honorarioMedio.toFixed(2)} ` +
-      `stages=${JSON.stringify(stages)}`
+      `stages=${JSON.stringify(stages)} ` +
+      `buckets=prosp:${bucketProsp.length} prod:${bucketProd.length} exec:${bucketExec.length} rot:${bucketRot.length}`
     );
 
     const tempo = {
