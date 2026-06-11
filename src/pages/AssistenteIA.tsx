@@ -112,11 +112,11 @@ interface FavoriteMessage {
 }
 
 const AI_MODELS: AIModel[] = [
-  // Lovable AI (Gemini)
+  // Google Gemini
   {
     id: 'gemini-flash',
     name: 'Gemini 2.5 Flash',
-    provider: 'Google (Lovable)',
+    provider: 'Google',
     description: 'Rápido e eficiente para tarefas gerais',
     capabilities: ['chat', 'analysis', 'code', 'reasoning'],
     icon: '⚡',
@@ -125,7 +125,7 @@ const AI_MODELS: AIModel[] = [
   {
     id: 'gemini-flash-lite',
     name: 'Gemini 2.5 Flash Lite',
-    provider: 'Google (Lovable)',
+    provider: 'Google',
     description: 'Ultra-rápido para tarefas simples',
     capabilities: ['chat', 'analysis'],
     icon: '💨'
@@ -133,7 +133,7 @@ const AI_MODELS: AIModel[] = [
   {
     id: 'gemini-pro',
     name: 'Gemini 2.5 Pro',
-    provider: 'Google (Lovable)',
+    provider: 'Google',
     description: 'Mais poderoso para raciocínio complexo',
     capabilities: ['chat', 'analysis', 'code', 'reasoning', 'images'],
     icon: '🌟'
@@ -141,36 +141,11 @@ const AI_MODELS: AIModel[] = [
   {
     id: 'gemini-3-pro',
     name: 'Gemini 3 Pro Preview',
-    provider: 'Google (Lovable)',
+    provider: 'Google',
     description: 'Próxima geração do Gemini Pro',
     capabilities: ['chat', 'analysis', 'code', 'reasoning', 'images'],
     icon: '🚀',
     badge: 'Novo'
-  },
-  // Lovable AI (GPT via Gateway)
-  {
-    id: 'lovable-gpt-5',
-    name: 'GPT-5 (via Lovable)',
-    provider: 'OpenAI (Lovable)',
-    description: 'Modelo mais avançado da OpenAI',
-    capabilities: ['chat', 'analysis', 'code', 'reasoning', 'images'],
-    icon: '🤖'
-  },
-  {
-    id: 'lovable-gpt-5-mini',
-    name: 'GPT-5 Mini (via Lovable)',
-    provider: 'OpenAI (Lovable)',
-    description: 'Versão rápida e econômica do GPT-5',
-    capabilities: ['chat', 'analysis', 'code'],
-    icon: '⚡'
-  },
-  {
-    id: 'lovable-gpt-5-nano',
-    name: 'GPT-5 Nano (via Lovable)',
-    provider: 'OpenAI (Lovable)',
-    description: 'Ultra-rápido para tarefas simples',
-    capabilities: ['chat', 'analysis'],
-    icon: '💨'
   },
   // OpenAI Direct
   {
@@ -701,11 +676,10 @@ const AssistenteIA = () => {
             : ''
           : (area?.systemPrompt || '');
 
-      const contextMessages = systemPromptText
-        ? [
-            { role: 'user', content: systemPromptText },
-            { role: 'assistant', content: 'Entendido. Estou pronto para ajudá-lo com expertise nessa área do Direito.' },
-          ]
+      // Use proper system role so ALL providers (Perplexity, OpenAI, Claude, Gemini)
+      // receive the context without breaking message alternation rules.
+      const contextMessages: { role: string; content: string }[] = systemPromptText
+        ? [{ role: 'system', content: systemPromptText }]
         : [];
 
       const messagesToSend = [

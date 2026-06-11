@@ -5,6 +5,36 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * Perplexity requires: optional system messages first, then strictly alternating
+ * user → assistant → user → … This sanitizer merges consecutive same-role messages
+ * so the array is always valid even if the caller built it differently.
+ */
+function sanitizeForPerplexity(messages: ChatMessage[]): ChatMessage[] {
+  const result: ChatMessage[] = [];
+  for (const msg of messages) {
+    if (msg.role === 'system') {
+      result.push(msg);
+      continue;
+    }
+    const lastNonSystem = [...result].reverse().find(m => m.role !== 'system');
+    if (!lastNonSystem || lastNonSystem.role !== msg.role) {
+      result.push({ ...msg });
+    } else {
+      // Merge consecutive same-role messages into one
+      const idx = result.lastIndexOf(lastNonSystem);
+      result[idx] = { ...result[idx], content: `${result[idx].content}\n\n${msg.content}` };
+    }
+  }
+  // Perplexity must start with a user message after system messages
+  const firstNonSystem = result.find(m => m.role !== 'system');
+  if (firstNonSystem && firstNonSystem.role !== 'user') {
+    const idx = result.indexOf(firstNonSystem);
+    result.splice(idx, 1);
+  }
+  return result;
+}
+
 export async function streamPerplexity(
   messages: ChatMessage[],
   model: string,
@@ -14,13 +44,15 @@ export async function streamPerplexity(
   const apiKey = import.meta.env.VITE_PERPLEXITY_API_KEY;
   if (!apiKey) throw new Error('Perplexity API key não configurada. Adicione VITE_PERPLEXITY_API_KEY ao .env');
 
+  const sanitized = sanitizeForPerplexity(messages);
+
   const response = await fetch(PERPLEXITY_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, stream: true, messages }),
+    body: JSON.stringify({ model, stream: true, messages: sanitized }),
     signal,
   });
 

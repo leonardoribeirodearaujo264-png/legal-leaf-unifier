@@ -291,7 +291,7 @@ Retorne APENAS a frase.`;
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
           messages: [{ role: 'user', content: prompt }],
-          model: 'lovable'
+          model: 'gemini-flash'
         }
       });
 
@@ -441,7 +441,7 @@ Retorne APENAS a frase.`;
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
           messages: [{ role: 'user', content: prompt }],
-          model: 'lovable'
+          model: 'gemini-flash'
         }
       });
 

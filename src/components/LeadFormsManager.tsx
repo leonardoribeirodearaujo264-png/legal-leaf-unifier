@@ -230,7 +230,7 @@ export function LeadFormsManager() {
   const generateEmbedCode = (form: LeadForm) => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const formId = form.id.replace(/-/g, '_');
-    const logoUrl = 'https://intranet-eggnunes.lovable.app/logo-eggnunes.png';
+    const logoUrl = `${import.meta.env.VITE_APP_URL || 'https://legal-leaf-unifier-egknikizi.vercel.app'}/logo-eggnunes.png`;
     
     return `<!-- Formulário de Captura de Leads - ${form.name} -->
 <!-- Compatível com WordPress/Elementor -->

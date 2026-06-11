@@ -64,7 +64,11 @@ async function streamOpenAIDirect(
   });
 
   if (!response.ok || !response.body) {
-    const err = await response.json().catch(() => ({})) as { error?: { message?: string } };
+    const err = await response.json().catch(() => ({})) as { error?: { message?: string; code?: string; type?: string } };
+    const code = err.error?.code ?? err.error?.type ?? '';
+    if (code === 'insufficient_quota' || response.status === 429) {
+      throw new Error('Cota da OpenAI esgotada. Acesse platform.openai.com/billing para verificar seu plano.');
+    }
     throw new Error(err.error?.message || `Erro OpenAI HTTP ${response.status}`);
   }
 

@@ -53,17 +53,18 @@ export async function searchProcessByNumber(processNumber: string): Promise<Data
     };
   }
 
-  // Handle non-JSON responses (e.g. Vercel 404 HTML page)
-  const contentType = resp.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json')) {
+  // Try to parse as JSON regardless of content-type to get the real error message
+  let data: { found: boolean; process?: DatajudProcess; error?: string } | null = null;
+  try {
+    data = await resp.json() as { found: boolean; process?: DatajudProcess; error?: string };
+  } catch {
+    // Response is not JSON (e.g. HTML error page from Vercel)
     return {
       found: false,
       process: null,
-      error: `Endpoint /api/datajud-search retornou HTTP ${resp.status}. Verifique o deploy na Vercel.`,
+      error: `Erro no servidor (HTTP ${resp.status}). Verifique se DATAJUD_API_KEY está configurada nas variáveis de ambiente da Vercel.`,
     };
   }
-
-  const data = await resp.json() as { found: boolean; process?: DatajudProcess; error?: string };
 
   if (!data.found) {
     return { found: false, process: null, error: data.error ?? 'Processo não encontrado.' };

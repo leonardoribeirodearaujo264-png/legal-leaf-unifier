@@ -6,10 +6,6 @@ export const AI_PROVIDER_MAP: Record<string, AIProvider> = {
   'gemini-flash-lite': 'gemini',
   'gemini-pro': 'gemini',
   'gemini-3-pro': 'gemini',
-  // "lovable-gpt" são aliases — fallback para OpenAI direto
-  'lovable-gpt-5': 'openai',
-  'lovable-gpt-5-mini': 'openai',
-  'lovable-gpt-5-nano': 'openai',
   // OpenAI direto
   'gpt-5.2': 'openai',
   'gpt-4o': 'openai',
@@ -23,7 +19,7 @@ export const AI_PROVIDER_MAP: Record<string, AIProvider> = {
   // Claude direto
   'claude-sonnet': 'claude',
   'claude-haiku': 'claude',
-  // Manus — sem suporte direto ainda, cai em gemini como fallback
+  // Manus — fallback para gemini
   'manus': 'gemini',
 };
 
@@ -42,9 +38,6 @@ export const OPENAI_MODEL_MAP: Record<string, string> = {
   'gpt-4o-mini': 'gpt-4o-mini',
   'openai-o3': 'o3-mini',
   'openai-o4-mini': 'o4-mini',
-  'lovable-gpt-5': 'gpt-4o',
-  'lovable-gpt-5-mini': 'gpt-4o-mini',
-  'lovable-gpt-5-nano': 'gpt-4o-mini',
 };
 
 export const CLAUDE_MODEL_MAP: Record<string, string> = {

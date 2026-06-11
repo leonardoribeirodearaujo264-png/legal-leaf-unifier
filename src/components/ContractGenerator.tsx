@@ -1135,7 +1135,7 @@ Retorne APENAS a frase da cláusula primeira reescrita, sem explicações adicio
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
           messages: [{ role: 'user', content: prompt }],
-          model: 'lovable'
+          model: 'gemini-flash'
         }
       });
 
@@ -1192,7 +1192,7 @@ Retorne APENAS o texto da cláusula reescrita, sem explicações adicionais e se
       const { data, error } = await supabase.functions.invoke('ai-assistant', {
         body: { 
           messages: [{ role: 'user', content: prompt }],
-          model: 'lovable'
+          model: 'gemini-flash'
         }
       });
 
