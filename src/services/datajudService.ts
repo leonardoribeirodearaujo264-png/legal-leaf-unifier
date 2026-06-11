@@ -37,23 +37,33 @@ export interface DatajudSearchResult {
 // ── Service ────────────────────────────────────────────────────────────────
 
 export async function searchProcessByNumber(processNumber: string): Promise<DatajudSearchResult> {
-  let data: { found: boolean; process?: DatajudProcess; error?: string };
+  let resp: Response;
 
   try {
-    const resp = await fetch('/api/datajud-search', {
+    resp = await fetch('/api/datajud-search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ processNumber }),
     });
-
-    data = await resp.json();
-  } catch {
+  } catch (err) {
     return {
       found: false,
       process: null,
-      error: 'Erro de comunicação com o servidor. Tente novamente.',
+      error: `Não foi possível alcançar o servidor. Verifique sua conexão. (${err instanceof Error ? err.message : 'erro de rede'})`,
     };
   }
+
+  // Handle non-JSON responses (e.g. Vercel 404 HTML page)
+  const contentType = resp.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    return {
+      found: false,
+      process: null,
+      error: `Endpoint /api/datajud-search retornou HTTP ${resp.status}. Verifique o deploy na Vercel.`,
+    };
+  }
+
+  const data = await resp.json() as { found: boolean; process?: DatajudProcess; error?: string };
 
   if (!data.found) {
     return { found: false, process: null, error: data.error ?? 'Processo não encontrado.' };
