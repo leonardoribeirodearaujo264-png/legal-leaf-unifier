@@ -9,7 +9,7 @@ interface UsageHistoryItem {
   id: string;
   tool_name: string;
   action: string;
-  metadata: any;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 }
 

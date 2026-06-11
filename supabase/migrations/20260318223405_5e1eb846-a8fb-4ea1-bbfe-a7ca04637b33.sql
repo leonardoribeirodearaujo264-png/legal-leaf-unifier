@@ -1,1 +1,0 @@
-ALTER TABLE public.crm_activities ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'medium';

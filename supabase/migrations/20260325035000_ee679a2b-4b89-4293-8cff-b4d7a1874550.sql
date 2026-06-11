@@ -1,3 +1,0 @@
-UPDATE whatsapp_templates
-SET content = E'Olá, {nome}! Tudo bem? 😊\n\nPassando para lembrar que o seu {tipo_documento} ainda está pendente de assinatura.\n\nPara assinar, basta acessar o link abaixo. É rápido e seguro!\n\n🔗 {link_assinatura}\n\n⚠️ *Este número é exclusivo para envio de avisos e informativos do escritório Egg Nunes Advogados Associados.*\nPara entrar em contato conosco, utilize nosso canal oficial:\n📞 WhatsApp Oficial: https://wa.me/553132268742\n\n_Não responda esta mensagem._'
-WHERE shortcut = '/lembrete-assinatura';

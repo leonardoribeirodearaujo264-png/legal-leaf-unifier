@@ -1,1 +1,0 @@
-ALTER TABLE email_notification_preferences ADD COLUMN IF NOT EXISTS popup_messages_enabled BOOLEAN DEFAULT true;

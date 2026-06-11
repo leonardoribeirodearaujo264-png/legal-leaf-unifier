@@ -1,5 +1,5 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "tribuna-ia",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -51,6 +51,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
+    "emoji-mart": "^5.6.0",
     "framer-motion": "^12.38.0",
     "heic2any": "^0.0.4",
     "input-otp": "^1.4.2",

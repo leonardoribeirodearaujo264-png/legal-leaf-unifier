@@ -1,2 +1,0 @@
-ALTER TABLE public.chatguru_birthday_messages_log RENAME TO birthday_messages_log;
-ALTER TABLE public.birthday_messages_log RENAME COLUMN chatguru_message_id TO zapi_message_id;

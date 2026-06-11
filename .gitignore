@@ -12,7 +12,14 @@ dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# Env — nunca commitar chaves
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Claude Code / editor
+.claude/
 .vscode/*
 !.vscode/extensions.json
 .idea

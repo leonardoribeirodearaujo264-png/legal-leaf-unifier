@@ -1,1 +1,0 @@
-ALTER TABLE public.advbox_customers ADD COLUMN IF NOT EXISTS origem TEXT;

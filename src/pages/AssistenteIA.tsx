@@ -1,5 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { streamAI } from '@/services/aiService';
+import {
+  LEGAL_AREAS,
+  LEGAL_AREA_MAP,
+  DEFAULT_AREA_ID,
+  LEGAL_AREA_STORAGE_KEY,
+} from '@/config/legalAreas';
 import { Layout } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -57,6 +64,15 @@ interface Message {
   timestamp: Date;
   attachments?: { name: string; type: string; url?: string }[];
   images?: string[];
+}
+
+interface StoredMessageRow {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  attachments: Message['attachments'];
+  images: Message['images'];
 }
 
 interface Conversation {
@@ -307,6 +323,16 @@ const AssistenteIA = () => {
   // Text-to-Speech
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  // Legal area specialization
+  const [legalAreaId, setLegalAreaId] = useState<string>(() => {
+    try { return localStorage.getItem(LEGAL_AREA_STORAGE_KEY) || DEFAULT_AREA_ID; } catch { return DEFAULT_AREA_ID; }
+  });
+  const [customLegalArea, setCustomLegalArea] = useState('');
+
+  useEffect(() => {
+    try { localStorage.setItem(LEGAL_AREA_STORAGE_KEY, legalAreaId); } catch { /* ignore */ }
+  }, [legalAreaId]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -479,13 +505,13 @@ const AssistenteIA = () => {
       
       if (error) throw error;
       
-      const loadedMessages: Message[] = (data || []).map(m => ({
+      const loadedMessages: Message[] = ((data || []) as StoredMessageRow[]).map(m => ({
         id: m.id,
-        role: m.role as 'user' | 'assistant',
+        role: m.role,
         content: m.content,
         timestamp: new Date(m.created_at),
-        attachments: m.attachments as any,
-        images: m.images as any
+        attachments: m.attachments,
+        images: m.images
       }));
       
       setMessages(loadedMessages);
@@ -506,9 +532,14 @@ const AssistenteIA = () => {
     }
   };
 
-  const createNewConversation = async (): Promise<string | null> => {
-    if (!user) return null;
-    
+  const createNewConversation = async (): Promise<string> => {
+    const localId = crypto.randomUUID();
+
+    if (!user) {
+      setCurrentConversationId(localId);
+      return localId;
+    }
+
     try {
       const { data, error } = await supabase
         .from('ai_conversations')
@@ -519,15 +550,17 @@ const AssistenteIA = () => {
         })
         .select()
         .single();
-      
+
       if (error) throw error;
-      
+
       setConversations(prev => [data, ...prev]);
       setCurrentConversationId(data.id);
       return data.id;
     } catch (error) {
-      console.error('Error creating conversation:', error);
-      return null;
+      // DB unavailable — proceed with a local-only session (messages won't persist)
+      console.warn('Conversa não persistida no banco:', error);
+      setCurrentConversationId(localId);
+      return localId;
     }
   };
 
@@ -600,99 +633,22 @@ const AssistenteIA = () => {
 
   const currentModel = AI_MODELS.find(m => m.id === selectedModel);
 
-  // Stream chat function
+  // Stream chat — routes to the correct provider via aiService
   const streamChat = useCallback(async (
     messagesToSend: { role: string; content: string }[],
     model: string,
-    attachmentData: any[],
+    attachmentData: { name: string; type: string; content: string }[],
     onDelta: (deltaText: string) => void,
     onDone: () => void
   ) => {
-    const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-    const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-    // Get the user's JWT — required by edge function's requireUser() check.
-    // The anon key alone is rejected as "Não autorizado".
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
-    if (!token) throw new Error('Sessão expirada. Faça login novamente.');
-
     abortControllerRef.current = new AbortController();
 
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/ai-assistant`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'apikey': SUPABASE_KEY,
-      },
-      body: JSON.stringify({
-        messages: messagesToSend,
-        model,
-        attachments: attachmentData,
-        stream: true,
-        options: { enableSearch, enableImageGen }
-      }),
-      signal: abortControllerRef.current.signal
+    await streamAI(messagesToSend, model, onDelta, {
+      enableSearch,
+      enableImageGen,
+      attachments: attachmentData,
+      signal: abortControllerRef.current.signal,
     });
-
-    if (!resp.ok || !resp.body) {
-      const errorData = await resp.json().catch(() => ({}));
-      throw new Error(errorData.error || 'Erro ao iniciar streaming');
-    }
-
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let textBuffer = '';
-    let streamDone = false;
-
-    while (!streamDone) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      textBuffer += decoder.decode(value, { stream: true });
-
-      let newlineIndex: number;
-      while ((newlineIndex = textBuffer.indexOf('\n')) !== -1) {
-        let line = textBuffer.slice(0, newlineIndex);
-        textBuffer = textBuffer.slice(newlineIndex + 1);
-
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        if (line.startsWith(':') || line.trim() === '') continue;
-        if (!line.startsWith('data: ')) continue;
-
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === '[DONE]') {
-          streamDone = true;
-          break;
-        }
-
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-          if (content) onDelta(content);
-        } catch {
-          textBuffer = line + '\n' + textBuffer;
-          break;
-        }
-      }
-    }
-
-    // Final flush
-    if (textBuffer.trim()) {
-      for (let raw of textBuffer.split('\n')) {
-        if (!raw) continue;
-        if (raw.endsWith('\r')) raw = raw.slice(0, -1);
-        if (raw.startsWith(':') || raw.trim() === '') continue;
-        if (!raw.startsWith('data: ')) continue;
-        const jsonStr = raw.slice(6).trim();
-        if (jsonStr === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-          if (content) onDelta(content);
-        } catch { /* ignore */ }
-      }
-    }
 
     onDone();
   }, [enableSearch, enableImageGen]);
@@ -719,7 +675,6 @@ const AssistenteIA = () => {
       let convId = currentConversationId;
       if (!convId) {
         convId = await createNewConversation();
-        if (!convId) throw new Error('Failed to create conversation');
         await updateConversationTitle(convId, userMessage.content);
       }
       
@@ -737,10 +692,26 @@ const AssistenteIA = () => {
         });
       }
 
-      const messagesToSend = [...messages, userMessage].map(m => ({
-        role: m.role,
-        content: m.content
-      }));
+      // Build system context from selected legal area
+      const area = LEGAL_AREA_MAP[legalAreaId];
+      const systemPromptText =
+        legalAreaId === 'personalizado'
+          ? customLegalArea
+            ? `Você é um advogado especialista em: ${customLegalArea}. Responda com profundidade técnica e fundamentação em legislação e jurisprudência brasileiras.`
+            : ''
+          : (area?.systemPrompt || '');
+
+      const contextMessages = systemPromptText
+        ? [
+            { role: 'user', content: systemPromptText },
+            { role: 'assistant', content: 'Entendido. Estou pronto para ajudá-lo com expertise nessa área do Direito.' },
+          ]
+        : [];
+
+      const messagesToSend = [
+        ...contextMessages,
+        ...[...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+      ];
 
       // Create assistant message placeholder
       const assistantMessageId = crypto.randomUUID();
@@ -791,20 +762,21 @@ const AssistenteIA = () => {
         }
       );
         
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error sending message:', error);
       setIsStreaming(false);
       setIsLoading(false);
       
-      if (error.name === 'AbortError') {
+      if (error instanceof DOMException && error.name === 'AbortError') {
         toast({
           title: 'Cancelado',
           description: 'Resposta cancelada'
         });
       } else {
+        const message = error instanceof Error ? error.message : 'Erro ao enviar mensagem';
         toast({
           title: 'Erro',
-          description: error.message || 'Erro ao enviar mensagem',
+          description: message,
           variant: 'destructive'
         });
       }
@@ -878,7 +850,7 @@ const AssistenteIA = () => {
           if (data.text) {
             setInput(prev => prev + (prev ? ' ' : '') + data.text);
           }
-        } catch (error: any) {
+        } catch (error) {
           console.error('Transcription error:', error);
           toast({
             title: 'Erro na transcrição',
@@ -1339,6 +1311,28 @@ const AssistenteIA = () => {
                   </div>
                 )}
 
+                {/* Legal Area Selector */}
+                <Select value={legalAreaId} onValueChange={setLegalAreaId}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span>{LEGAL_AREA_MAP[legalAreaId]?.emoji || '⚖️'}</span>
+                        <span className="truncate">{LEGAL_AREA_MAP[legalAreaId]?.label || 'Geral'}</span>
+                      </div>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[360px]">
+                    {LEGAL_AREAS.map(area => (
+                      <SelectItem key={area.id} value={area.id}>
+                        <div className="flex items-center gap-2">
+                          <span>{area.emoji}</span>
+                          <span className="text-sm">{area.label}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 {/* Model Selector */}
                 <Select value={selectedModel} onValueChange={setSelectedModel}>
                   <SelectTrigger className="w-[280px]">
@@ -1402,6 +1396,45 @@ const AssistenteIA = () => {
                 })}
               </div>
             )}
+
+            {/* Legal area badge + custom input + quick templates */}
+            {(() => {
+              const area = LEGAL_AREA_MAP[legalAreaId];
+              if (!area || area.id === 'geral') return null;
+              return (
+                <div className="mt-3 space-y-2">
+                  {/* Specialist badge */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${area.badge}`}>
+                      {area.emoji} Especialista: {area.label}
+                    </span>
+                    {area.id === 'personalizado' && (
+                      <input
+                        className="flex-1 min-w-48 rounded-md border border-input bg-background px-3 py-1 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                        placeholder="Descreva a especialidade desejada..."
+                        value={customLegalArea}
+                        onChange={(e) => setCustomLegalArea(e.target.value)}
+                      />
+                    )}
+                  </div>
+                  {/* Quick templates for the area */}
+                  {area.quickTemplates.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {area.quickTemplates.map((t) => (
+                        <button
+                          key={t.label}
+                          type="button"
+                          onClick={() => setInput(t.prompt + ' ')}
+                          className="rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Messages Area */}

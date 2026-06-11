@@ -1,1 +1,0 @@
-ALTER TABLE public.crm_deals ADD COLUMN star_rating integer DEFAULT 0;

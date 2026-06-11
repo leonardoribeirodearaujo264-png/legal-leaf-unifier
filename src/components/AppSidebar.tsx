@@ -1,141 +1,129 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useTheme } from 'next-themes';
 import { useUserRole } from '@/hooks/useUserRole';
-import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
+  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarHeader,
+  SidebarSeparator,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { ChevronDown } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  LogOut,
+  Moon,
+  Sun,
+  UserCircle,
+  Settings,
+} from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { getMenuGroups } from '@/lib/menuData';
 
-
-// localStorage key
 const STORAGE_KEY = 'sidebar-open-groups';
-
-// Module-level persistent scroll storage
 const sidebarScrollPositions = new Map<string, number>();
 
 function loadOpenGroups(): Set<string> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return new Set(JSON.parse(raw));
-  } catch {}
+  } catch { /* ignore */ }
   return new Set<string>();
 }
 
 function saveOpenGroups(groups: Set<string>) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...groups]));
-  } catch {}
+  } catch { /* ignore */ }
 }
 
-interface AppSidebarProps {
-  unreadMessagesCount?: number;
-}
+type AppSidebarProps = Record<string, never>;
 
-export function AppSidebar({ unreadMessagesCount: externalUnreadCount }: AppSidebarProps = {}) {
+export function AppSidebar(_: AppSidebarProps = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin, profile } = useUserRole();
+  const { user, signOut } = useAuth();
   const { state } = useSidebar();
+  const { theme, setTheme } = useTheme();
   const collapsed = state === 'collapsed';
   const sidebarContentRef = useRef<HTMLDivElement>(null);
   const scrollPositionRef = useRef(0);
   const isRestoringScroll = useRef(false);
 
   const [pendingUsersCount, setPendingUsersCount] = useState(0);
-  const [criticalTasksCount, setCriticalTasksCount] = useState(0);
-  const unreadMessagesCount = externalUnreadCount ?? 0;
 
   useEffect(() => {
-    if (isAdmin) fetchPendingCount();
-    fetchCriticalTasksCount();
-  }, [isAdmin, profile?.full_name]);
-
-  const fetchPendingCount = async () => {
-    const { count } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('approval_status', 'pending');
-    setPendingUsersCount(count || 0);
-  };
-
-  const fetchCriticalTasksCount = async () => {
-    if (!profile?.full_name) return;
-    try {
-      const { data, error } = await supabase.functions.invoke('advbox-integration/tasks', {
-        body: { force_refresh: false },
-      });
-      if (error) return;
-      let tasksData: any[] = [];
-      if (data?.data && Array.isArray(data.data)) tasksData = data.data;
-      else if (Array.isArray(data)) tasksData = data;
-      else if (data && typeof data === 'object') tasksData = data.tasks || data.items || [];
-
-      const currentName = profile.full_name.toLowerCase();
-      const userTasks = tasksData.filter((task: any) => {
-        const isPending = task.status?.toLowerCase() === 'pending' || task.status?.toLowerCase() === 'pendente';
-        const isInProgress = task.status?.toLowerCase() === 'in_progress' || task.status?.toLowerCase() === 'em andamento';
-        const isUserTask = task.assigned_to?.toLowerCase().includes(currentName);
-        return (isPending || isInProgress) && isUserTask && task.due_date;
-      });
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const count = userTasks.filter((task: any) => {
-        try {
-          const d = new Date(task.due_date);
-          d.setHours(0, 0, 0, 0);
-          return d <= today;
-        } catch { return false; }
-      }).length;
-      setCriticalTasksCount(count);
-    } catch {}
-  };
+    if (!isAdmin) return;
+    const fetchPendingCount = async () => {
+      const { count } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('approval_status', 'pending');
+      setPendingUsersCount(count || 0);
+    };
+    fetchPendingCount();
+  }, [isAdmin]);
 
   const isSocio = profile?.position === 'socio';
 
-  // ─── Menu Groups from shared source ───────────────────────
   const menuGroups = useMemo(
-    () => getMenuGroups(isAdmin, isSocio, { criticalTasksCount, pendingUsersCount, unreadMessagesCount }),
-    [isAdmin, isSocio, criticalTasksCount, pendingUsersCount, unreadMessagesCount]
+    () => getMenuGroups(isAdmin, isSocio, { pendingUsersCount }),
+    [isAdmin, isSocio, pendingUsersCount]
   );
 
-  // Filter out items whose condition is false
-  const filteredGroups = useMemo(() =>
-    menuGroups.map(g => ({
-      ...g,
-      items: g.items.filter(i => i.condition === undefined || i.condition),
-    })).filter(g => g.items.length > 0),
+  const filteredGroups = useMemo(
+    () =>
+      menuGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) => item.condition === undefined || item.condition),
+        }))
+        .filter((group) => group.items.length > 0),
     [menuGroups]
   );
 
-  // ─── Determine which group contains the active route ──────
   const activeGroupId = useMemo(() => {
-    for (const g of filteredGroups) {
-      if (g.items.some(i => location.pathname === i.path)) return g.id;
+    for (const group of filteredGroups) {
+      if (group.items.some((item) => location.pathname === item.path)) return group.id;
     }
     return null;
   }, [location.pathname, filteredGroups]);
 
-  // ─── Open groups state with localStorage persistence ──────
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
-    return loadOpenGroups();
-  });
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => loadOpenGroups());
 
   const toggleGroup = useCallback((id: string) => {
-    setOpenGroups(prev => {
+    setOpenGroups((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -144,9 +132,43 @@ export function AppSidebar({ unreadMessagesCount: externalUnreadCount }: AppSide
     });
   }, []);
 
-  const isActive = (path: string) => location.pathname === path;
+  const handleNavigate = useCallback(
+    (path: string) => {
+      if (sidebarContentRef.current) {
+        const pos = sidebarContentRef.current.scrollTop;
+        scrollPositionRef.current = pos;
+        sidebarScrollPositions.set('sidebar', pos);
+      }
+      navigate(path);
+    },
+    [navigate]
+  );
 
-  // ─── Scroll preservation ──────────────────────────────────
+  useLayoutEffect(() => {
+    const savedPos = scrollPositionRef.current || sidebarScrollPositions.get('sidebar') || 0;
+    if (savedPos <= 0) return;
+
+    isRestoringScroll.current = true;
+    const restoreScroll = () => {
+      if (sidebarContentRef.current) sidebarContentRef.current.scrollTop = savedPos;
+    };
+
+    restoreScroll();
+    requestAnimationFrame(restoreScroll);
+    const t1 = setTimeout(restoreScroll, 100);
+    const t2 = setTimeout(restoreScroll, 250);
+    const t3 = setTimeout(() => {
+      restoreScroll();
+      isRestoringScroll.current = false;
+    }, 500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [location.pathname]);
+
   const handleSidebarScroll = useCallback(() => {
     if (!isRestoringScroll.current && sidebarContentRef.current) {
       const pos = sidebarContentRef.current.scrollTop;
@@ -155,84 +177,110 @@ export function AppSidebar({ unreadMessagesCount: externalUnreadCount }: AppSide
     }
   }, []);
 
-  const handleNavigate = useCallback((path: string) => {
-    if (sidebarContentRef.current) {
-      const pos = sidebarContentRef.current.scrollTop;
-      scrollPositionRef.current = pos;
-      sidebarScrollPositions.set('sidebar', pos);
-    }
-    navigate(path);
-  }, [navigate]);
+  const isActive = (path: string) => location.pathname === path;
 
-  useLayoutEffect(() => {
-    const savedPos = scrollPositionRef.current || sidebarScrollPositions.get('sidebar') || 0;
-    if (savedPos > 0) {
-      isRestoringScroll.current = true;
-      const restoreScroll = () => {
-        if (sidebarContentRef.current) sidebarContentRef.current.scrollTop = savedPos;
-      };
-      restoreScroll();
-      requestAnimationFrame(restoreScroll);
-      const t1 = setTimeout(restoreScroll, 100);
-      const t2 = setTimeout(restoreScroll, 250);
-      const t3 = setTimeout(() => { restoreScroll(); isRestoringScroll.current = false; }, 500);
-      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-    }
-  }, [location.pathname]);
+  const initials = (profile?.full_name || user?.email || '?')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join('');
 
-  // ─── Render ───────────────────────────────────────────────
+  const isDark = theme === 'dark';
+
   return (
-    <Sidebar collapsible="icon" className="border-r border-border bg-card">
-      <SidebarHeader className="p-4 border-b border-border">
-        {!collapsed && <span className="font-semibold text-sm text-muted-foreground">Menu</span>}
+    <Sidebar collapsible="icon" className="border-r-0 bg-sidebar shadow-2xl">
+      {/* ── Header ─────────────────────────────────────── */}
+      <SidebarHeader className="border-b border-sidebar-border/60 px-4 py-4">
+        {collapsed ? (
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-xl">
+            ⚖️
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/20 text-xl shadow-inner">
+              ⚖️
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-[17px] font-bold text-sidebar-foreground leading-tight">Tribuna IA</p>
+              <p className="truncate text-[12px] text-sidebar-foreground/40 mt-0.5">Inteligência Jurídica</p>
+            </div>
+          </div>
+        )}
       </SidebarHeader>
 
-      <SidebarContent ref={sidebarContentRef} onScroll={handleSidebarScroll} className="overflow-y-auto">
+      {/* ── Menu ───────────────────────────────────────── */}
+      <SidebarContent
+        ref={sidebarContentRef}
+        onScroll={handleSidebarScroll}
+        className="overflow-y-auto px-2.5 py-3"
+      >
         {filteredGroups.map((group) => (
           <Collapsible
             key={group.id}
-            open={openGroups.has(group.id)}
+            open={openGroups.has(group.id) || activeGroupId === group.id}
             onOpenChange={() => toggleGroup(group.id)}
           >
-            <SidebarGroup>
+            <SidebarGroup className="mb-1.5 py-0">
+              {/* Section label */}
               <CollapsibleTrigger asChild>
-                <SidebarGroupLabel className="cursor-pointer hover:bg-accent/50 rounded-md px-2 py-1.5 flex items-center justify-between text-xs font-semibold text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    {collapsed ? (
-                      <group.icon className="h-4 w-4" />
-                    ) : (
-                      <>
-                        <span>{group.emoji}</span>
-                        <span>{group.label}</span>
-                      </>
-                    )}
-                  </span>
-                  {!collapsed && (
-                    <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${openGroups.has(group.id) ? 'rotate-180' : ''}`} />
+                <SidebarGroupLabel className="group/label mb-1 flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 text-[11px] font-bold uppercase tracking-widest text-sidebar-foreground/35 transition-colors hover:text-sidebar-foreground/65">
+                  {collapsed ? (
+                    <group.icon className="h-4 w-4 text-sidebar-foreground/40" />
+                  ) : (
+                    <>
+                      <span>{group.label}</span>
+                      <ChevronRight
+                        className={`h-3.5 w-3.5 transition-transform duration-200 ${
+                          openGroups.has(group.id) || activeGroupId === group.id ? 'rotate-90' : ''
+                        }`}
+                      />
+                    </>
                   )}
                 </SidebarGroupLabel>
               </CollapsibleTrigger>
+
               <CollapsibleContent>
                 <SidebarGroupContent>
-                  <SidebarMenu>
-                    {group.items.map((item) => (
-                      <SidebarMenuItem key={item.path}>
-                        <SidebarMenuButton
-                          onClick={() => handleNavigate(item.path)}
-                          isActive={isActive(item.path)}
-                          tooltip={collapsed ? item.label : undefined}
-                          className="gap-2"
-                        >
-                          <item.icon className="h-4 w-4 flex-shrink-0" />
-                          {!collapsed && <span className="truncate">{item.label}</span>}
-                          {!collapsed && item.badgeCount !== undefined && item.badgeCount > 0 && (
-                            <Badge variant="destructive" className="ml-auto h-5 min-w-5 px-1 text-xs">
-                              {item.badgeCount}
-                            </Badge>
-                          )}
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    ))}
+                  <SidebarMenu className="gap-0.5">
+                    {group.items.map((item) => {
+                      const active = isActive(item.path);
+                      return (
+                        <SidebarMenuItem key={item.path}>
+                          <SidebarMenuButton
+                            onClick={() => handleNavigate(item.path)}
+                            isActive={active}
+                            tooltip={collapsed ? item.label : undefined}
+                            className={[
+                              'relative h-11 gap-3 rounded-xl px-3 text-[15px] font-medium transition-all duration-150',
+                              active
+                                ? 'bg-gradient-to-r from-primary to-blue-500 text-white shadow-md shadow-primary/30 hover:from-primary/90 hover:to-blue-500/90'
+                                : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                            ].join(' ')}
+                          >
+                            {active && !collapsed && (
+                              <span className="absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-full bg-white/80" />
+                            )}
+                            <item.icon
+                              className={`h-5 w-5 flex-shrink-0 transition-colors ${
+                                active ? 'text-white' : 'text-sidebar-foreground/55'
+                              }`}
+                            />
+                            {!collapsed && (
+                              <span className="truncate">{item.label}</span>
+                            )}
+                            {!collapsed && item.badgeCount !== undefined && item.badgeCount > 0 && (
+                              <Badge
+                                variant="destructive"
+                                className="ml-auto h-5 min-w-5 px-1.5 text-[10px]"
+                              >
+                                {item.badgeCount}
+                              </Badge>
+                            )}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>
@@ -240,6 +288,145 @@ export function AppSidebar({ unreadMessagesCount: externalUnreadCount }: AppSide
           </Collapsible>
         ))}
       </SidebarContent>
+
+      {/* ── Footer ─────────────────────────────────────── */}
+      <SidebarFooter className="border-t border-sidebar-border/60 p-2.5">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2 py-1">
+            <button
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="flex h-10 w-10 items-center justify-center rounded-xl text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              title={isDark ? 'Tema claro' : 'Tema escuro'}
+            >
+              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex h-10 w-10 items-center justify-center rounded-xl transition-colors hover:bg-sidebar-accent">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={profile?.avatar_url || ''} />
+                    <AvatarFallback className="bg-primary/20 text-primary text-xs font-bold">
+                      {initials || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="right" align="end" className="w-52">
+                <div className="px-3 py-2">
+                  <p className="font-semibold text-sm">{profile?.full_name || 'Usuário'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate('/profile')}>
+                  <UserCircle className="mr-2 h-4 w-4" /> Meu Perfil
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      onSelect={(e) => e.preventDefault()}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" /> Sair do Sistema
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Sair do sistema?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Sua sessão será encerrada. Você precisará fazer login novamente para acessar o Tribuna IA.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={signOut} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        Sair
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {/* User card */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-sidebar-accent">
+                  <Avatar className="h-9 w-9 flex-shrink-0">
+                    <AvatarImage src={profile?.avatar_url || ''} />
+                    <AvatarFallback className="bg-primary/20 text-primary text-sm font-bold">
+                      {initials || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="truncate text-[14px] font-semibold text-sidebar-foreground leading-tight">
+                      {profile?.full_name || 'Usuário'}
+                    </p>
+                    <p className="truncate text-[12px] text-sidebar-foreground/45 mt-0.5">
+                      {user?.email}
+                    </p>
+                  </div>
+                  <ChevronDown className="h-4 w-4 flex-shrink-0 text-sidebar-foreground/35" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" className="w-56 mb-1">
+                <div className="px-3 py-2">
+                  <p className="text-sm font-semibold">{profile?.full_name || 'Usuário'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate('/profile')}>
+                  <UserCircle className="mr-2 h-4 w-4" /> Meu Perfil
+                </DropdownMenuItem>
+                {isAdmin && (
+                  <DropdownMenuItem onClick={() => navigate('/admin')}>
+                    <Settings className="mr-2 h-4 w-4" /> Administração
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <SidebarSeparator className="bg-sidebar-border/40" />
+
+            <button
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              {isDark ? (
+                <><Sun className="h-5 w-5" /><span>Tema Claro</span></>
+              ) : (
+                <><Moon className="h-5 w-5" /><span>Tema Escuro</span></>
+              )}
+            </button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] font-medium text-red-400/80 transition-all hover:bg-red-500/10 hover:text-red-400">
+                  <LogOut className="h-5 w-5" />
+                  <span>Sair do Sistema</span>
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Sair do sistema?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Sua sessão será encerrada. Você precisará fazer login novamente para acessar o Tribuna IA.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={signOut} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Sair
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
+      </SidebarFooter>
     </Sidebar>
   );
 }

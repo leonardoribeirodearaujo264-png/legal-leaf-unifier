@@ -1,1 +1,0 @@
-ALTER TABLE rh_pagamentos DROP CONSTRAINT rh_pagamentos_colaborador_id_mes_referencia_key;

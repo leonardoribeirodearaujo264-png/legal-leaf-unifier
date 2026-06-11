@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Layout } from '@/components/Layout';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
+import { searchJurisprudencia } from '@/services/perplexityService';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,20 +162,17 @@ export default function PesquisaJurisprudencia() {
     setCitations([]);
 
     try {
-      const { data, error } = await supabase.functions.invoke('search-jurisprudence', {
-        body: { query: query.trim() }
-      });
+      const result = await searchJurisprudencia(query.trim());
 
-      if (error) throw error;
-
-      if (data.error) {
-        throw new Error(data.error);
+      // Try to parse structured JSON from the result
+      let parsed: ParsedResult | null = null;
+      const jsonMatch = result.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        try { parsed = JSON.parse(jsonMatch[1]) as ParsedResult; } catch { /* ignore */ }
       }
 
-      const result = data.result;
-      const parsed = data.parsed as ParsedResult | null;
-      const resultCitations = data.citations as string[] || [];
-      
+      const resultCitations: string[] = [];
+
       setSearchResult(result);
       setParsedResult(parsed);
       setCitations(resultCitations);

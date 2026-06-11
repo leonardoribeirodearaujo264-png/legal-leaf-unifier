@@ -1,1 +1,0 @@
-ALTER TABLE meta_ads_config ADD COLUMN IF NOT EXISTS instagram_account_id TEXT;

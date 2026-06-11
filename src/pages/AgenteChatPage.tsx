@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { streamAI } from '@/services/aiService';
+import { AI_PROVIDER_MAP } from '@/config/ai';
 import { Layout } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -256,69 +258,29 @@ export default function AgenteChatPage() {
         content: userMessage.content,
       });
 
-      const chatUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-with-agent`;
-      const resp = await fetch(chatUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
-          agentId: agent.id,
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          attachments: currentAttachments.length > 0 ? currentAttachments.map(a => ({
-            name: a.name,
-            type: a.type,
-            base64: a.base64,
-          })) : undefined,
-        }),
-      });
+      // Build messages with agent system prompt prepended
+      const systemPrompt = `Você é ${agent.name}. ${agent.objective}\n\nInstruções:\n${agent.instructions}`;
+      const messagesWithSystem = [
+        { role: 'user', content: systemPrompt },
+        { role: 'assistant', content: 'Entendido. Estou pronto para ajudar.' },
+        ...newMessages.map(m => ({ role: m.role, content: m.content })),
+      ];
 
-      if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error || `Error: ${resp.status}`);
-      }
-
-      if (!resp.body) throw new Error('No stream');
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
       let assistantContent = '';
-      let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+      // Use agent's configured model; fall back to gemini-flash for legacy/unknown IDs
+      const agentModelId = agent.model && AI_PROVIDER_MAP[agent.model] ? agent.model : 'gemini-flash';
 
-        let newlineIndex: number;
-        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
-          let line = buffer.slice(0, newlineIndex);
-          buffer = buffer.slice(newlineIndex + 1);
-          if (line.endsWith('\r')) line = line.slice(0, -1);
-          if (line.startsWith(':') || line.trim() === '') continue;
-          if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === '[DONE]') break;
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              assistantContent += content;
-              setMessages(prev => {
-                const last = prev[prev.length - 1];
-                if (last?.role === 'assistant') {
-                  return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: assistantContent } : m);
-                }
-                return [...prev, { role: 'assistant', content: assistantContent }];
-              });
-            }
-          } catch {
-            buffer = line + '\n' + buffer;
-            break;
+      await streamAI(messagesWithSystem, agentModelId, (chunk) => {
+        assistantContent += chunk;
+        setMessages(prev => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant') {
+            return prev.map((m, i) => i === prev.length - 1 ? { ...m, content: assistantContent } : m);
           }
-        }
-      }
+          return [...prev, { role: 'assistant', content: assistantContent }];
+        });
+      });
 
       if (assistantContent) {
         await supabase.from('intranet_agent_messages').insert({

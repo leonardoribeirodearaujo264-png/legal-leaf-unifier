@@ -1,1 +1,0 @@
-ALTER TABLE public.crm_deals ADD COLUMN IF NOT EXISTS stage_changed_at TIMESTAMP WITH TIME ZONE DEFAULT now();

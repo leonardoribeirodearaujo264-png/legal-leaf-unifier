@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useSessionRefresh } from '@/hooks/useSessionRefresh';
 import { toast } from 'sonner';
-import { Plus, Bot, MessageSquare, Trash2, Edit, Loader2, Database, User } from 'lucide-react';
+import { Plus, Bot, Trash2, Edit, Loader2, Play, User } from 'lucide-react';
 import { CreateAgentDialog } from './CreateAgentDialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -27,27 +27,36 @@ interface Agent {
   created_at: string;
   function_role?: string;
   card_color?: string;
-  data_access?: string[];
   creator_name?: string;
+  knowledge_base?: string | null;
 }
 
-const modelLabels: Record<string, string> = {
+const MODEL_LABELS: Record<string, string> = {
+  'gemini-flash': 'Gemini Flash',
+  'gemini-pro': 'Gemini Pro',
+  'claude-sonnet': 'Claude Sonnet',
+  'claude-haiku': 'Claude Haiku',
+  'gpt-4o': 'GPT-4o',
+  'gpt-4o-mini': 'GPT-4o Mini',
+  'perplexity-large': 'Perplexity',
   'anthropic/claude-sonnet': 'Claude Sonnet',
   'openai/gpt-5': 'GPT-5',
-  'perplexity/sonar-pro': 'Perplexity Sonar',
   'google/gemini-2.5-flash': 'Gemini Flash',
-  'google/gemini-3-flash-preview': 'Gemini 3 Flash',
+  'google/gemini-3-flash-preview': 'Gemini Flash',
+  'perplexity/sonar-pro': 'Perplexity',
 };
 
-const modelColors: Record<string, string> = {
-  'anthropic/claude-sonnet': 'bg-orange-100 text-orange-700 border-orange-200',
-  'openai/gpt-5': 'bg-green-100 text-green-700 border-green-200',
-  'perplexity/sonar-pro': 'bg-blue-100 text-blue-700 border-blue-200',
-  'google/gemini-2.5-flash': 'bg-purple-100 text-purple-700 border-purple-200',
-  'google/gemini-3-flash-preview': 'bg-purple-100 text-purple-700 border-purple-200',
+const MODEL_COLORS: Record<string, string> = {
+  'gemini-flash': 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300',
+  'gemini-pro': 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300',
+  'claude-sonnet': 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300',
+  'claude-haiku': 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300',
+  'gpt-4o': 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
+  'gpt-4o-mini': 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300',
+  'perplexity-large': 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300',
 };
 
-const cardColorStyles: Record<string, string> = {
+const CARD_COLORS: Record<string, string> = {
   purple: 'border-t-4 border-t-purple-500',
   blue: 'border-t-4 border-t-blue-500',
   green: 'border-t-4 border-t-green-500',
@@ -57,23 +66,20 @@ const cardColorStyles: Record<string, string> = {
   pink: 'border-t-4 border-t-pink-500',
 };
 
-const dataAccessLabels: Record<string, string> = {
-  leads: 'Leads',
-  colaboradores: 'Colaboradores',
-  intimacoes: 'Intimações',
-  financeiro: 'Financeiro',
-  campanhas: 'Campanhas',
-  tarefas: 'Tarefas',
-  processos: 'Processos',
-  teams_documents: 'Documentos Teams',
-  all: 'Acesso Total',
-};
+function modelLabel(model: string) {
+  return MODEL_LABELS[model] || model.split('/').pop() || model;
+}
+
+function modelColor(model: string) {
+  return MODEL_COLORS[model] || 'bg-muted text-muted-foreground border-border';
+}
 
 export function IntranetAgentsTab() {
   const { user } = useAuth();
   const { isAdmin } = useUserRole();
   const { retryWithRefresh } = useSessionRefresh();
   const navigate = useNavigate();
+
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -84,56 +90,64 @@ export function IntranetAgentsTab() {
 
   const loadAgents = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('intranet_agents')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('intranet_agents')
+        .select('id, name, objective, instructions, model, icon_emoji, created_by, is_active, created_at, function_role, card_color, knowledge_base')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error loading agents:', error);
-      toast.error('Erro ao carregar agentes');
-      setLoading(false);
-      return;
+      if (error) {
+        // If columns like knowledge_base don't exist yet, fall back to base columns
+        if (error.code === '42703') {
+          const fallback = await supabase
+            .from('intranet_agents')
+            .select('id, name, objective, instructions, model, icon_emoji, created_by, is_active, created_at, function_role, card_color')
+            .order('created_at', { ascending: false });
+          if (fallback.error) throw fallback.error;
+          setAgents((fallback.data || []).map((a) => ({ ...a, creator_name: 'Usuário' })));
+          setLoading(false);
+          return;
+        }
+        throw error;
+      }
+
+      const list = data || [];
+      const creatorIds = [...new Set(list.map((a) => a.created_by).filter(Boolean))];
+      let creatorMap: Record<string, string> = {};
+
+      if (creatorIds.length > 0) {
+        // profiles_safe may not exist in all environments — ignore errors gracefully
+        const { data: profiles } = await supabase
+          .from('profiles_safe')
+          .select('id, full_name')
+          .in('id', creatorIds);
+        creatorMap = (profiles || []).reduce((acc, p) => {
+          if (p.id && p.full_name) acc[p.id] = p.full_name;
+          return acc;
+        }, {} as Record<string, string>);
+      }
+
+      setAgents(list.map((a) => ({ ...a, creator_name: creatorMap[a.created_by] || 'Usuário' })));
+    } catch (err) {
+      console.error('Error loading agents:', err);
+      const msg =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
+      toast.error(`Erro ao carregar agentes: ${msg}`);
     }
-
-    const agentsList = data || [];
-    const creatorIds = Array.from(new Set(agentsList.map(a => a.created_by).filter(Boolean)));
-
-    let creatorMap: Record<string, string> = {};
-    if (creatorIds.length > 0) {
-      const { data: profiles } = await supabase
-        .from('profiles_safe')
-        .select('id, full_name')
-        .in('id', creatorIds);
-      creatorMap = (profiles || []).reduce((acc, p) => {
-        if (p.id && p.full_name) acc[p.id] = p.full_name;
-        return acc;
-      }, {} as Record<string, string>);
-    }
-
-    setAgents(agentsList.map(a => ({ ...a, creator_name: creatorMap[a.created_by] || 'Usuário' })));
     setLoading(false);
   };
 
   const confirmDelete = async () => {
     if (!deletingAgentId) return;
-    // Hard delete: a policy de UPDATE herda o WITH CHECK da SELECT (is_active = true),
-    // o que bloqueia soft delete (is_active = false) com "row violates RLS policy".
-    // A policy de DELETE já é restrita a criador/admin, e as FKs filhas usam ON DELETE CASCADE.
     const result = await retryWithRefresh(() =>
-      supabase
-        .from('intranet_agents')
-        .delete()
-        .eq('id', deletingAgentId)
+      supabase.from('intranet_agents').delete().eq('id', deletingAgentId)
     );
-
     if (result.error) {
-      console.error('Delete error:', result.error);
       toast.error(`Erro ao excluir: ${result.error.message}`);
     } else {
-      // Atualiza UI localmente (some imediatamente) + recarrega para garantir consistência
-      setAgents(prev => prev.filter(a => a.id !== deletingAgentId));
+      setAgents((prev) => prev.filter((a) => a.id !== deletingAgentId));
       toast.success('Agente excluído');
       loadAgents();
     }
@@ -142,7 +156,7 @@ export function IntranetAgentsTab() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="flex items-center justify-center py-16">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -153,7 +167,11 @@ export function IntranetAgentsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Seus Agentes Personalizados</h2>
-          <p className="text-sm text-muted-foreground">Crie agentes de IA com instruções específicas para suas necessidades</p>
+          <p className="text-sm text-muted-foreground">
+            {agents.length > 0
+              ? `${agents.length} agente${agents.length !== 1 ? 's' : ''} configurado${agents.length !== 1 ? 's' : ''}`
+              : 'Crie agentes especializados para o seu escritório'}
+          </p>
         </div>
         <Button onClick={() => { setEditingAgent(null); setShowCreate(true); }} className="gap-2">
           <Plus className="h-4 w-4" /> Criar Novo Agente
@@ -162,13 +180,15 @@ export function IntranetAgentsTab() {
 
       {agents.length === 0 ? (
         <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <Bot className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold mb-2">Nenhum agente criado ainda</h3>
-            <p className="text-muted-foreground mb-4 max-w-md">
-              Crie seu primeiro agente de IA personalizado com instruções específicas para automatizar tarefas do escritório.
+          <CardContent className="flex flex-col items-center justify-center py-14 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 mb-4">
+              <Bot className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="text-lg font-semibold mb-1">Nenhum agente criado ainda</h3>
+            <p className="text-sm text-muted-foreground mb-5 max-w-sm">
+              Crie seu primeiro agente com instruções específicas, modelo de IA e base de conhecimento própria.
             </p>
-            <Button onClick={() => setShowCreate(true)} className="gap-2">
+            <Button onClick={() => { setEditingAgent(null); setShowCreate(true); }} className="gap-2">
               <Plus className="h-4 w-4" /> Criar Primeiro Agente
             </Button>
           </CardContent>
@@ -176,68 +196,76 @@ export function IntranetAgentsTab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {agents.map((agent) => {
-            const colorStyle = cardColorStyles[agent.card_color || 'purple'] || cardColorStyles.purple;
-            const accessList = (agent.data_access || []).filter(v => v !== '');
+            const topColor = CARD_COLORS[agent.card_color || 'purple'] || CARD_COLORS.purple;
+            const canEdit = user?.id === agent.created_by || isAdmin;
 
             return (
-              <Card key={agent.id} className={`hover:shadow-lg transition-all duration-300 cursor-pointer group ${colorStyle}`} onClick={() => navigate(`/agentes-ia/${agent.id}`)}>
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl">{agent.icon_emoji}</span>
-                      <div>
-                        <h3 className="font-semibold text-base group-hover:text-primary transition-colors">{agent.name}</h3>
-                        {agent.function_role && (
-                          <p className="text-xs text-muted-foreground italic">{agent.function_role}</p>
-                        )}
-                        <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{agent.objective}</p>
-                      </div>
+              <Card
+                key={agent.id}
+                className={`group flex flex-col transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer ${topColor}`}
+                onClick={() => navigate(`/agentes-ia/${agent.id}`)}
+              >
+                <CardContent className="flex flex-col flex-1 p-5 gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-3xl flex-shrink-0 leading-none">{agent.icon_emoji}</span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-[15px] leading-tight group-hover:text-primary transition-colors truncate">
+                        {agent.name}
+                      </h3>
+                      {agent.function_role && (
+                        <p className="text-xs text-muted-foreground italic mt-0.5 truncate">{agent.function_role}</p>
+                      )}
                     </div>
+                    {!agent.is_active && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">Inativo</Badge>
+                    )}
                   </div>
 
-                  {accessList.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {accessList.includes('all') ? (
-                        <Badge variant="secondary" className="text-xs gap-1">
-                          <Database className="h-3 w-3" /> Acesso Total
-                        </Badge>
-                      ) : (
-                        accessList.slice(0, 3).map(acc => (
-                          <Badge key={acc} variant="outline" className="text-xs">
-                            {dataAccessLabels[acc] || acc}
-                          </Badge>
-                        ))
-                      )}
-                      {!accessList.includes('all') && accessList.length > 3 && (
-                        <Badge variant="outline" className="text-xs">+{accessList.length - 3}</Badge>
-                      )}
-                    </div>
+                  <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+                    {agent.objective}
+                  </p>
+
+                  {agent.knowledge_base && (
+                    <Badge variant="secondary" className="self-start text-[10px]">
+                      📄 Base de conhecimento
+                    </Badge>
                   )}
 
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
-                    <User className="h-3 w-3" />
-                    <span className="truncate">Criado por {agent.creator_name}</span>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3">
-                    <Badge variant="outline" className={`text-xs ${modelColors[agent.model] || 'bg-muted text-muted-foreground'}`}>
-                      {modelLabels[agent.model] || agent.model}
+                  <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/50">
+                    <Badge variant="outline" className={`text-[10px] border ${modelColor(agent.model)}`}>
+                      {modelLabel(agent.model)}
                     </Badge>
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      {(user?.id === agent.created_by || isAdmin) && (
+
+                    <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost" size="sm"
+                        className="h-7 gap-1 text-xs text-primary hover:bg-primary/10"
+                        onClick={() => navigate(`/agentes-ia/${agent.id}`)}
+                      >
+                        <Play className="h-3 w-3" /> Executar
+                      </Button>
+                      {canEdit && (
                         <>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setEditingAgent(agent); setShowCreate(true); }}>
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => { setEditingAgent(agent); setShowCreate(true); }}
+                          >
                             <Edit className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeletingAgentId(agent.id)}>
+                          <Button
+                            variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => setDeletingAgentId(agent.id)}
+                          >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </>
                       )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                      </Button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-[11px] text-muted-foreground/50 -mt-1">
+                    <User className="h-3 w-3" />
+                    <span className="truncate">{agent.creator_name}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -246,19 +274,27 @@ export function IntranetAgentsTab() {
         </div>
       )}
 
-      <CreateAgentDialog open={showCreate} onOpenChange={setShowCreate} onSuccess={loadAgents} editingAgent={editingAgent} />
+      <CreateAgentDialog
+        open={showCreate}
+        onOpenChange={setShowCreate}
+        onSuccess={loadAgents}
+        editingAgent={editingAgent}
+      />
 
-      <AlertDialog open={!!deletingAgentId} onOpenChange={(open) => { if (!open) setDeletingAgentId(null); }}>
+      <AlertDialog open={!!deletingAgentId} onOpenChange={(o) => { if (!o) setDeletingAgentId(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir agente</AlertDialogTitle>
+            <AlertDialogTitle>Excluir agente?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir este agente? Esta ação não pode ser desfeita.
+              Esta ação não pode ser desfeita. O agente e todas as suas conversas serão removidos permanentemente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

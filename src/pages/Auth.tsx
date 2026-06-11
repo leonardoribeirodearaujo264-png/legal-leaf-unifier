@@ -1,22 +1,13 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { Camera, Check, X } from 'lucide-react';
-import logoEggNunes from '@/assets/logo-eggnunes.png';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon } from 'lucide-react';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { Check, X, Sparkles, Bot, Zap, Eye, EyeOff, Scale } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// Password validation requirements
 const validatePassword = (password: string) => ({
   minLength: password.length >= 8,
   hasUppercase: /[A-Z]/.test(password),
@@ -28,34 +19,17 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
-  const [position, setPosition] = useState('');
-  const [birthDate, setBirthDate] = useState<Date>();
-  const [joinDate, setJoinDate] = useState<Date>();
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-  
+
   const passwordValidation = useMemo(() => validatePassword(password), [password]);
-  const isPasswordValid = useMemo(() => 
-    Object.values(passwordValidation).every(Boolean), 
+  const isPasswordValid = useMemo(() =>
+    Object.values(passwordValidation).every(Boolean),
     [passwordValidation]
   );
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,373 +37,245 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        const { error, data } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-
-        // Verificar se o usuário está aprovado
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('approval_status')
-          .eq('id', data.user.id)
-          .single();
-
-        if (profile?.approval_status === 'pending') {
-          await supabase.auth.signOut();
-          toast({
-            title: 'Aguardando aprovação',
-            description: 'Seu cadastro está pendente de aprovação por um administrador.',
-            variant: 'destructive',
-          });
-          setLoading(false);
-          return;
-        }
-
-        if (profile?.approval_status === 'rejected') {
-          await supabase.auth.signOut();
-          toast({
-            title: 'Acesso negado',
-            description: 'Seu cadastro foi rejeitado. Entre em contato com o administrador.',
-            variant: 'destructive',
-          });
-          setLoading(false);
-          return;
-        }
-
-        toast({
-          title: 'Login realizado',
-          description: 'Bem-vindo de volta!',
-        });
+        toast({ title: 'Bem-vindo de volta!' });
         navigate('/dashboard');
       } else {
-        // Validate password before signup
         if (!isPasswordValid) {
-          toast({
-            title: 'Senha inválida',
-            description: 'A senha deve ter no mínimo 8 caracteres, incluindo maiúscula, minúscula e número.',
-            variant: 'destructive',
-          });
+          toast({ title: 'Senha inválida', description: 'Verifique os requisitos abaixo.', variant: 'destructive' });
           setLoading(false);
           return;
         }
-        
-        let avatarUrl = '';
-
-        const { error, data } = await supabase.auth.signUp({
+        const { error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/`,
-            data: {
-              full_name: fullName,
-              position: position,
-              birth_date: birthDate ? format(birthDate, 'yyyy-MM-dd') : null,
-            },
+            data: { full_name: fullName },
           },
         });
-
         if (error) throw error;
-
-        // Após criar o usuário, fazer upload do avatar usando o id do usuário
-        if (data.user && avatarFile) {
-          const fileExt = avatarFile.name.split('.').pop();
-          const fileName = `${data.user.id}/${Date.now()}.${fileExt}`;
-          const { error: uploadError } = await supabase.storage
-            .from('avatars')
-            .upload(fileName, avatarFile, { upsert: true });
-
-          if (!uploadError) {
-            const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(fileName);
-            avatarUrl = publicData.publicUrl;
-          }
-        }
-
-        // Atualizar profile com cargo, avatar, data de nascimento e data de ingresso
-        if (data.user) {
-          await supabase
-            .from('profiles')
-            .update({
-              position: position as any,
-              avatar_url: avatarUrl || null,
-              birth_date: birthDate ? format(birthDate, 'yyyy-MM-dd') : null,
-              join_date: joinDate ? format(joinDate, 'yyyy-MM-dd') : null,
-            })
-            .eq('id', data.user.id);
-        }
-
-        toast({
-          title: 'Cadastro realizado',
-          description: 'Aguarde a aprovação do administrador para acessar o sistema.',
-        });
+        toast({ title: 'Conta criada!', description: 'Agora você já pode entrar com seu e-mail e senha.' });
         setIsLogin(true);
-        setAvatarFile(null);
-        setAvatarPreview('');
-        setPosition('');
       }
-    } catch (error: any) {
-      toast({
-        title: 'Erro',
-        description: error.message,
-        variant: 'destructive',
-      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha ao autenticar.';
+      toast({ title: 'Erro', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/20 p-4 overflow-y-auto">
-      <Card className="w-full max-w-md my-4">
-        <CardHeader className="text-center space-y-4">
-          <img 
-            src={logoEggNunes} 
-            alt="Egg Nunes Advogados" 
-            className="h-16 mx-auto"
-          />
-          <div>
-            <CardTitle className="text-2xl">Intranet Egg Nunes</CardTitle>
-            <CardDescription>
-              Sistema interno de ferramentas para a equipe
-            </CardDescription>
+    <div className="min-h-screen flex bg-slate-950">
+      {/* Left panel — branding */}
+      <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden bg-[radial-gradient(circle_at_top_left,#0f766e_0,#0f172a_42%,#020617_100%)] flex-col items-center justify-center p-14">
+        <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[26rem] h-[26rem] bg-emerald-400/8 rounded-full blur-3xl pointer-events-none" />
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)', backgroundSize: '44px 44px' }}
+        />
+
+        <div className="relative z-10 text-center space-y-10 max-w-md">
+          <div className="flex justify-center gap-4 mb-2">
+            <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-sm">
+              <Bot className="w-7 h-7 text-emerald-200" />
+            </div>
+            <div className="w-18 h-18 rounded-2xl bg-emerald-500/20 border border-emerald-300/30 flex items-center justify-center backdrop-blur-sm shadow-xl shadow-emerald-950/50 p-4">
+              <Scale className="w-10 h-10 text-emerald-100" />
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center backdrop-blur-sm">
+              <Sparkles className="w-7 h-7 text-blue-300" />
+            </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleAuth} className="space-y-4">
+
+          <div>
+            <h1 className="text-5xl font-bold text-white tracking-tight mb-4">
+              Tribuna <span className="text-emerald-300">IA</span>
+            </h1>
+            <p className="text-slate-300 text-[17px] leading-relaxed">
+              Plataforma de ferramentas e inteligência artificial para escritórios jurídicos
+            </p>
+          </div>
+
+          <div className="space-y-3.5 text-left">
+            {[
+              'Assistente de IA multi-modelo',
+              'Agentes especializados por área',
+              'Processamento de documentos jurídicos',
+              'Corretor jurídico inteligente',
+              'Gestão de casos e processos',
+            ].map((feat) => (
+              <div key={feat} className="flex items-center gap-3.5">
+                <div className="w-6 h-6 rounded-full bg-emerald-400/15 border border-emerald-300/30 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-3.5 h-3.5 text-emerald-200" />
+                </div>
+                <span className="text-slate-300 text-[16px]">{feat}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right panel — form */}
+      <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-900">
+        <div className="w-full max-w-[26rem] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-2xl shadow-slate-200/60 dark:shadow-slate-900/60 space-y-7">
+          {/* Mobile header */}
+          <div className="lg:hidden text-center mb-2">
+            <div className="inline-flex w-16 h-16 rounded-2xl bg-emerald-600 items-center justify-center mb-4 shadow-lg shadow-emerald-500/30">
+              <Scale className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-2xl font-bold">Tribuna IA</h1>
+            <p className="text-sm text-muted-foreground mt-1">Inteligência Jurídica</p>
+          </div>
+
+          <div>
+            <h2 className="text-[26px] font-bold tracking-tight">
+              {isLogin ? 'Entrar na plataforma' : 'Criar conta'}
+            </h2>
+            <p className="text-[15px] text-muted-foreground mt-1.5">
+              {isLogin
+                ? 'Use suas credenciais para acessar'
+                : 'Informe nome, e-mail e senha para criar sua conta'}
+            </p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-5">
             {!isLogin && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="fullName">Nome completo</Label>
-                  <Input
-                    id="fullName"
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                    disabled={loading}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="position">Cargo no escritório</Label>
-                  <Select value={position} onValueChange={setPosition} disabled={loading} required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione seu cargo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="socio">Sócio</SelectItem>
-                      <SelectItem value="advogado">Advogado</SelectItem>
-                      <SelectItem value="estagiario">Estagiário</SelectItem>
-                      <SelectItem value="comercial">Comercial</SelectItem>
-                      <SelectItem value="administrativo">Administrativo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="birthDate">Data de Nascimento</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !birthDate && "text-muted-foreground"
-                        )}
-                        disabled={loading}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {birthDate ? format(birthDate, "dd/MM/yyyy", { locale: ptBR }) : "Selecione sua data de nascimento"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={birthDate}
-                        onSelect={setBirthDate}
-                        initialFocus
-                        disabled={(date) =>
-                          date > new Date() || date < new Date("1900-01-01")
-                        }
-                        className="pointer-events-auto"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="joinDate">Data de Ingresso no Escritório</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !joinDate && "text-muted-foreground"
-                        )}
-                        disabled={loading}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {joinDate ? format(joinDate, "dd/MM/yyyy", { locale: ptBR }) : "Selecione a data de ingresso"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={joinDate}
-                        onSelect={setJoinDate}
-                        initialFocus
-                        disabled={(date) =>
-                          date > new Date() || date < new Date("1900-01-01")
-                        }
-                        className="pointer-events-auto"
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="space-y-2">
-                  <Label>Foto de perfil</Label>
-                  <div className="flex items-center gap-4">
-                    {avatarPreview ? (
-                      <img 
-                        src={avatarPreview} 
-                        alt="Preview" 
-                        className="w-20 h-20 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center">
-                        <Camera className="w-8 h-8 text-muted-foreground" />
-                      </div>
-                    )}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={loading}
-                    >
-                      Escolher foto
-                    </Button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleAvatarChange}
-                    />
-                  </div>
-                </div>
-              </>
+              <div className="space-y-2">
+                <Label htmlFor="fullName" className="text-[15px] font-medium">Nome completo</Label>
+                <Input
+                  id="fullName"
+                  type="text"
+                  placeholder="Seu nome completo"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  required
+                  disabled={loading}
+                  className="h-12 text-[15px]"
+                />
+              </div>
             )}
+
             <div className="space-y-2">
-              <Label htmlFor="email">E-mail</Label>
+              <Label htmlFor="email" className="text-[15px] font-medium">E-mail</Label>
               <Input
                 id="email"
                 type="email"
+                placeholder="voce@exemplo.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                className="h-12 text-[15px]"
+                autoComplete="email"
               />
             </div>
+
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-                minLength={8}
-              />
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password" className="text-[15px] font-medium">Senha</Label>
+                {isLogin && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!email) {
+                        toast({ title: 'Informe o e-mail', description: 'Digite seu e-mail acima.', variant: 'destructive' });
+                        return;
+                      }
+                      try {
+                        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                          redirectTo: `${window.location.origin}/reset-password`,
+                        });
+                        if (error) throw error;
+                        toast({ title: 'E-mail enviado!', description: 'Verifique sua caixa de entrada.' });
+                      } catch (err) {
+                        const message = err instanceof Error ? err.message : 'Falha ao enviar e-mail.';
+                        toast({ title: 'Erro', description: message, variant: 'destructive' });
+                      }
+                    }}
+                    className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
+                    disabled={loading}
+                  >
+                    Esqueceu a senha?
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  minLength={8}
+                  className="h-12 text-[15px] pr-12"
+                  autoComplete={isLogin ? 'current-password' : 'new-password'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+                </button>
+              </div>
+
               {!isLogin && password.length > 0 && (
-                <div className="text-xs space-y-1 mt-2 p-2 rounded-md bg-muted/50">
-                  <p className="font-medium text-muted-foreground mb-1">Requisitos da senha:</p>
-                  <div className="flex items-center gap-1.5">
-                    {passwordValidation.minLength ? (
-                      <Check className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <X className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={passwordValidation.minLength ? 'text-green-600' : 'text-muted-foreground'}>
-                      Mínimo 8 caracteres
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {passwordValidation.hasUppercase ? (
-                      <Check className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <X className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={passwordValidation.hasUppercase ? 'text-green-600' : 'text-muted-foreground'}>
-                      Uma letra maiúscula
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {passwordValidation.hasLowercase ? (
-                      <Check className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <X className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={passwordValidation.hasLowercase ? 'text-green-600' : 'text-muted-foreground'}>
-                      Uma letra minúscula
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {passwordValidation.hasNumber ? (
-                      <Check className="h-3 w-3 text-green-500" />
-                    ) : (
-                      <X className="h-3 w-3 text-destructive" />
-                    )}
-                    <span className={passwordValidation.hasNumber ? 'text-green-600' : 'text-muted-foreground'}>
-                      Um número
-                    </span>
-                  </div>
+                <div className="grid grid-cols-2 gap-2 mt-2.5">
+                  {([
+                    [passwordValidation.minLength, '8+ caracteres'],
+                    [passwordValidation.hasUppercase, 'Maiúscula'],
+                    [passwordValidation.hasLowercase, 'Minúscula'],
+                    [passwordValidation.hasNumber, 'Número'],
+                  ] as [boolean, string][]).map(([ok, label]) => (
+                    <div key={label} className={cn('flex items-center gap-2 text-[13px]', ok ? 'text-emerald-600' : 'text-muted-foreground')}>
+                      {ok
+                        ? <Check className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                        : <X className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      }
+                      {label}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Processando...' : isLogin ? 'Entrar' : 'Cadastrar'}
+
+            <Button
+              type="submit"
+              className="w-full h-12 text-[16px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-lg shadow-emerald-500/25 transition-all rounded-xl"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="flex items-center gap-2.5">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Processando…
+                </span>
+              ) : isLogin ? 'Entrar' : 'Criar conta'}
             </Button>
           </form>
-          <div className="mt-4 text-center space-y-1">
-            {isLogin && (
-              <Button
-                variant="link"
-                onClick={async () => {
-                  if (!email) {
-                    toast({ title: 'Informe o e-mail', description: 'Digite seu e-mail no campo acima para receber o link de redefinição.', variant: 'destructive' });
-                    return;
-                  }
-                  try {
-                    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                      redirectTo: `${window.location.origin}/reset-password`,
-                    });
-                    if (error) throw error;
-                    toast({ title: 'E-mail enviado!', description: 'Verifique sua caixa de entrada para redefinir sua senha.' });
-                  } catch (error: any) {
-                    toast({ title: 'Erro', description: error.message, variant: 'destructive' });
-                  }
-                }}
-                disabled={loading}
-                className="text-muted-foreground"
-              >
-                Esqueceu a senha?
-              </Button>
-            )}
-            <div>
-              <Button
-                variant="link"
-                onClick={() => setIsLogin(!isLogin)}
-                disabled={loading}
-              >
-                {isLogin
-                  ? 'Não tem conta? Cadastre-se'
-                  : 'Já tem conta? Faça login'}
-              </Button>
-            </div>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => { setIsLogin(!isLogin); setPassword(''); }}
+              className="text-[15px] text-muted-foreground hover:text-foreground transition-colors"
+              disabled={loading}
+            >
+              {isLogin
+                ? <><span>Não tem conta? </span><span className="text-emerald-700 dark:text-emerald-400 font-semibold">Cadastre-se</span></>
+                : <><span>Já tem conta? </span><span className="text-emerald-700 dark:text-emerald-400 font-semibold">Faça login</span></>
+              }
+            </button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

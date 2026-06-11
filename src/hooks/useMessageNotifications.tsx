@@ -400,7 +400,7 @@ export const useMessageNotifications = () => {
 
   // Update document title and favicon with unread count
   useEffect(() => {
-    const baseTitle = 'Intranet Egg Nunes';
+    const baseTitle = 'Tribuna IA';
     const faviconPath = '/logo-eggnunes.png?v=2';
     
     if (unreadCount > 0) {

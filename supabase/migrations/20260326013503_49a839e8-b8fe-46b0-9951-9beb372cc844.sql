@@ -1,7 +1,0 @@
-ALTER TABLE viabilidade_clientes 
-  ADD COLUMN IF NOT EXISTS rg TEXT,
-  ADD COLUMN IF NOT EXISTS profissao TEXT,
-  ADD COLUMN IF NOT EXISTS estado_civil TEXT,
-  ADD COLUMN IF NOT EXISTS tipo_pessoa TEXT DEFAULT 'fisica',
-  ADD COLUMN IF NOT EXISTS como_conheceu TEXT,
-  ADD COLUMN IF NOT EXISTS advbox_customer_id TEXT;

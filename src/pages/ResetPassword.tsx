@@ -47,8 +47,9 @@ export default function ResetPassword() {
       setSuccess(true);
       toast({ title: 'Senha redefinida!', description: 'Sua senha foi alterada com sucesso.' });
       setTimeout(() => navigate('/auth'), 3000);
-    } catch (error: any) {
-      toast({ title: 'Erro', description: error.message || 'Não foi possível redefinir a senha.', variant: 'destructive' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível redefinir a senha.';
+      toast({ title: 'Erro', description: message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
