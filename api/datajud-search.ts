@@ -60,6 +60,13 @@ function parseCNJ(raw: string): ParsedCNJ | null {
   return { normalized: cleaned, j, tt, index: TRIBUNAL_INDEX[`${j}_${tt}`] ?? null };
 }
 
+/** Returns all DataJud index names for a given J (justice branch) value. */
+function indicesByJ(j: string): string[] {
+  return Object.entries(TRIBUNAL_INDEX)
+    .filter(([key]) => key.startsWith(`${j}_`))
+    .map(([, idx]) => idx);
+}
+
 interface DatajudMovimento {
   dataHora?: string;
   nome?: string;
@@ -102,6 +109,53 @@ function normalizeSource(src: DatajudSource): Record<string, unknown> {
   };
 }
 
+/**
+ * Builds the Elasticsearch body.
+ * Uses bool/should with match_phrase + term.keyword so special characters
+ * in the CNJ format (dots and hyphens) are matched correctly.
+ */
+function esBody(processNumber: string): string {
+  return JSON.stringify({
+    query: {
+      bool: {
+        should: [
+          { match_phrase: { numeroProcesso: processNumber } },
+          { term: { "numeroProcesso.keyword": processNumber } },
+        ],
+        minimum_should_match: 1,
+      },
+    },
+    size: 1,
+  });
+}
+
+/** Searches a single DataJud index. Returns the first hit's _source or null. */
+async function searchIndex(
+  baseUrl: string,
+  index: string,
+  processNumber: string,
+  apiKey: string,
+  signal: AbortSignal
+): Promise<DatajudSource | null> {
+  try {
+    const resp = await fetch(`${baseUrl}/${index}/_search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `ApiKey ${apiKey}`,
+      },
+      body: esBody(processNumber),
+      signal,
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as { hits?: { hits?: Array<{ _source?: DatajudSource }> } };
+    const hits = data?.hits?.hits ?? [];
+    return hits.length > 0 ? (hits[0]._source ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export default async function handler(req: Request): Promise<Response> {
@@ -109,7 +163,6 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  // Outer catch-all so the function ALWAYS returns JSON — never an HTML 500 page.
   try {
     if (req.method !== "POST") {
       return json({ error: "Método não permitido" }, 405);
@@ -129,10 +182,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     const parsed = parseCNJ(rawNumber);
     if (!parsed) {
-      return json({ found: false, error: "Número de processo inválido. Use o formato CNJ: NNNNNNN-DD.AAAA.J.TT.OOOO" }, 422);
-    }
-    if (!parsed.index) {
-      return json({ found: false, error: `Tribunal não mapeado (J=${parsed.j}, TT=${parsed.tt}).` }, 422);
+      return json({ found: false, error: "Número inválido. Use o formato CNJ: NNNNNNN-DD.AAAA.J.TT.OOOO" }, 422);
     }
 
     const apiKey = process.env.DATAJUD_API_KEY;
@@ -141,56 +191,59 @@ export default async function handler(req: Request): Promise<Response> {
     if (!apiKey) {
       return json({
         found: false,
-        error: "DATAJUD_API_KEY não configurada. Adicione a variável em Settings → Environment Variables no painel da Vercel e faça um novo deploy.",
+        error: "DATAJUD_API_KEY não configurada. Adicione em Settings → Environment Variables no painel da Vercel e faça um novo deploy.",
       }, 500);
     }
 
-    let datajudResp: Response;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 18000);
+
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-      datajudResp = await fetch(`${baseUrl}/${parsed.index}/_search`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `ApiKey ${apiKey}`,
-        },
-        body: JSON.stringify({
-          query: { match: { numeroProcesso: parsed.normalized } },
-          size: 1,
-        }),
-        signal: controller.signal,
-      });
+      // ── Step 1: search in the CNJ-determined tribunal index ─────────────────
+      const primaryIndex = parsed.index;
+      if (primaryIndex) {
+        const source = await searchIndex(baseUrl, primaryIndex, parsed.normalized, apiKey, controller.signal);
+        if (source) {
+          clearTimeout(timeoutId);
+          return json({ found: true, process: normalizeSource(source) });
+        }
+      }
+
+      // ── Step 2: fallback — search all tribunals of the same justice branch ──
+      // This handles PJe and cases where the CNJ code doesn't match the actual
+      // indexing tribunal (e.g. federal vs. state court registration differences).
+      const allIndices = indicesByJ(parsed.j).filter(idx => idx !== primaryIndex);
+
+      if (allIndices.length > 0) {
+        const results = await Promise.all(
+          allIndices.map(idx => searchIndex(baseUrl, idx, parsed.normalized, apiKey, controller.signal))
+        );
+        const found = results.find(r => r !== null);
+        if (found) {
+          clearTimeout(timeoutId);
+          return json({ found: true, process: normalizeSource(found) });
+        }
+      }
+
       clearTimeout(timeoutId);
+
+      // ── Not found in any index ──────────────────────────────────────────────
+      const tribunalName = primaryIndex ? primaryIndex.replace("api_publica_", "").toUpperCase() : `J=${parsed.j}`;
+      return json({
+        found: false,
+        error: `Processo não encontrado no DataJud (pesquisado em ${tribunalName} e todos os tribunais do mesmo ramo).`,
+      });
+
     } catch (err) {
+      clearTimeout(timeoutId);
       const isTimeout = err instanceof Error && err.name === "AbortError";
       return json({
         found: false,
-        error: isTimeout ? "Timeout: DataJud não respondeu em 20s." : "Erro ao conectar ao DataJud.",
+        error: isTimeout ? "Timeout (18s): DataJud demorou demais. Tente novamente." : "Erro ao conectar ao DataJud.",
       }, 502);
     }
 
-    if (!datajudResp.ok) {
-      return json({ found: false, error: `DataJud retornou HTTP ${datajudResp.status}.` }, 502);
-    }
-
-    let data: { hits?: { hits?: Array<{ _source?: DatajudSource }> } };
-    try {
-      data = await datajudResp.json();
-    } catch {
-      return json({ found: false, error: "Resposta inválida do DataJud." }, 502);
-    }
-
-    const hits = data?.hits?.hits ?? [];
-    if (!hits.length) {
-      return json({ found: false, error: "Processo não encontrado no DataJud." });
-    }
-
-    const normalized = normalizeSource(hits[0]._source ?? {});
-    return json({ found: true, process: normalized });
-
   } catch (err) {
-    // Safety net: guarantees JSON even for unexpected runtime errors.
     const message = err instanceof Error ? err.message : "Erro interno inesperado";
     return json({ found: false, error: `Erro interno: ${message}` }, 500);
   }
