@@ -41,7 +41,16 @@ interface Attachment {
   name: string;
   type: string;
   base64: string;
+  textContent?: string;
 }
+
+// Accepted file types for the file picker
+const ACCEPTED_FILE_TYPES = [
+  '.pdf', '.doc', '.docx', '.txt', '.md', '.rtf', '.odt',
+  '.png', '.jpg', '.jpeg', '.webp', '.gif',
+  '.csv', '.xls', '.xlsx',
+  '.mp3', '.mp4', '.m4a', '.wav', '.ogg', '.webm',
+].join(',');
 
 export default function AgenteChatPage() {
   const { agentId } = useParams<{ agentId: string }>();
@@ -50,8 +59,7 @@ export default function AgenteChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -63,7 +71,6 @@ export default function AgenteChatPage() {
   const [loadingAgent, setLoadingAgent] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const [teamsDialogOpen, setTeamsDialogOpen] = useState(false);
   const [teamsContent, setTeamsContent] = useState({ fileName: '', fileContent: '' });
   const [clientNameDialogOpen, setClientNameDialogOpen] = useState(false);
@@ -81,6 +88,15 @@ export default function AgenteChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, []);
 
   const scrollToBottom = () => {
     if (scrollRef.current) {
@@ -149,7 +165,8 @@ export default function AgenteChatPage() {
     }
   };
 
-  // File upload
+  // ── File upload ────────────────────────────────────────────────────────────
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -159,82 +176,119 @@ export default function AgenteChatPage() {
         toast.error(`Arquivo ${file.name} excede 50MB`);
         continue;
       }
+
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
         reader.readAsDataURL(file);
       });
-      setAttachments(prev => [...prev, { name: file.name, type: file.type, base64 }]);
+
+      // Extract text content for text-based files so the AI can read them
+      let textContent: string | undefined;
+      const isText = file.type.startsWith('text/') ||
+        file.name.endsWith('.txt') || file.name.endsWith('.md') ||
+        file.name.endsWith('.csv');
+
+      if (isText) {
+        textContent = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsText(file, 'UTF-8');
+        });
+      }
+
+      setAttachments(prev => [...prev, { name: file.name, type: file.type, base64, textContent }]);
     }
+
     if (fileInputRef.current) fileInputRef.current.value = '';
+    toast.success(`${Array.from(files).length} arquivo(s) anexado(s)`);
   };
 
   const removeAttachment = (index: number) => {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Voice recording
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+  // ── Voice recording via Web Speech API ────────────────────────────────────
 
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
-      };
+  const startRecording = () => {
+    const SpeechRecognitionAPI =
+      (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition })
+        .SpeechRecognition ??
+      (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition })
+        .webkitSpeechRecognition;
 
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach(track => track.stop());
-        setIsTranscribing(true);
-
-        try {
-          const base64Audio = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-            reader.readAsDataURL(audioBlob);
-          });
-
-          const { data, error } = await supabase.functions.invoke('voice-to-text', {
-            body: { audio: base64Audio }
-          });
-
-          if (error) throw error;
-          if (data.text) {
-            setInput(prev => prev + (prev ? ' ' : '') + data.text);
-          }
-        } catch (error) {
-          console.error('Transcription error:', error);
-          toast.error('Não foi possível transcrever o áudio');
-        } finally {
-          setIsTranscribing(false);
-        }
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (error) {
-      console.error('Error starting recording:', error);
-      toast.error('Não foi possível acessar o microfone');
+    if (!SpeechRecognitionAPI) {
+      toast.error('Reconhecimento de voz não suportado. Use Chrome ou Edge.');
+      return;
     }
+
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = 'pt-BR';
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    let transcript = '';
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          transcript += event.results[i][0].transcript + ' ';
+        }
+      }
+    };
+
+    recognition.onerror = () => {
+      toast.error('Erro no reconhecimento de voz');
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => {
+      if (transcript.trim()) {
+        setInput(prev => (prev ? prev + ' ' : '') + transcript.trim());
+        toast.success('Áudio transcrito com sucesso!');
+      }
+      setIsRecording(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
+    toast.info('Gravando... Clique no microfone para parar.');
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
     }
+    setIsRecording(false);
   };
+
+  // ── Send message ───────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(async () => {
     if (!input.trim() || isStreaming || !agent || !user) return;
 
-    const userMessage: Message = { role: 'user', content: input.trim() };
+    const currentAttachments = [...attachments];
+
+    // Build user message content — include file text content so the AI can read it
+    let messageContent = input.trim();
+    if (currentAttachments.length > 0) {
+      const textFiles = currentAttachments.filter(a => a.textContent);
+      const otherFiles = currentAttachments.filter(a => !a.textContent);
+
+      if (textFiles.length > 0) {
+        messageContent += '\n\n' + textFiles
+          .map(a => `--- Arquivo: ${a.name} ---\n${a.textContent}`)
+          .join('\n\n');
+      }
+      if (otherFiles.length > 0) {
+        messageContent += `\n\n[Arquivos anexados: ${otherFiles.map(a => a.name).join(', ')}]`;
+      }
+    }
+
+    const userMessage: Message = { role: 'user', content: messageContent };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
-    const currentAttachments = [...attachments];
     setInput('');
     setAttachments([]);
     setIsStreaming(true);
@@ -244,7 +298,7 @@ export default function AgenteChatPage() {
       if (!convId) {
         const { data: conv, error } = await supabase
           .from('intranet_agent_conversations')
-          .insert({ agent_id: agent.id, user_id: user.id, title: userMessage.content.slice(0, 100) })
+          .insert({ agent_id: agent.id, user_id: user.id, title: input.trim().slice(0, 100) })
           .select()
           .single();
         if (error) throw error;
@@ -255,10 +309,9 @@ export default function AgenteChatPage() {
       await supabase.from('intranet_agent_messages').insert({
         conversation_id: convId,
         role: 'user',
-        content: userMessage.content,
+        content: messageContent,
       });
 
-      // Build messages with agent system prompt prepended
       const systemPrompt = `Você é ${agent.name}. ${agent.objective}\n\nInstruções:\n${agent.instructions}`;
       const messagesWithSystem = [
         { role: 'user', content: systemPrompt },
@@ -267,8 +320,6 @@ export default function AgenteChatPage() {
       ];
 
       let assistantContent = '';
-
-      // Use agent's configured model; fall back to gemini-flash for legacy/unknown IDs
       const agentModelId = agent.model && AI_PROVIDER_MAP[agent.model] ? agent.model : 'gemini-flash';
 
       await streamAI(messagesWithSystem, agentModelId, (chunk) => {
@@ -306,6 +357,8 @@ export default function AgenteChatPage() {
     }
   };
 
+  // ── Export helpers ─────────────────────────────────────────────────────────
+
   const downloadAsPDF = (content: string) => {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -324,52 +377,34 @@ export default function AgenteChatPage() {
       y += lineHeight;
     }
 
-    const fileName = `${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    doc.save(fileName);
-    toast.success('PDF baixado com sucesso!');
+    doc.save(`${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    toast.success('PDF baixado!');
   };
 
   const downloadAsDOCX = async (content: string) => {
     try {
       const lines = content.split('\n');
       const htmlParts: string[] = [];
-      
+
       for (const line of lines) {
-        if (line.startsWith('### ')) {
-          htmlParts.push(`<h3>${line.slice(4)}</h3>`);
-        } else if (line.startsWith('## ')) {
-          htmlParts.push(`<h2>${line.slice(3)}</h2>`);
-        } else if (line.startsWith('# ')) {
-          htmlParts.push(`<h1>${line.slice(2)}</h1>`);
-        } else if (line.startsWith('- ') || line.startsWith('* ')) {
-          htmlParts.push(`<li>${line.slice(2)}</li>`);
-        } else if (line.startsWith('**') && line.endsWith('**')) {
-          htmlParts.push(`<p><b>${line.slice(2, -2)}</b></p>`);
-        } else if (line.trim() === '') {
-          htmlParts.push('<br/>');
-        } else {
-          htmlParts.push(`<p>${line}</p>`);
-        }
+        if (line.startsWith('### '))      htmlParts.push(`<h3>${line.slice(4)}</h3>`);
+        else if (line.startsWith('## ')) htmlParts.push(`<h2>${line.slice(3)}</h2>`);
+        else if (line.startsWith('# '))  htmlParts.push(`<h1>${line.slice(2)}</h1>`);
+        else if (line.startsWith('- ') || line.startsWith('* ')) htmlParts.push(`<li>${line.slice(2)}</li>`);
+        else if (line.trim() === '')     htmlParts.push('<br/>');
+        else htmlParts.push(`<p>${line}</p>`);
       }
 
-      const htmlContent = `
-        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
-        <head><meta charset='utf-8'><title>Documento</title></head>
-        <body style="font-family: Calibri, Arial, sans-serif; font-size: 12pt; line-height: 1.5;">
-        ${htmlParts.join('\n')}
-        </body></html>
-      `;
-
-      const blob = new Blob([htmlContent], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'></head><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;line-height:1.5;">${htmlParts.join('\n')}</body></html>`;
+      const blob = new Blob([html], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.docx`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('DOCX baixado com sucesso!');
-    } catch (error) {
-      console.error('Error generating DOCX:', error);
+      toast.success('DOCX baixado!');
+    } catch {
       toast.error('Erro ao gerar DOCX');
     }
   };
@@ -382,12 +417,12 @@ export default function AgenteChatPage() {
     a.download = `${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success('TXT baixado com sucesso!');
+    toast.success('TXT baixado!');
   };
 
   const copyToClipboard = (content: string) => {
     navigator.clipboard.writeText(content);
-    toast.success('Copiado para a área de transferência!');
+    toast.success('Copiado!');
   };
 
   const handleSaveToTeams = (content: string) => {
@@ -397,29 +432,25 @@ export default function AgenteChatPage() {
   };
 
   const confirmSaveToTeams = () => {
-    const fileName = `${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.pdf`;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 15;
-    const maxWidth = pageWidth - margin * 2;
-    const lines = doc.splitTextToSize(pendingTeamsContent, maxWidth);
+    const lines = doc.splitTextToSize(pendingTeamsContent, pageWidth - margin * 2);
     let y = margin;
-    const lineHeight = 7;
-
     for (const line of lines) {
-      if (y + lineHeight > doc.internal.pageSize.getHeight() - margin) {
-        doc.addPage();
-        y = margin;
-      }
+      if (y + 7 > doc.internal.pageSize.getHeight() - margin) { doc.addPage(); y = margin; }
       doc.text(line, margin, y);
-      y += lineHeight;
+      y += 7;
     }
-
-    const base64 = doc.output('datauristring').split(',')[1];
-    setTeamsContent({ fileName, fileContent: base64 });
+    setTeamsContent({
+      fileName: `${agent?.name || 'resposta'}_${new Date().toISOString().slice(0, 10)}.pdf`,
+      fileContent: doc.output('datauristring').split(',')[1],
+    });
     setClientNameDialogOpen(false);
     setTeamsDialogOpen(true);
   };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loadingAgent) {
     return (
@@ -467,7 +498,11 @@ export default function AgenteChatPage() {
               ) : (
                 <div className="space-y-1">
                   {conversations.map(conv => (
-                    <div key={conv.id} onClick={() => loadConversation(conv.id)} className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-sm hover:bg-muted ${currentConversationId === conv.id ? 'bg-muted' : ''}`}>
+                    <div
+                      key={conv.id}
+                      onClick={() => loadConversation(conv.id)}
+                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer text-sm hover:bg-muted ${currentConversationId === conv.id ? 'bg-muted' : ''}`}
+                    >
                       <span className="truncate flex-1">{conv.title}</span>
                       <Button variant="ghost" size="icon" className="h-6 w-6 flex-shrink-0" onClick={(e) => deleteConversation(conv.id, e)}>
                         <Trash2 className="h-3 w-3" />
@@ -487,7 +522,7 @@ export default function AgenteChatPage() {
                   <span className="text-5xl mb-3">{agent.icon_emoji}</span>
                   <h2 className="text-xl font-semibold mb-2">Olá! Eu sou {agent.name}</h2>
                   <p className="text-muted-foreground max-w-lg text-sm">{agent.objective}</p>
-                  <p className="text-sm text-muted-foreground mt-3">Envie uma mensagem para começar.</p>
+                  <p className="text-sm text-muted-foreground mt-3">Envie uma mensagem ou anexe um arquivo para começar.</p>
                 </div>
               ) : (
                 <div className="space-y-4 pb-4">
@@ -510,25 +545,20 @@ export default function AgenteChatPage() {
                         </Card>
                         {msg.role === 'assistant' && !isStreaming && (
                           <div className="flex items-center gap-1 mt-1.5 ml-1">
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsPDF(msg.content)} title="Baixar como PDF">
-                              <Download className="h-3 w-3" />
-                              PDF
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsPDF(msg.content)}>
+                              <Download className="h-3 w-3" /> PDF
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsDOCX(msg.content)} title="Baixar como DOCX">
-                              <FileText className="h-3 w-3" />
-                              DOCX
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsDOCX(msg.content)}>
+                              <FileText className="h-3 w-3" /> DOCX
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsTXT(msg.content)} title="Baixar como TXT">
-                              <FileText className="h-3 w-3" />
-                              TXT
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => downloadAsTXT(msg.content)}>
+                              <FileText className="h-3 w-3" /> TXT
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(msg.content)} title="Copiar texto">
-                              <Copy className="h-3 w-3" />
-                              Copiar
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(msg.content)}>
+                              <Copy className="h-3 w-3" /> Copiar
                             </Button>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => handleSaveToTeams(msg.content)} title="Salvar no Teams">
-                              <CloudUpload className="h-3 w-3" />
-                              Teams
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={() => handleSaveToTeams(msg.content)}>
+                              <CloudUpload className="h-3 w-3" /> Teams
                             </Button>
                           </div>
                         )}
@@ -563,7 +593,8 @@ export default function AgenteChatPage() {
                     <div key={i} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
                       <FileText className="h-3 w-3 text-muted-foreground" />
                       <span className="truncate max-w-[120px]">{att.name}</span>
-                      <button onClick={() => removeAttachment(i)} className="text-muted-foreground hover:text-foreground">
+                      {att.textContent && <span className="text-emerald-500 text-[10px]">✓ lido</span>}
+                      <button onClick={() => removeAttachment(i)} className="text-muted-foreground hover:text-foreground ml-1">
                         <X className="h-3 w-3" />
                       </button>
                     </div>
@@ -571,21 +602,22 @@ export default function AgenteChatPage() {
                 </div>
               )}
 
-              {/* Transcribing indicator */}
-              {isTranscribing && (
-                <div className="flex items-center gap-2 mb-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Transcrevendo áudio...
+              {/* Recording indicator */}
+              {isRecording && (
+                <div className="flex items-center gap-2 mb-2 text-sm text-red-500 animate-pulse">
+                  <div className="h-2 w-2 rounded-full bg-red-500" />
+                  Gravando... clique no microfone para parar
                 </div>
               )}
 
               <div className="flex gap-2 items-end">
+                {/* File input — accepts all common document and media types */}
                 <input
                   ref={fileInputRef}
                   type="file"
                   className="hidden"
                   multiple
-                  
+                  accept={ACCEPTED_FILE_TYPES}
                   onChange={handleFileSelect}
                 />
                 <Button
@@ -594,7 +626,7 @@ export default function AgenteChatPage() {
                   className="flex-shrink-0 h-10 w-10"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isStreaming}
-                  title="Anexar documento"
+                  title="Anexar documento (PDF, DOCX, TXT, imagens, áudio...)"
                 >
                   <Paperclip className="h-4 w-4" />
                 </Button>
@@ -603,8 +635,8 @@ export default function AgenteChatPage() {
                   size="icon"
                   className="flex-shrink-0 h-10 w-10"
                   onClick={isRecording ? stopRecording : startRecording}
-                  disabled={isStreaming || isTranscribing}
-                  title={isRecording ? 'Parar gravação' : 'Gravar áudio'}
+                  disabled={isStreaming}
+                  title={isRecording ? 'Parar gravação' : 'Transcrever áudio (Chrome/Edge)'}
                 >
                   {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </Button>
@@ -627,21 +659,22 @@ export default function AgenteChatPage() {
                   {isStreaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1.5 ml-1">
+                Modelo: {agent.model || 'gemini-flash'} • Enter para enviar, Shift+Enter para nova linha
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Client name dialog for Teams */}
+      {/* Client name dialog */}
       <Dialog open={clientNameDialogOpen} onOpenChange={setClientNameDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Salvar no Teams</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Informe o nome do cliente para salvar na pasta correspondente no Teams.
-            </p>
+            <p className="text-sm text-muted-foreground">Informe o nome do cliente para salvar na pasta correta no Teams.</p>
             <Input
               placeholder="Nome do cliente (opcional)"
               value={clientNameInput}
@@ -652,14 +685,12 @@ export default function AgenteChatPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setClientNameDialogOpen(false)}>Cancelar</Button>
             <Button onClick={confirmSaveToTeams}>
-              <CloudUpload className="h-4 w-4 mr-2" />
-              Continuar
+              <CloudUpload className="h-4 w-4 mr-2" /> Continuar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Save to Teams dialog */}
       <SaveToTeamsDialog
         open={teamsDialogOpen}
         onOpenChange={setTeamsDialogOpen}
