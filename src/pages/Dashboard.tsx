@@ -20,6 +20,29 @@ import {
   Clock,
 } from 'lucide-react';
 
+function CasoCard({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="group cursor-pointer rounded-[18px] bg-card p-6 transition-all duration-[250ms]"
+      style={{
+        border: hovered
+          ? '1px solid rgba(212,175,55,0.85)'
+          : '1px solid rgba(212,175,55,0.45)',
+        boxShadow: hovered
+          ? '0 16px 40px rgba(15,23,42,0.16), 0 0 0 1px rgba(212,175,55,0.25)'
+          : '0 10px 30px rgba(15,23,42,0.10)',
+        transform: hovered ? 'translateY(-4px)' : 'translateY(0)',
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface HistoryItem {
   id: string;
   tool_name: string | null;
@@ -122,14 +145,21 @@ export default function Dashboard() {
     <Layout>
       <div className="space-y-8">
 
-        {/* ── Hero compacto ─────────────────────────────────── */}
+        {/* ── Hero jurídico premium ──────────────────────────── */}
         <div
-          className="relative overflow-hidden rounded-2xl px-8 py-6 text-white shadow-xl"
+          className="relative overflow-hidden rounded-2xl px-8 py-6 text-white"
           style={{
-            background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
-            backdropFilter: 'blur(20px)',
+            background: 'linear-gradient(135deg, #0F172A 0%, #1D4ED8 100%)',
+            border: '1px solid rgba(212,175,55,0.35)',
+            boxShadow: '0 18px 45px rgba(15,23,42,0.25)',
           }}
         >
+          {/* overlay dourado radial */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'radial-gradient(circle at 30% 50%, rgba(212,175,55,0.18), transparent 55%)' }}
+          />
+
           <div className="relative z-10">
             <h1 className="text-[32px] font-bold leading-tight tracking-tight">
               Olá, {firstName} 👋
@@ -139,7 +169,8 @@ export default function Dashboard() {
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Badge
-                className="h-7 rounded-full border-white/20 bg-white/15 px-3 text-[13px] font-medium text-white hover:bg-white/25"
+                className="h-7 rounded-full px-3 text-[13px] font-medium text-white"
+                style={{ background: 'rgba(212,175,55,0.20)', border: '1px solid rgba(212,175,55,0.45)' }}
               >
                 {isAdmin ? '🛡️ Administrador' : '👤 Usuário'}
               </Badge>
@@ -151,7 +182,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* decoração sutil */}
+          {/* decoração geométrica sutil */}
           <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full bg-white/5" />
           <div className="pointer-events-none absolute -bottom-12 right-20 h-52 w-52 rounded-full bg-white/5" />
         </div>
@@ -165,19 +196,19 @@ export default function Dashboard() {
             {quickActions.map((item) => {
               const Icon = item.icon;
               return (
-                <div
+                <CasoCard
                   key={item.path}
                   onClick={() => navigate(item.path)}
-                  className={[
-                    'group cursor-pointer rounded-[20px] border border-border/60 bg-card p-6',
-                    'transition-all duration-[250ms]',
-                    'hover:-translate-y-1 hover:shadow-[0_15px_40px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_15px_40px_rgba(0,0,0,0.4)]',
-                    item.hoverBorder,
-                  ].join(' ')}
                 >
                   <div className="flex items-start justify-between">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${item.iconBg}`}>
-                      <Icon className={`h-[22px] w-[22px] ${item.iconColor}`} strokeWidth={2} />
+                    <div
+                      className={`flex h-12 w-12 items-center justify-center rounded-[14px] ${item.iconColor}`}
+                      style={{
+                        background: 'rgba(212,175,55,0.10)',
+                        border: '1px solid rgba(212,175,55,0.35)',
+                      }}
+                    >
+                      <Icon className="h-[22px] w-[22px]" strokeWidth={2} />
                     </div>
                     <ArrowRight className="mt-0.5 h-4 w-4 text-muted-foreground/0 transition-all duration-200 group-hover:text-muted-foreground/60" />
                   </div>
@@ -185,7 +216,7 @@ export default function Dashboard() {
                   <p className="mt-1.5 text-[14px] leading-relaxed text-muted-foreground">
                     {item.description}
                   </p>
-                </div>
+                </CasoCard>
               );
             })}
           </div>
@@ -248,7 +279,14 @@ export default function Dashboard() {
 
         {/* ── Painel admin ──────────────────────────────────── */}
         {isAdmin && (
-          <div className="flex flex-col gap-4 rounded-[20px] border border-primary/20 bg-primary/5 p-6 dark:bg-primary/10 sm:flex-row sm:items-center sm:justify-between">
+          <div
+            className="flex flex-col gap-4 rounded-[18px] p-6 sm:flex-row sm:items-center sm:justify-between"
+            style={{
+              background: 'linear-gradient(135deg, rgba(15,23,42,0.04), rgba(29,78,216,0.06))',
+              border: '1px solid rgba(212,175,55,0.35)',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
+            }}
+          >
             <div>
               <p className="text-[17px] font-semibold">Painel administrativo disponível</p>
               <p className="mt-0.5 text-[14px] text-muted-foreground">
@@ -257,7 +295,12 @@ export default function Dashboard() {
             </div>
             <Button
               onClick={() => navigate('/admin')}
-              className="h-11 shrink-0 rounded-xl px-5 font-semibold shadow-[0_4px_12px_rgba(37,99,235,0.20)]"
+              className="h-11 shrink-0 rounded-xl px-5 font-semibold"
+              style={{
+                background: 'linear-gradient(135deg, #1D4ED8, #2563EB)',
+                border: '1px solid rgba(212,175,55,0.35)',
+                boxShadow: '0 8px 20px rgba(37,99,235,0.25)',
+              }}
             >
               <Shield className="mr-2 h-[18px] w-[18px]" strokeWidth={2} />
               Administração

@@ -447,8 +447,26 @@ export default function Casos() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.map(caso => (
-              <Card key={caso.id} className="group cursor-pointer border-t-4 border-t-primary/40 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200" onClick={() => navigate(`/casos/${caso.id}`)}>
-                <CardContent className="p-5 space-y-3">
+              <div
+                key={caso.id}
+                className="group cursor-pointer rounded-[18px] bg-card transition-all duration-[250ms] overflow-hidden"
+                style={{
+                  border: '1px solid rgba(212,175,55,0.45)',
+                  boxShadow: '0 10px 30px rgba(15,23,42,0.10)',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.transform = 'translateY(-4px)';
+                  (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212,175,55,0.85)';
+                  (e.currentTarget as HTMLElement).style.boxShadow = '0 16px 40px rgba(15,23,42,0.16), 0 0 0 1px rgba(212,175,55,0.25)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';
+                  (e.currentTarget as HTMLElement).style.borderColor = 'rgba(212,175,55,0.45)';
+                  (e.currentTarget as HTMLElement).style.boxShadow = '0 10px 30px rgba(15,23,42,0.10)';
+                }}
+                onClick={() => navigate(`/casos/${caso.id}`)}
+              >
+                <div className="p-5 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-[15px] truncate group-hover:text-primary transition-colors">{caso.nome}</h3>
@@ -474,8 +492,8 @@ export default function Casos() {
                     <Button variant="ghost" size="sm" onClick={e => openEdit(caso, e)}><Edit className="h-3.5 w-3.5" /></Button>
                     <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={e => { e.stopPropagation(); setDeletingId(caso.id); }}><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             ))}
           </div>
         )}
