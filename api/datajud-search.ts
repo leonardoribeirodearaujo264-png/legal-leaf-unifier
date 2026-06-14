@@ -46,6 +46,29 @@ function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: CORS });
 }
 
+/**
+ * Converts a raw 20-digit CNJ number (e.g. "08005992420258100082")
+ * to the formatted CNJ standard (e.g. "0800599-24.2025.8.10.0082").
+ * If the input is already formatted or has an unexpected length, returns it unchanged.
+ */
+function formatCNJ(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length !== 20) return raw;
+  return `${digits.slice(0,7)}-${digits.slice(7,9)}.${digits.slice(9,13)}.${digits.slice(13,14)}.${digits.slice(14,16)}.${digits.slice(16,20)}`;
+}
+
+/**
+ * Normalises a DataJud date string to ISO 8601.
+ * DataJud may return "2025-03-15T00:00:00", "2025-03-15 00:00:00", "2025-03-15", etc.
+ * Returns undefined if the value is falsy or unparseable.
+ */
+function normaliseDate(val: unknown): string | undefined {
+  if (!val) return undefined;
+  const s = String(val).replace(" ", "T").trim();
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
 interface ParsedCNJ {
   normalized: string;
   j: string;
@@ -99,13 +122,15 @@ function normalizeSource(src: DatajudSource): Record<string, unknown> {
     return db - da;
   });
   return {
-    numeroProcesso: String(src.numeroProcesso ?? ""),
+    // Always return the human-readable CNJ format (DataJud sometimes stores raw 20 digits)
+    numeroProcesso: formatCNJ(String(src.numeroProcesso ?? "")),
     tribunal: String(src.tribunal ?? ""),
     classe: { nome: src.classe?.nome },
     assuntos: (src.assuntos ?? []).slice(0, 5),
     orgaoJulgador: { nome: src.orgaoJulgador?.nome },
     grau: String(src.grau ?? ""),
-    dataAjuizamento: src.dataAjuizamento ? String(src.dataAjuizamento) : undefined,
+    // Normalise date to ISO-8601 so browsers parse it consistently
+    dataAjuizamento: normaliseDate(src.dataAjuizamento),
     valorCausa: typeof src.valorCausa === "number" ? src.valorCausa : undefined,
     partes: src.partes ?? [],
     movimentos,

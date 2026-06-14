@@ -22,6 +22,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { searchProcessByNumber } from '@/services/datajudService';
 import { analyzeCase } from '@/services/caseAiService';
+import { friendlyDatajudError } from '@/lib/errors';
 import { parseProcessNumber } from '@/config/datajud';
 import type { DatajudProcess } from '@/services/datajudService';
 
@@ -149,7 +150,7 @@ export default function Casos() {
     const result = await searchProcessByNumber(importNumber.trim());
     setImportLoading(false);
     if (!result.found || !result.process) {
-      toast.error(result.error || 'Processo não encontrado');
+      toast.error(friendlyDatajudError(result.error || 'Processo não encontrado'));
       return;
     }
     setImportPreview(result.process);
@@ -452,8 +453,8 @@ export default function Casos() {
             {importNumber.trim() && (() => {
               const parsed = parseProcessNumber(importNumber.trim());
               if (!parsed) return <p className="text-xs text-destructive">⚠️ Formato inválido. Use: NNNNNNN-DD.AAAA.J.TT.OOOO</p>;
-              if (!parsed.index) return <p className="text-xs text-amber-600">⚠️ Tribunal não mapeado (J={parsed.j}, TT={parsed.tt}).</p>;
-              return <p className="text-xs text-emerald-600">✓ Válido — endpoint: {parsed.index}</p>;
+              if (!parsed.index) return <p className="text-xs text-amber-600">⚠️ Tribunal não identificado. Verifique o número do processo.</p>;
+              return <p className="text-xs text-emerald-600">✓ Número válido</p>;
             })()}
 
             {importPreview && (
@@ -469,7 +470,7 @@ export default function Casos() {
                     { l: 'Classe', v: importPreview.classe?.nome },
                     { l: 'Grau', v: importPreview.grau },
                     { l: 'Órgão', v: importPreview.orgaoJulgador?.nome },
-                    { l: 'Distribuição', v: importPreview.dataAjuizamento ? new Date(importPreview.dataAjuizamento).toLocaleDateString('pt-BR') : undefined },
+                    { l: 'Distribuição', v: (() => { if (!importPreview.dataAjuizamento) return undefined; const d = new Date(importPreview.dataAjuizamento); return isNaN(d.getTime()) ? undefined : d.toLocaleDateString('pt-BR'); })() },
                     { l: 'Valor', v: importPreview.valorCausa ? `R$ ${importPreview.valorCausa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : undefined },
                     { l: 'Situação', v: importPreview.situacao },
                   ].filter(x => x.v).map(({ l, v }) => (

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { streamAI } from '@/services/aiService';
+import { friendlyAIError } from '@/lib/errors';
 import { AI_PROVIDER_MAP } from '@/config/ai';
 import { Layout } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
@@ -344,7 +345,7 @@ export default function AgenteChatPage() {
       loadConversations();
     } catch (e) {
       console.error('Stream error:', e);
-      toast.error(e instanceof Error ? e.message : 'Erro ao enviar mensagem');
+      toast.error(friendlyAIError(e));
     }
 
     setIsStreaming(false);

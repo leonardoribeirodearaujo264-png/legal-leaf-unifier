@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { streamAI } from '@/services/aiService';
+import { friendlyAIError } from '@/lib/errors';
 import {
   LEGAL_AREAS,
   LEGAL_AREA_MAP,
@@ -747,10 +748,9 @@ const AssistenteIA = () => {
           description: 'Resposta cancelada'
         });
       } else {
-        const message = error instanceof Error ? error.message : 'Erro ao enviar mensagem';
         toast({
-          title: 'Erro',
-          description: message,
+          title: 'Erro ao enviar',
+          description: friendlyAIError(error),
           variant: 'destructive'
         });
       }
