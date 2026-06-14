@@ -658,106 +658,29 @@ Seja objetivo, técnico e prático. Foco em ação imediata.`;
           ))}
         </div>
 
-        {/* Probability + Risk cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Success probability */}
-          <Card className={`border-l-4 ${successProb?.nivel === 'alta' ? 'border-l-emerald-500' : successProb?.nivel === 'moderada' ? 'border-l-amber-500' : successProb ? 'border-l-red-500' : 'border-l-border'}`}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">Chance de Êxito</p>
-                </div>
-                {!successProb && (
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={!!aiLoading} onClick={runSuccessProbability}>
-                    {aiLoading === 'success_probability' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                    Calcular
-                  </Button>
-                )}
-              </div>
-              {successProb ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <SuccessBadge nivel={successProb.nivel} percentual={successProb.percentual} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{successProb.justificativa}</p>
-                  {successProb.pontos_favoraveis?.length > 0 && (
-                    <div className="text-xs space-y-0.5">
-                      {successProb.pontos_favoraveis.slice(0, 2).map((p, i) => (
-                        <p key={i} className="text-emerald-700">✓ {p}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Gere uma avaliação de probabilidade de êxito com IA</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Risk motor */}
-          <Card className={`border-l-4 ${processRisk?.nivel_geral === 'critico' ? 'border-l-red-500' : processRisk?.nivel_geral === 'atencao' ? 'border-l-amber-500' : processRisk ? 'border-l-emerald-500' : 'border-l-border'}`}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-primary" />
-                  <p className="text-sm font-semibold">Risco Processual</p>
-                </div>
-                {!processRisk && (
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={!!aiLoading} onClick={runRiskAssessment}>
-                    {aiLoading === 'risk_assessment' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertTriangle className="h-3 w-3" />}
-                    Avaliar
-                  </Button>
-                )}
-              </div>
-              {processRisk ? (
-                <div className="space-y-2">
-                  <RiskBadge nivel={processRisk.nivel_geral} />
-                  <div className="space-y-1">
-                    {processRisk.fatores.slice(0, 3).map((f, i) => (
-                      <div key={i} className="flex items-start gap-1.5">
-                        <span className="text-[10px] mt-0.5">{f.nivel === 'critico' ? '🔴' : f.nivel === 'atencao' ? '🟡' : '🟢'}</span>
-                        <p className="text-xs text-muted-foreground">{f.descricao}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">Avalie prazos, riscos de prescrição e diligências pendentes</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
         {/* ── Próxima Ação Recomendada ─────────────────────────────────── */}
-        {(() => {
-          const nextAction =
-            (analysis?.proximos_passos && analysis.proximos_passos.length > 0 ? analysis.proximos_passos[0] : null) ||
-            (processRisk?.recomendacoes && processRisk.recomendacoes.length > 0 ? processRisk.recomendacoes[0] : null) ||
-            (caso.current_phase ? `Acompanhar fase: ${caso.current_phase}` : null) ||
-            'Aguardar próxima movimentação do processo';
-          const urgency = processRisk?.nivel_geral === 'critico' ? 'border-l-red-500 bg-red-50 dark:bg-red-950/20' :
-            processRisk?.nivel_geral === 'atencao' ? 'border-l-amber-500 bg-amber-50 dark:bg-amber-950/20' :
-            'border-l-emerald-500 bg-emerald-50 dark:bg-emerald-950/20';
-          return (
-            <Card className={`border-l-4 ${urgency}`}>
-              <CardContent className="p-4 flex items-start gap-3">
-                <Zap className={`h-5 w-5 mt-0.5 shrink-0 ${processRisk?.nivel_geral === 'critico' ? 'text-red-500' : processRisk?.nivel_geral === 'atencao' ? 'text-amber-500' : 'text-emerald-600'}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-0.5">Próxima Ação Recomendada</p>
-                  <p className="text-sm font-semibold">{nextAction}</p>
-                  {analysis?.proximos_passos && analysis.proximos_passos.length > 1 && (
-                    <p className="text-xs text-muted-foreground mt-1">+{analysis.proximos_passos.length - 1} ações adicionais na aba IA do Caso</p>
-                  )}
-                </div>
-                <Button size="sm" variant="outline" className="shrink-0 h-7 text-xs gap-1" onClick={runFullAnalysis} disabled={!!aiLoading}>
-                  {aiLoading === 'full_analysis' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  Reprocessar IA
-                </Button>
-              </CardContent>
-            </Card>
-          );
-        })()}
+        <Card className="border-l-4 border-l-primary/60 bg-primary/3">
+          <CardContent className="p-4 flex items-start gap-3">
+            <Zap className="h-5 w-5 mt-0.5 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-0.5">Próxima Ação Recomendada</p>
+              <p className="text-sm font-semibold">
+                {(analysis?.proximos_passos && analysis.proximos_passos.length > 0
+                  ? analysis.proximos_passos[0]
+                  : null) ||
+                  (caso.current_phase ? `Acompanhar fase: ${caso.current_phase}` : null) ||
+                  'Acesse a aba IA do Caso para gerar análise completa'}
+              </p>
+              {analysis?.proximos_passos && analysis.proximos_passos.length > 1 && (
+                <p className="text-xs text-muted-foreground mt-1">+{analysis.proximos_passos.length - 1} ações adicionais na aba IA do Caso</p>
+              )}
+            </div>
+            <Button size="sm" variant="outline" className="shrink-0 h-7 text-xs gap-1" onClick={runFullAnalysis} disabled={!!aiLoading}>
+              {aiLoading === 'full_analysis' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Reprocessar IA
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* ── Tabs ──────────────────────────────────────────────────────── */}
         <Tabs defaultValue="overview">
@@ -775,8 +698,8 @@ Seja objetivo, técnico e prático. Foco em ação imediata.`;
               <Folder className="h-3.5 w-3.5" /> Documentos
               {documents.length > 0 && <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded-full px-1.5">{documents.length}</span>}
             </TabsTrigger>
-            <TabsTrigger value="timeline" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" /> Linha do Tempo</TabsTrigger>
             <TabsTrigger value="ai" className="gap-1.5 text-xs"><Bot className="h-3.5 w-3.5" /> IA do Caso</TabsTrigger>
+            <TabsTrigger value="timeline" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" /> Linha do Tempo</TabsTrigger>
             <TabsTrigger value="notes" className="gap-1.5 text-xs"><StickyNote className="h-3.5 w-3.5" /> Anotações</TabsTrigger>
           </TabsList>
 
@@ -1218,72 +1141,80 @@ Seja objetivo, técnico e prático. Foco em ação imediata.`;
             )}
           </TabsContent>
 
-          {/* ── Timeline ────────────────────────────────────────────────── */}
-          <TabsContent value="timeline" className="mt-4 space-y-4">
-            {/* AI Timeline */}
-            {analysis?.linha_do_tempo && analysis.linha_do_tempo.length > 0 ? (
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Linha do Tempo — IA</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-4 relative before:absolute before:left-2.5 before:top-0 before:bottom-0 before:w-px before:bg-border/60">
-                    {analysis.linha_do_tempo.map((item, i) => (
-                      <div key={i} className="pl-8 relative">
-                        <div className={`absolute left-0 top-1 h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold ${i === 0 ? 'bg-primary text-primary-foreground' : 'bg-primary/10 border border-primary/30 text-primary'}`}>
-                          {i + 1}
-                        </div>
-                        <p className="text-[11px] font-semibold text-muted-foreground">{item.data}</p>
-                        <p className="text-sm mt-0.5">{item.evento}</p>
-                      </div>
-                    ))}
-                    {/* Current state */}
-                    <div className="pl-8 relative">
-                      <div className="absolute left-0 top-1 h-5 w-5 rounded-full bg-amber-100 border-2 border-amber-400 flex items-center justify-center">
-                        <span className="text-[8px]">⏳</span>
-                      </div>
-                      <p className="text-[11px] font-semibold text-amber-600">Hoje</p>
-                      <p className="text-sm mt-0.5">{caso.current_phase || caso.last_movement || 'Aguardando próxima movimentação'}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card className="border-dashed">
-                <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-                  <Clock className="h-8 w-8 text-muted-foreground mb-3" />
-                  <p className="font-semibold text-sm">Linha do tempo não disponível</p>
-                  <p className="text-xs text-muted-foreground mt-1 mb-4">Gere a análise completa com IA para ver a linha do tempo</p>
-                  <Button size="sm" onClick={runFullAnalysis} disabled={!!aiLoading} className="gap-2">
-                    {aiLoading === 'full_analysis' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                    Gerar Análise Completa
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Real movements mini-timeline */}
-            {movements.length > 0 && (
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Movimentações Reais (DataJud)</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-2 relative before:absolute before:left-2 before:top-0 before:bottom-0 before:w-px before:bg-border/40">
-                    {movements.slice(0, 8).map((m) => (
-                      <div key={m.id} className="pl-7 relative">
-                        <div className="absolute left-0.5 top-1.5 h-3 w-3 rounded-full bg-muted border border-border" />
-                        <p className="text-xs text-muted-foreground">
-                          {m.movement_date ? (() => { const d = new Date(m.movement_date); return isNaN(d.getTime()) ? m.movement_date : format(d, 'dd/MM/yyyy', { locale: ptBR }); })() : '?'}
-                        </p>
-                        <p className="text-sm font-medium">✓ {m.title}</p>
-                      </div>
-                    ))}
-                    {movements.length > 8 && <p className="text-xs text-muted-foreground pl-7">+{movements.length - 8} movimentações anteriores</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
           {/* ── AI Tab ──────────────────────────────────────────────────── */}
           <TabsContent value="ai" className="space-y-4 mt-4">
+            {/* Chance de Êxito + Risco Processual */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Card className={`border-l-4 ${successProb?.nivel === 'alta' ? 'border-l-emerald-500' : successProb?.nivel === 'moderada' ? 'border-l-amber-500' : successProb ? 'border-l-red-500' : 'border-l-border'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Target className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-semibold">Chance de Êxito</p>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={!!aiLoading} onClick={runSuccessProbability}>
+                      {aiLoading === 'success_probability' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      {successProb ? 'Recalcular' : 'Calcular'}
+                    </Button>
+                  </div>
+                  {successProb ? (
+                    <div className="space-y-2">
+                      <SuccessBadge nivel={successProb.nivel} percentual={successProb.percentual} />
+                      <p className="text-xs text-muted-foreground">{successProb.justificativa}</p>
+                      {successProb.pontos_favoraveis?.length > 0 && (
+                        <div className="text-xs space-y-0.5">
+                          {successProb.pontos_favoraveis.slice(0, 2).map((p, i) => <p key={i} className="text-emerald-700">✓ {p}</p>)}
+                        </div>
+                      )}
+                      {successProb.pontos_desfavoraveis?.length > 0 && (
+                        <div className="text-xs space-y-0.5">
+                          {successProb.pontos_desfavoraveis.slice(0, 2).map((p, i) => <p key={i} className="text-red-600">✗ {p}</p>)}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Avalia a probabilidade de êxito com base nos dados do processo, movimentações e análise jurídica</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className={`border-l-4 ${processRisk?.nivel_geral === 'critico' ? 'border-l-red-500' : processRisk?.nivel_geral === 'atencao' ? 'border-l-amber-500' : processRisk ? 'border-l-emerald-500' : 'border-l-border'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-semibold">Risco Processual</p>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={!!aiLoading} onClick={runRiskAssessment}>
+                      {aiLoading === 'risk_assessment' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertTriangle className="h-3 w-3" />}
+                      {processRisk ? 'Reavaliar' : 'Avaliar'}
+                    </Button>
+                  </div>
+                  {processRisk ? (
+                    <div className="space-y-2">
+                      <RiskBadge nivel={processRisk.nivel_geral} />
+                      <div className="space-y-1">
+                        {processRisk.fatores.slice(0, 3).map((f, i) => (
+                          <div key={i} className="flex items-start gap-1.5">
+                            <span className="text-[10px] mt-0.5">{f.nivel === 'critico' ? '🔴' : f.nivel === 'atencao' ? '🟡' : '🟢'}</span>
+                            <p className="text-xs text-muted-foreground">{f.descricao}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {processRisk.recomendacoes?.length > 0 && (
+                        <div className="pt-1 border-t border-border/30">
+                          <p className="text-xs font-medium mb-1">Recomendações:</p>
+                          {processRisk.recomendacoes.slice(0, 2).map((r, i) => <p key={i} className="text-xs text-muted-foreground">→ {r}</p>)}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Avalia prazos, audiências, prescrição e diligências pendentes</p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Quick actions */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               <Button size="sm" variant="outline" className="gap-1.5 h-9 text-xs" disabled={!!aiLoading} onClick={() => runAi('summary', 'Resumo Executivo', () => generateCaseSummary(caseDataForAi))}>
@@ -1428,6 +1359,66 @@ Seja objetivo, técnico e prático. Foco em ação imediata.`;
                   </Card>
                 ))}
               </div>
+            )}
+          </TabsContent>
+
+          {/* ── Timeline ────────────────────────────────────────────────── */}
+          <TabsContent value="timeline" className="mt-4 space-y-4">
+            {analysis?.linha_do_tempo && analysis.linha_do_tempo.length > 0 ? (
+              <Card>
+                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold flex items-center gap-2"><Sparkles className="h-4 w-4 text-primary" /> Linha do Tempo — IA</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="space-y-4 relative before:absolute before:left-2.5 before:top-0 before:bottom-0 before:w-px before:bg-border/60">
+                    {analysis.linha_do_tempo.map((item, i) => (
+                      <div key={i} className="pl-8 relative">
+                        <div className={`absolute left-0 top-1 h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold ${i === 0 ? 'bg-primary text-primary-foreground' : 'bg-primary/10 border border-primary/30 text-primary'}`}>
+                          {i + 1}
+                        </div>
+                        <p className="text-[11px] font-semibold text-muted-foreground">{item.data}</p>
+                        <p className="text-sm mt-0.5">{item.evento}</p>
+                      </div>
+                    ))}
+                    <div className="pl-8 relative">
+                      <div className="absolute left-0 top-1 h-5 w-5 rounded-full bg-amber-100 border-2 border-amber-400 flex items-center justify-center">
+                        <span className="text-[8px]">⏳</span>
+                      </div>
+                      <p className="text-[11px] font-semibold text-amber-600">Hoje</p>
+                      <p className="text-sm mt-0.5">{caso.current_phase || caso.last_movement || 'Aguardando próxima movimentação'}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center justify-center py-10 text-center">
+                  <Clock className="h-8 w-8 text-muted-foreground mb-3" />
+                  <p className="font-semibold text-sm">Linha do tempo não disponível</p>
+                  <p className="text-xs text-muted-foreground mt-1 mb-4">Gere a análise completa com IA para ver a linha do tempo</p>
+                  <Button size="sm" onClick={runFullAnalysis} disabled={!!aiLoading} className="gap-2">
+                    {aiLoading === 'full_analysis' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    Gerar Análise Completa
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+            {movements.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3"><CardTitle className="text-sm font-semibold">Movimentações Reais (DataJud)</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="space-y-2 relative before:absolute before:left-2 before:top-0 before:bottom-0 before:w-px before:bg-border/40">
+                    {movements.slice(0, 8).map((m) => (
+                      <div key={m.id} className="pl-7 relative">
+                        <div className="absolute left-0.5 top-1.5 h-3 w-3 rounded-full bg-muted border border-border" />
+                        <p className="text-xs text-muted-foreground">
+                          {m.movement_date ? (() => { const d = new Date(m.movement_date); return isNaN(d.getTime()) ? m.movement_date : format(d, 'dd/MM/yyyy', { locale: ptBR }); })() : '?'}
+                        </p>
+                        <p className="text-sm font-medium">✓ {m.title}</p>
+                      </div>
+                    ))}
+                    {movements.length > 8 && <p className="text-xs text-muted-foreground pl-7">+{movements.length - 8} movimentações anteriores</p>}
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
