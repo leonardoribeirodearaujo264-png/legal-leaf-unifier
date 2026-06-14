@@ -3,10 +3,13 @@
 -- Execute este script no SQL Editor do Supabase
 -- ============================================================
 
--- 1. Adicionar colunas
+-- 1. Adicionar colunas e ajustar created_by para aceitar NULL (agentes do sistema)
 ALTER TABLE intranet_agents
   ADD COLUMN IF NOT EXISTS is_system   BOOLEAN   DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS cloned_from UUID      NULL;
+
+ALTER TABLE intranet_agents
+  ALTER COLUMN created_by DROP NOT NULL;
 
 -- 2. Habilitar RLS
 ALTER TABLE intranet_agents ENABLE ROW LEVEL SECURITY;
