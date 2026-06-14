@@ -181,13 +181,30 @@ export default function Casos() {
       const p = importPreview;
       const area = guessArea(p);
       const lastMov = p.movimentos?.[0];
-      const lastMovText = lastMov ? `${lastMov.dataHora ? new Date(lastMov.dataHora).toLocaleDateString('pt-BR') : ''} — ${lastMov.nome || ''}` : null;
+      const lastMovText = lastMov
+        ? `${lastMov.dataHora ? new Date(lastMov.dataHora).toLocaleDateString('pt-BR') : ''} — ${lastMov.nome || ''}`.trim()
+        : null;
       const parsedDate = p.dataAjuizamento ? new Date(p.dataAjuizamento) : null;
 
       const { data: existing } = await supabase.from('casos').select('id').eq('numero_processo', p.numeroProcesso).maybeSingle();
-      if (existing) { toast.error('Este processo já foi importado. Abra o caso e use "Atualizar pelo DataJud".'); setImportAnalyzing(false); return; }
+      if (existing) {
+        toast.error('Este processo já foi importado. Abra o caso e use "Atualizar pelo DataJud".');
+        setImportAnalyzing(false);
+        return;
+      }
 
       const clientName = importClientName.trim() || guessClientName(p) || 'Cliente não identificado';
+
+      // Limit raw data so JSONB stays manageable
+      const rawForStorage: Record<string, unknown> = p._raw
+        ? {
+            ...(p._raw as Record<string, unknown>),
+            movimentos: Array.isArray((p._raw as Record<string, unknown[]>).movimentos)
+              ? ((p._raw as Record<string, unknown[]>).movimentos as unknown[]).slice(0, 30)
+              : [],
+          }
+        : {};
+
       const payload = {
         user_id: user.id,
         nome: `${p.classe?.nome || 'Processo'} — ${clientName}`,
@@ -195,47 +212,114 @@ export default function Casos() {
         numero_processo: p.numeroProcesso,
         area_juridica: area,
         status: 'imported',
-        court: p.tribunal,
-        court_name: p.orgaoJulgador?.nome,
-        case_class: p.classe?.nome,
-        subject: p.assuntos?.map(a => a.nome).filter(Boolean).join(', '),
-        jurisdiction_body: p.orgaoJulgador?.nome,
-        degree: p.grau,
+        court: p.tribunal ?? null,
+        court_name: p.orgaoJulgador?.nome ?? null,
+        case_class: p.classe?.nome ?? null,
+        subject: p.assuntos?.map(a => a.nome).filter(Boolean).join(', ') || null,
+        jurisdiction_body: p.orgaoJulgador?.nome ?? null,
+        degree: p.grau ?? null,
         distribution_date: parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate.toISOString().split('T')[0] : null,
         claim_value: p.valorCausa ?? null,
         last_movement: lastMovText,
         import_source: 'datajud',
-        datajud_raw: (p._raw ?? {}) as Record<string, unknown>,
+        datajud_raw: rawForStorage,
       };
 
       const { data: caseData, error: caseErr } = await supabase.from('casos').insert(payload).select().single();
-      if (caseErr) throw caseErr;
 
+      if (caseErr || !caseData) {
+        // Format Supabase error properly (it's not always an Error instance)
+        const msg = caseErr
+          ? caseErr.message || (caseErr as unknown as { details?: string }).details || JSON.stringify(caseErr)
+          : 'Caso não foi criado. Verifique as permissões do banco.';
+        throw new Error(msg);
+      }
+
+      // Insert parties and lawyers (errors are non-fatal — logged but don't stop import)
       if (p.partes && p.partes.length > 0) {
-        await supabase.from('case_parties').insert(p.partes.map(pt => ({ case_id: caseData.id, user_id: user.id, name: pt.nome, type: pt.tipoParte, raw_data: pt as unknown as Record<string, unknown> })));
-        const lawyers = p.partes.flatMap(pt => (pt.advogados || []).map(adv => ({ case_id: caseData.id, user_id: user.id, name: adv.nome, oab: adv.numeroOAB, party_name: pt.nome, raw_data: adv as unknown as Record<string, unknown> })));
-        if (lawyers.length > 0) await supabase.from('case_lawyers').insert(lawyers);
+        const { error: partiesErr } = await supabase.from('case_parties').insert(
+          p.partes.map(pt => ({
+            case_id: caseData.id,
+            user_id: user.id,
+            name: pt.nome || 'Parte',           // NOT NULL — always provide a value
+            type: pt.tipoParte ?? null,
+            raw_data: (pt as unknown as Record<string, unknown>),
+          }))
+        );
+        if (partiesErr) console.warn('[Import] case_parties insert error:', partiesErr.message);
+
+        const lawyers = p.partes.flatMap(pt =>
+          (pt.advogados || []).map(adv => ({
+            case_id: caseData.id,
+            user_id: user.id,
+            name: adv.nome || 'Advogado',       // NOT NULL — always provide a value
+            oab: adv.numeroOAB ?? null,
+            party_name: pt.nome ?? null,
+            raw_data: (adv as unknown as Record<string, unknown>),
+          }))
+        );
+        if (lawyers.length > 0) {
+          const { error: lawyersErr } = await supabase.from('case_lawyers').insert(lawyers);
+          if (lawyersErr) console.warn('[Import] case_lawyers insert error:', lawyersErr.message);
+        }
       }
+
+      // Insert movements (non-fatal)
       if (p.movimentos && p.movimentos.length > 0) {
-        await supabase.from('case_movements').insert(p.movimentos.slice(0, 100).map(m => ({ case_id: caseData.id, user_id: user.id, movement_date: m.dataHora || null, title: m.nome || 'Movimentação', description: m.complementosTabelados?.[0]?.descricao || null, raw_data: m as unknown as Record<string, unknown> })));
+        const { error: movErr } = await supabase.from('case_movements').insert(
+          p.movimentos.slice(0, 100).map(m => ({
+            case_id: caseData.id,
+            user_id: user.id,
+            movement_date: m.dataHora || null,
+            title: m.nome || 'Movimentação',
+            description: m.complementosTabelados?.[0]?.descricao || null,
+            raw_data: (m as unknown as Record<string, unknown>),
+          }))
+        );
+        if (movErr) console.warn('[Import] case_movements insert error:', movErr.message);
       }
 
-      toast.info('Gerando análise com IA…');
-      try {
-        const analysis = await analyzeCase(p, 'gemini-flash', clientName);
-        await supabase.from('casos').update({ summary: analysis.resumo_executivo, ai_analysis: analysis as unknown as Record<string, unknown>, area_juridica: area || analysis.area_direito, current_phase: analysis.fase_atual }).eq('id', caseData.id);
-        await supabase.from('case_ai_outputs').insert({ case_id: caseData.id, user_id: user.id, output_type: 'full_analysis', content: JSON.stringify(analysis), metadata: { model: 'gemini-flash', generated_at: new Date().toISOString() } });
-      } catch (aiErr) {
-        console.warn('AI analysis failed (non-fatal):', aiErr);
-        toast.warning('Análise de IA não gerada. Você pode gerá-la dentro do caso.');
-      }
-
-      toast.success('Caso importado com sucesso!');
-      setImportOpen(false); setImportPreview(null); setImportNumber(''); setImportClientName('');
+      // ── Close modal and navigate IMMEDIATELY — don't wait for AI ──────────
+      setImportOpen(false);
+      setImportPreview(null);
+      setImportNumber('');
+      setImportClientName('');
+      setImportAnalyzing(false);
+      toast.success('Caso importado! Gerando análise de IA em segundo plano…');
       loadCasos();
       navigate(`/casos/${caseData.id}`);
+
+      // ── Run AI analysis asynchronously (fire-and-forget) ─────────────────
+      analyzeCase(p, 'gemini-flash', clientName)
+        .then(async (analysis) => {
+          await supabase.from('casos').update({
+            summary: analysis.resumo_executivo,
+            ai_analysis: analysis as unknown as Record<string, unknown>,
+            area_juridica: area || analysis.area_direito,
+            current_phase: analysis.fase_atual,
+          }).eq('id', caseData.id);
+          await supabase.from('case_ai_outputs').insert({
+            case_id: caseData.id,
+            user_id: user.id,
+            output_type: 'full_analysis',
+            content: JSON.stringify(analysis),
+            metadata: { model: 'gemini-flash', generated_at: new Date().toISOString() },
+          });
+          toast.success('Análise de IA concluída! Recarregue o caso para ver.');
+        })
+        .catch((aiErr) => {
+          console.warn('[Import] AI analysis failed (non-fatal):', aiErr);
+          toast.warning('Análise de IA não gerada. Você pode gerá-la dentro do caso.');
+        });
+
+      return; // already cleared setImportAnalyzing above
     } catch (err) {
-      toast.error(`Erro ao importar: ${err instanceof Error ? err.message : String(err)}`);
+      const message = err instanceof Error
+        ? err.message
+        : (typeof err === 'object' && err !== null && 'message' in err)
+          ? String((err as { message: unknown }).message)
+          : JSON.stringify(err);
+      toast.error(`Erro ao importar: ${message}`);
     }
     setImportAnalyzing(false);
   };
