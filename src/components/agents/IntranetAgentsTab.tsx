@@ -94,10 +94,11 @@ export function IntranetAgentsTab() {
       const { data, error } = await supabase
         .from('intranet_agents')
         .select('id, name, objective, instructions, model, icon_emoji, created_by, is_active, created_at, function_role, card_color, knowledge_base')
+        .eq('is_system', false)
         .order('created_at', { ascending: false });
 
       if (error) {
-        // If columns like knowledge_base don't exist yet, fall back to base columns
+        // Fallback: is_system or knowledge_base columns may not exist yet
         if (error.code === '42703') {
           const fallback = await supabase
             .from('intranet_agents')
