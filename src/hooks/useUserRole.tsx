@@ -71,13 +71,19 @@ export const useUserRole = () => {
 
       setProfile(profileData);
 
-      const { data: roleData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .single();
+      // Prefer role from profiles table; fall back to user_roles if not set
+      let resolvedRole: UserRole = (profileData?.role as UserRole) || null;
 
-      setRole(roleData?.role as UserRole || 'user');
+      if (!resolvedRole) {
+        const { data: roleData } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .single();
+        resolvedRole = (roleData?.role as UserRole) || 'user';
+      }
+
+      setRole(resolvedRole);
       fetchedUserIdRef.current = user.id;
       setLoading(false);
     };
