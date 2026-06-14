@@ -22,9 +22,11 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { searchProcessByNumber } from '@/services/datajudService';
 import { analyzeCase } from '@/services/caseAiService';
+import { runPartyExtractionPipeline } from '@/services/partyExtractionService';
 import { friendlyDatajudError } from '@/lib/errors';
 import { parseProcessNumber } from '@/config/datajud';
 import type { DatajudProcess } from '@/services/datajudService';
+import { CheckCircle2, Circle, AlertCircle } from 'lucide-react';
 
 interface Caso {
   id: string;
@@ -92,6 +94,8 @@ export default function Casos() {
   const [importPreview, setImportPreview] = useState<DatajudProcess | null>(null);
   const [importClientName, setImportClientName] = useState('');
   const [importAnalyzing, setImportAnalyzing] = useState(false);
+  const [importStep, setImportStep] = useState('');
+  const [importSteps, setImportSteps] = useState<{ label: string; status: 'pending' | 'running' | 'done' | 'skipped' }[]>([]);
   const [newCaseOpen, setNewCaseOpen] = useState(false);
 
   useEffect(() => { loadCasos(); }, []);
@@ -189,11 +193,57 @@ export default function Casos() {
     return reu?.nome || '';
   };
 
+  const updateStep = (label: string) => {
+    setImportStep(label);
+    setImportSteps(prev => {
+      const next = prev.map(s => s.status === 'running' ? { ...s, status: 'done' as const } : s);
+      const existing = next.find(s => s.label === label);
+      if (existing) return next.map(s => s.label === label ? { ...s, status: 'running' as const } : s);
+      return [...next, { label, status: 'running' as const }];
+    });
+  };
+
+  const finishSteps = () => {
+    setImportSteps(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'done' as const } : s));
+  };
+
   const handleImport = async () => {
     if (!importPreview || !user) return;
     setImportAnalyzing(true);
+    setImportSteps([]);
     try {
       const p = importPreview;
+
+      // ── Duplicate check ──────────────────────────────────────────────────
+      updateStep('Verificando duplicatas…');
+      const { data: existing } = await supabase.from('casos').select('id').eq('numero_processo', p.numeroProcesso).maybeSingle();
+      if (existing) {
+        toast.error('Este processo já foi importado. Abra o caso e use "Atualizar pelo DataJud".');
+        setImportAnalyzing(false);
+        setImportSteps([]);
+        return;
+      }
+
+      // ── Multi-step party extraction pipeline ─────────────────────────────
+      const extraction = await runPartyExtractionPipeline(
+        p.partes ?? [],
+        p.movimentos ?? [],
+        p.classe?.nome ?? '',
+        p.assuntos?.map(a => a.nome).join(', ') ?? '',
+        updateStep
+      );
+
+      extraction.log.forEach(l => console.info('[Import]', l));
+
+      // ── Determine names for case title ───────────────────────────────────
+      const autorParty = extraction.parties.find(pt => pt.pole === 'ativo');
+      const reuParty = extraction.parties.find(pt => pt.pole === 'passivo');
+      const autorName = importClientName.trim() || autorParty?.name || 'Não identificado';
+      const reuName = reuParty?.name || 'Não identificado';
+      const clientName = autorName;
+
+      // ── Create case ──────────────────────────────────────────────────────
+      updateStep('Criando caso…');
       const area = guessArea(p);
       const lastMov = p.movimentos?.[0];
       const lastMovText = lastMov
@@ -201,18 +251,6 @@ export default function Casos() {
         : null;
       const parsedDate = p.dataAjuizamento ? new Date(p.dataAjuizamento) : null;
 
-      const { data: existing } = await supabase.from('casos').select('id').eq('numero_processo', p.numeroProcesso).maybeSingle();
-      if (existing) {
-        toast.error('Este processo já foi importado. Abra o caso e use "Atualizar pelo DataJud".');
-        setImportAnalyzing(false);
-        return;
-      }
-
-      const autorName = importClientName.trim() || guessAutorName(p) || 'Não informado pelo DataJud';
-      const reuName = guessReuName(p) || 'Não informado pelo DataJud';
-      const clientName = autorName;
-
-      // Limit raw data so JSONB stays manageable
       const rawForStorage: Record<string, unknown> = p._raw
         ? {
             ...(p._raw as Record<string, unknown>),
@@ -222,7 +260,7 @@ export default function Casos() {
           }
         : {};
 
-      const payload = {
+      const { data: caseData, error: caseErr } = await supabase.from('casos').insert({
         user_id: user.id,
         nome: `${p.classe?.nome || 'Processo'} — ${autorName} x ${reuName}`,
         cliente: clientName,
@@ -240,49 +278,47 @@ export default function Casos() {
         last_movement: lastMovText,
         import_source: 'datajud',
         datajud_raw: rawForStorage,
-      };
-
-      const { data: caseData, error: caseErr } = await supabase.from('casos').insert(payload).select().single();
+      }).select().single();
 
       if (caseErr || !caseData) {
-        // Format Supabase error properly (it's not always an Error instance)
         const msg = caseErr
           ? caseErr.message || (caseErr as unknown as { details?: string }).details || JSON.stringify(caseErr)
           : 'Caso não foi criado. Verifique as permissões do banco.';
         throw new Error(msg);
       }
 
-      // Insert parties and lawyers (errors are non-fatal — logged but don't stop import)
-      if (p.partes && p.partes.length > 0) {
+      // ── Insert extracted parties ─────────────────────────────────────────
+      updateStep('Salvando partes…');
+      if (extraction.parties.length > 0) {
         const { error: partiesErr } = await supabase.from('case_parties').insert(
-          p.partes.map(pt => ({
+          extraction.parties.map(pt => ({
             case_id: caseData.id,
             user_id: user.id,
-            name: pt.nome || 'Não informado pelo DataJud',
-            type: pt.tipoParte ?? null,
-            document: (pt as unknown as { documento?: string }).documento ?? null,
-            raw_data: (pt as unknown as Record<string, unknown>),
+            name: pt.name,
+            type: pt.partyType,
+            document: pt.document ?? null,
+            raw_data: { source: pt.source, pole: pt.pole, extraction_log: extraction.log },
           }))
         );
-        if (partiesErr) console.warn('[Import] case_parties insert error:', partiesErr.message);
-
-        const lawyers = p.partes.flatMap(pt =>
-          (pt.advogados || []).map(adv => ({
-            case_id: caseData.id,
-            user_id: user.id,
-            name: adv.nome || 'Advogado',
-            oab: adv.numeroOAB ?? null,
-            party_name: pt.nome ?? null,
-            raw_data: (adv as unknown as Record<string, unknown>),
-          }))
-        );
-        if (lawyers.length > 0) {
-          const { error: lawyersErr } = await supabase.from('case_lawyers').insert(lawyers);
-          if (lawyersErr) console.warn('[Import] case_lawyers insert error:', lawyersErr.message);
-        }
+        if (partiesErr) console.warn('[Import] case_parties error:', partiesErr.message);
       }
 
-      // Insert movements (non-fatal)
+      // ── Insert extracted lawyers ─────────────────────────────────────────
+      if (extraction.lawyers.length > 0) {
+        const { error: lawyersErr } = await supabase.from('case_lawyers').insert(
+          extraction.lawyers.map(l => ({
+            case_id: caseData.id,
+            user_id: user.id,
+            name: l.name,
+            oab: l.oab ?? null,
+            party_name: l.partyName ?? null,
+            raw_data: { source: l.source },
+          }))
+        );
+        if (lawyersErr) console.warn('[Import] case_lawyers error:', lawyersErr.message);
+      }
+
+      // ── Insert movements ─────────────────────────────────────────────────
       if (p.movimentos && p.movimentos.length > 0) {
         const { error: movErr } = await supabase.from('case_movements').insert(
           p.movimentos.slice(0, 100).map(m => ({
@@ -294,20 +330,35 @@ export default function Casos() {
             raw_data: (m as unknown as Record<string, unknown>),
           }))
         );
-        if (movErr) console.warn('[Import] case_movements insert error:', movErr.message);
+        if (movErr) console.warn('[Import] case_movements error:', movErr.message);
       }
 
-      // ── Close modal and navigate IMMEDIATELY — don't wait for AI ──────────
+      finishSteps();
+
+      // Determine source label for toast
+      const sourceLabel: Record<string, string> = {
+        DATAJUD: 'pelo DataJud',
+        MOVIMENTACOES: 'pelas movimentações',
+        IA: 'pela IA',
+        NONE: '(intervenção manual necessária na aba Partes)',
+      };
+      const srcMsg = sourceLabel[extraction.source] ?? '';
+      const partiesMsg = extraction.parties.length > 0
+        ? `${extraction.parties.length} parte(s) identificada(s) ${srcMsg}`
+        : `Partes não identificadas automaticamente ${srcMsg}`;
+
+      // ── Close dialog and navigate ────────────────────────────────────────
       setImportOpen(false);
       setImportPreview(null);
       setImportNumber('');
       setImportClientName('');
+      setImportSteps([]);
       setImportAnalyzing(false);
-      toast.success('Caso importado! Gerando análise de IA em segundo plano…');
+      toast.success(`Caso importado! ${partiesMsg}. Análise de IA em segundo plano…`);
       loadCasos();
       navigate(`/casos/${caseData.id}`);
 
-      // ── Run AI analysis asynchronously (fire-and-forget) ─────────────────
+      // ── Fire-and-forget: AI case analysis ───────────────────────────────
       analyzeCase(p, 'gemini-flash', clientName)
         .then(async (analysis) => {
           await supabase.from('casos').update({
@@ -330,7 +381,7 @@ export default function Casos() {
           toast.warning('Análise de IA não gerada. Você pode gerá-la dentro do caso.');
         });
 
-      return; // already cleared setImportAnalyzing above
+      return;
     } catch (err) {
       const message = err instanceof Error
         ? err.message
@@ -340,6 +391,7 @@ export default function Casos() {
       toast.error(`Erro ao importar: ${message}`);
     }
     setImportAnalyzing(false);
+    setImportSteps([]);
   };
 
   const filtered = casos.filter(c => {
@@ -527,11 +579,28 @@ export default function Casos() {
               </div>
             )}
           </div>
+          {/* Import progress steps */}
+          {importAnalyzing && importSteps.length > 0 && (
+            <div className="border rounded-lg bg-muted/30 p-3 space-y-1.5 mx-1">
+              {importSteps.map((s, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  {s.status === 'done'
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                    : s.status === 'running'
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                    : <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                  <span className={s.status === 'running' ? 'text-foreground font-medium' : 'text-muted-foreground'}>{s.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setImportOpen(false)} disabled={importAnalyzing}>Cancelar</Button>
             {importPreview && (
               <Button onClick={handleImport} disabled={importAnalyzing} className="gap-2">
-                {importAnalyzing ? <><Loader2 className="h-4 w-4 animate-spin" /> Importando + IA…</> : <><Download className="h-4 w-4" /> Importar e Analisar</>}
+                {importAnalyzing
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> {importStep || 'Importando…'}</>
+                  : <><Download className="h-4 w-4" /> Importar e Analisar</>}
               </Button>
             )}
           </DialogFooter>
