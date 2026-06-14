@@ -17,7 +17,8 @@ import {
   CheckSquare, ChevronRight, Sparkles, Download, Copy, Check,
   TrendingUp, Shield, PhoneCall, FileSignature, BookOpen,
   AlertCircle, Clock, DollarSign, Gavel, Target, Activity,
-  User, Building2, MessageSquare,
+  User, Building2, MessageSquare, Upload, ExternalLink,
+  Folder, Zap,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -69,6 +70,7 @@ interface Movement {
   is_important: boolean;
 }
 interface AiOutput { id: string; output_type: string; content: string; created_at: string; metadata?: Record<string, unknown>; }
+interface CaseDocument { id: string; file_name: string; file_url: string; file_type: string | null; file_size: number | null; created_at: string; }
 
 const STATUS_COLORS: Record<string, string> = {
   ativo: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -109,6 +111,7 @@ export default function CaseDetail() {
   const [lawyers, setLawyers] = useState<Lawyer[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [aiOutputs, setAiOutputs] = useState<AiOutput[]>([]);
+  const [documents, setDocuments] = useState<CaseDocument[]>([]);
   const [notes, setNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -116,6 +119,7 @@ export default function CaseDetail() {
   const [activeAiText, setActiveAiText] = useState('');
   const [activeAiLabel, setActiveAiLabel] = useState('');
   const [copied, setCopied] = useState(false);
+  const [movementAiId, setMovementAiId] = useState<string | null>(null);
 
   // Advanced AI results
   const [successProb, setSuccessProb] = useState<SuccessProbability | null>(null);
@@ -130,12 +134,13 @@ export default function CaseDetail() {
   const loadAll = async () => {
     if (!id) return;
     setLoading(true);
-    const [{ data: c }, { data: p }, { data: l }, { data: m }, { data: a }] = await Promise.all([
+    const [{ data: c }, { data: p }, { data: l }, { data: m }, { data: a }, { data: d }] = await Promise.all([
       supabase.from('casos').select('*').eq('id', id).single(),
       supabase.from('case_parties').select('*').eq('case_id', id).order('created_at'),
       supabase.from('case_lawyers').select('*').eq('case_id', id),
       supabase.from('case_movements').select('*').eq('case_id', id).order('movement_date', { ascending: false }),
       supabase.from('case_ai_outputs').select('*').eq('case_id', id).order('created_at', { ascending: false }),
+      supabase.from('case_documents').select('*').eq('case_id', id).order('created_at', { ascending: false }),
     ]);
 
     if (!c) { toast.error('Caso não encontrado'); navigate('/casos'); return; }
@@ -144,6 +149,7 @@ export default function CaseDetail() {
     setLawyers((l || []) as Lawyer[]);
     setMovements((m || []) as Movement[]);
     setAiOutputs((a || []) as AiOutput[]);
+    setDocuments((d || []) as CaseDocument[]);
     setNotes((c as CaseRow).observacoes || '');
     setLoading(false);
   };
@@ -282,6 +288,48 @@ export default function CaseDetail() {
     setAiLoading(null);
   };
 
+  // ── Per-movement AI analysis ──────────────────────────────────────────────
+
+  const analyzeMovement = async (movement: Movement) => {
+    if (!caso || !user) return;
+    setMovementAiId(movement.id);
+    try {
+      const prompt = `Analise esta movimentação processual de forma objetiva e técnica para uso interno do escritório jurídico:
+
+Processo: ${caso.nome}
+Número: ${caso.numero_processo || 'N/A'}
+Tribunal: ${caso.court || caso.court_name || 'N/A'}
+
+Movimentação:
+- Data: ${movement.movement_date ? new Date(movement.movement_date).toLocaleDateString('pt-BR') : 'N/A'}
+- Tipo/Título: ${movement.title}
+- Descrição: ${movement.description || 'Sem descrição adicional'}
+
+Forneça:
+1. O que significa essa movimentação no contexto processual
+2. Impacto para o caso
+3. Ação imediata recomendada para o advogado
+4. Prazo a observar (se houver)
+
+Seja técnico, direto e prático.`;
+
+      let result = '';
+      const { streamAI } = await import('@/services/aiService');
+      await streamAI([{ role: 'user', content: prompt }], 'gemini-flash', (c) => { result += c; });
+
+      setActiveAiText(result);
+      setActiveAiLabel(`Análise: ${movement.title}`);
+      await supabase.from('case_ai_outputs').insert({
+        case_id: caso.id, user_id: user.id,
+        output_type: 'movement_analysis', content: result,
+        metadata: { movement_id: movement.id, movement_title: movement.title, generated_at: new Date().toISOString() },
+      });
+    } catch (err) {
+      toast.error(friendlyAIError(err));
+    }
+    setMovementAiId(null);
+  };
+
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -311,13 +359,26 @@ export default function CaseDetail() {
     movimentacoes: movements.slice(0, 20).map(m => ({ data: m.movement_date, titulo: m.title })),
   };
 
+  const isAutorPolo = (type: string | null): boolean => {
+    if (!type) return false;
+    const t = type.toLowerCase();
+    return t === 'ativo' || t.includes('autor') || t.includes('reclamant') || t.includes('requerente') || t.includes('impetrante');
+  };
+
+  const isReuPolo = (type: string | null): boolean => {
+    if (!type) return false;
+    const t = type.toLowerCase();
+    return t === 'passivo' || t.includes('réu') || t.includes('reo') || t.includes('reclamad') || t.includes('requerido') || t.includes('impetrado');
+  };
+
   // Group parties by polo
-  const autores = parties.filter(p => p.type?.toLowerCase().includes('autor') || p.type?.toLowerCase().includes('reclamant') || p.type?.toLowerCase().includes('requerente') || p.type?.toLowerCase().includes('impetrante'));
-  const reus = parties.filter(p => p.type?.toLowerCase().includes('réu') || p.type?.toLowerCase().includes('reclamad') || p.type?.toLowerCase().includes('requerido') || p.type?.toLowerCase().includes('impetrado'));
+  const autores = parties.filter(p => isAutorPolo(p.type));
+  const reus = parties.filter(p => isReuPolo(p.type));
   const otherParties = parties.filter(p => !autores.includes(p) && !reus.includes(p));
 
-  const authorNames = autores.map(a => a.name).join(', ') || (parties[0]?.name ?? '—');
-  const reuNames = reus.map(r => r.name).join(', ') || (parties[1]?.name ?? '—');
+  const NI = 'Não informado pelo DataJud';
+  const authorNames = autores.map(a => a.name).join(', ') || (parties[0]?.name ?? NI);
+  const reuNames = reus.map(r => r.name).join(', ') || (parties[1]?.name ?? NI);
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -361,10 +422,10 @@ export default function CaseDetail() {
           {[
             { icon: User, label: 'Autor', value: authorNames, color: 'text-blue-600' },
             { icon: Building2, label: 'Réu', value: reuNames, color: 'text-red-500' },
-            { icon: Activity, label: 'Fase Atual', value: caso.current_phase || 'Não informado', color: 'text-purple-600' },
-            { icon: DollarSign, label: 'Valor da Causa', value: caso.claim_value ? `R$ ${caso.claim_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Não informado', color: 'text-emerald-600' },
-            { icon: Gavel, label: 'Tribunal', value: caso.court || 'Não informado', color: 'text-slate-600' },
-            { icon: Scale, label: 'Área', value: caso.area_juridica || 'Não informado', color: 'text-indigo-600' },
+            { icon: Activity, label: 'Fase Atual', value: caso.current_phase || NI, color: 'text-purple-600' },
+            { icon: DollarSign, label: 'Valor da Causa', value: caso.claim_value ? `R$ ${caso.claim_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : NI, color: 'text-emerald-600' },
+            { icon: Gavel, label: 'Tribunal', value: caso.court || NI, color: 'text-slate-600' },
+            { icon: Scale, label: 'Área', value: caso.area_juridica || NI, color: 'text-indigo-600' },
           ].map(({ icon: Icon, label, value, color }) => (
             <Card key={label} className="border-border/50">
               <CardContent className="p-3">
@@ -449,6 +510,36 @@ export default function CaseDetail() {
           </Card>
         </div>
 
+        {/* ── Próxima Ação Recomendada ─────────────────────────────────── */}
+        {(() => {
+          const nextAction =
+            (analysis?.proximos_passos && analysis.proximos_passos.length > 0 ? analysis.proximos_passos[0] : null) ||
+            (processRisk?.recomendacoes && processRisk.recomendacoes.length > 0 ? processRisk.recomendacoes[0] : null) ||
+            (caso.current_phase ? `Acompanhar fase: ${caso.current_phase}` : null) ||
+            'Aguardar próxima movimentação do processo';
+          const urgency = processRisk?.nivel_geral === 'critico' ? 'border-l-red-500 bg-red-50 dark:bg-red-950/20' :
+            processRisk?.nivel_geral === 'atencao' ? 'border-l-amber-500 bg-amber-50 dark:bg-amber-950/20' :
+            'border-l-emerald-500 bg-emerald-50 dark:bg-emerald-950/20';
+          return (
+            <Card className={`border-l-4 ${urgency}`}>
+              <CardContent className="p-4 flex items-start gap-3">
+                <Zap className={`h-5 w-5 mt-0.5 shrink-0 ${processRisk?.nivel_geral === 'critico' ? 'text-red-500' : processRisk?.nivel_geral === 'atencao' ? 'text-amber-500' : 'text-emerald-600'}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-0.5">Próxima Ação Recomendada</p>
+                  <p className="text-sm font-semibold">{nextAction}</p>
+                  {analysis?.proximos_passos && analysis.proximos_passos.length > 1 && (
+                    <p className="text-xs text-muted-foreground mt-1">+{analysis.proximos_passos.length - 1} ações adicionais na aba IA do Caso</p>
+                  )}
+                </div>
+                <Button size="sm" variant="outline" className="shrink-0 h-7 text-xs gap-1" onClick={runFullAnalysis} disabled={!!aiLoading}>
+                  {aiLoading === 'full_analysis' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  Reprocessar IA
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {/* ── Tabs ──────────────────────────────────────────────────────── */}
         <Tabs defaultValue="overview">
           <TabsList className="flex flex-wrap h-auto gap-1">
@@ -460,6 +551,10 @@ export default function CaseDetail() {
             <TabsTrigger value="movements" className="gap-1.5 text-xs">
               <List className="h-3.5 w-3.5" /> Movimentações
               {movements.length > 0 && <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded-full px-1.5">{movements.length}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="documents" className="gap-1.5 text-xs">
+              <Folder className="h-3.5 w-3.5" /> Documentos
+              {documents.length > 0 && <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded-full px-1.5">{documents.length}</span>}
             </TabsTrigger>
             <TabsTrigger value="timeline" className="gap-1.5 text-xs"><Clock className="h-3.5 w-3.5" /> Linha do Tempo</TabsTrigger>
             <TabsTrigger value="ai" className="gap-1.5 text-xs"><Bot className="h-3.5 w-3.5" /> IA do Caso</TabsTrigger>
@@ -720,18 +815,171 @@ export default function CaseDetail() {
                         <div key={m.id} className="pl-8 relative">
                           <div className={`absolute left-1.5 top-2.5 h-3 w-3 rounded-full border-2 ${m.is_important ? 'border-primary bg-primary' : 'border-border bg-background'}`} />
                           <div className="py-2.5 border-b border-border/30 last:border-0">
-                            <p className="font-medium text-sm leading-snug">{m.title}</p>
-                            {m.movement_date && (
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {(() => { const d = new Date(m.movement_date); return isNaN(d.getTime()) ? m.movement_date : format(d, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }); })()}
-                              </p>
-                            )}
-                            {m.description && <p className="text-xs text-muted-foreground mt-1 italic">{m.description}</p>}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm leading-snug">{m.title}</p>
+                                {m.movement_date && (
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    {(() => { const d = new Date(m.movement_date); return isNaN(d.getTime()) ? m.movement_date : format(d, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }); })()}
+                                  </p>
+                                )}
+                                {m.description && <p className="text-xs text-muted-foreground mt-1 italic">{m.description}</p>}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-[11px] gap-1 shrink-0 text-primary hover:bg-primary/10"
+                                disabled={movementAiId === m.id || !!aiLoading}
+                                onClick={() => analyzeMovement(m)}
+                              >
+                                {movementAiId === m.id
+                                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                                  : <Bot className="h-3 w-3" />}
+                                Analisar
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   </ScrollArea>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* ── Documents ───────────────────────────────────────────────── */}
+          <TabsContent value="documents" className="mt-4 space-y-4">
+            {/* Upload prompt */}
+            <Card className="border-dashed border-2 border-primary/30 bg-primary/3">
+              <CardContent className="p-4">
+                <label className="flex flex-col items-center justify-center gap-2 cursor-pointer py-4 text-center">
+                  <Upload className="h-8 w-8 text-primary/60" />
+                  <p className="text-sm font-semibold text-primary/80">Fazer upload de documento</p>
+                  <p className="text-xs text-muted-foreground">PDF ou DOCX — o documento será vinculado a este caso</p>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !caso || !user) return;
+                      const path = `${user.id}/${caso.id}/${Date.now()}_${file.name}`;
+                      const { error: uploadErr } = await supabase.storage.from('case-documents').upload(path, file, { upsert: false });
+                      if (uploadErr) { toast.error('Erro ao fazer upload: ' + uploadErr.message); return; }
+                      const { data: urlData } = supabase.storage.from('case-documents').getPublicUrl(path);
+                      const { error: dbErr } = await supabase.from('case_documents').insert({
+                        case_id: caso.id, user_id: user.id,
+                        file_name: file.name, file_url: urlData.publicUrl,
+                        file_type: file.type, file_size: file.size,
+                      });
+                      if (dbErr) { toast.error('Erro ao salvar documento'); return; }
+                      toast.success('Documento enviado com sucesso');
+                      loadAll();
+                    }}
+                  />
+                  <Button size="sm" variant="outline" className="gap-1.5 pointer-events-none mt-1">
+                    <Upload className="h-3.5 w-3.5" /> Selecionar arquivo
+                  </Button>
+                </label>
+              </CardContent>
+            </Card>
+
+            {documents.length === 0 ? (
+              <Card className="border-dashed">
+                <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                  <Folder className="h-8 w-8 text-muted-foreground mb-3" />
+                  <p className="font-semibold text-sm">Nenhum documento anexado</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                    Documentos do DataJud não estão disponíveis para download direto.<br />
+                    Faça upload manual dos autos para análise completa com IA.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <Folder className="h-4 w-4 text-primary" /> Documentos ({documents.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="divide-y">
+                  {documents.map((doc) => (
+                    <div key={doc.id} className="py-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <FileText className="h-4 w-4 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.file_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {doc.file_type || 'Arquivo'}{doc.file_size ? ` · ${(doc.file_size / 1024).toFixed(0)} KB` : ''}
+                            {' · '}{format(new Date(doc.created_at), 'dd/MM/yyyy', { locale: ptBR })}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] gap-1" asChild>
+                          <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" /> Abrir
+                          </a>
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] gap-1" asChild>
+                          <a href={doc.file_url} download={doc.file_name}>
+                            <Download className="h-3 w-3" /> Baixar
+                          </a>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-[11px] gap-1 text-primary hover:bg-primary/10"
+                          disabled={!!aiLoading}
+                          onClick={async () => {
+                            if (!caso || !user) return;
+                            setAiLoading(`doc_${doc.id}`);
+                            try {
+                              let result = '';
+                              const { streamAI } = await import('@/services/aiService');
+                              await streamAI([{
+                                role: 'user',
+                                content: `Analise o documento "${doc.file_name}" vinculado ao processo ${caso.nome} (${caso.numero_processo || 'N/A'}).\n\nComo não temos o conteúdo extraído, forneça:\n1. O que tipicamente este tipo de documento representa no processo\n2. Ações imediatas sugeridas ao advogado\n3. Prazos ou atenções a ter com este tipo de peça\n\nSeja objetivo e prático.`,
+                              }], 'gemini-flash', (c) => { result += c; });
+                              setActiveAiText(result);
+                              setActiveAiLabel(`Análise: ${doc.file_name}`);
+                            } catch (err) {
+                              toast.error(friendlyAIError(err));
+                            }
+                            setAiLoading(null);
+                          }}
+                        >
+                          {aiLoading === `doc_${doc.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bot className="h-3 w-3" />}
+                          Analisar
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Active AI output (shared with AI tab) */}
+            {activeAiText && (
+              <Card className="border-primary/30 bg-primary/3">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary" /> {activeAiLabel || 'Análise da IA'}
+                    </CardTitle>
+                    <Button size="sm" variant="ghost" onClick={() => copyText(activeAiText)} className="gap-1.5 h-7 text-xs">
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                      {copied ? 'Copiado' : 'Copiar'}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <ReactMarkdown>{activeAiText}</ReactMarkdown>
+                  </div>
                 </CardContent>
               </Card>
             )}

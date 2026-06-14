@@ -10,10 +10,6 @@ import {
   MessageSquare,
   Scale,
   Clock,
-  Search,
-  Users,
-  FileText,
-  BarChart3,
 } from 'lucide-react';
 
 export interface MenuItemDef {
@@ -75,20 +71,8 @@ export function getMenuGroups(
       emoji: '⚖️',
       icon: Scale,
       items: [
-        { icon: FolderOpen, path: '/casos',                    label: 'Casos',                searchDescription: 'Gerenciar casos jurídicos' },
-        { icon: Clock,      path: '/controle-prazos',          label: 'Prazos',               searchDescription: 'Controle de prazos processuais' },
-        { icon: Search,     path: '/pesquisa-jurisprudencia',  label: 'Jurisprudência',       searchDescription: 'Pesquisar jurisprudência nos tribunais' },
-        { icon: BarChart3,  path: '/processos-dashboard',      label: 'Processos',            searchDescription: 'Dashboard de processos' },
-      ],
-    },
-    {
-      id: 'clientes',
-      label: 'Clientes & CRM',
-      emoji: '👥',
-      icon: Users,
-      items: [
-        { icon: Users,    path: '/crm',     label: 'Clientes / CRM',  searchDescription: 'Gerenciar clientes e relacionamentos' },
-        { icon: FileText, path: '/rota-doc', label: 'Modelos Jurídicos', searchDescription: 'Modelos e documentos jurídicos' },
+        { icon: FolderOpen, path: '/casos',           label: 'Casos',  searchDescription: 'Gerenciar casos jurídicos' },
+        { icon: Clock,      path: '/controle-prazos', label: 'Prazos', searchDescription: 'Controle de prazos processuais' },
       ],
     },
     {

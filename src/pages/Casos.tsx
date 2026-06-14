@@ -169,10 +169,24 @@ export default function Casos() {
     return 'Cível';
   };
 
-  const guessClientName = (p: DatajudProcess): string => {
-    const parte = p.partes?.find(pt => (pt.tipoParte || '').toLowerCase().includes('réu') || (pt.tipoParte || '').toLowerCase().includes('reclamad'));
-    const autor = p.partes?.find(pt => (pt.tipoParte || '').toLowerCase().includes('autor') || (pt.tipoParte || '').toLowerCase().includes('reclamant'));
-    return parte?.nome || autor?.nome || '';
+  const isAutorPolo = (tipoParte: string): boolean => {
+    const t = tipoParte.toLowerCase();
+    return t === 'ativo' || t.includes('autor') || t.includes('reclamant') || t.includes('requerente') || t.includes('impetrante');
+  };
+
+  const isReuPolo = (tipoParte: string): boolean => {
+    const t = tipoParte.toLowerCase();
+    return t === 'passivo' || t.includes('réu') || t.includes('reo') || t.includes('reclamad') || t.includes('requerido') || t.includes('impetrado');
+  };
+
+  const guessAutorName = (p: DatajudProcess): string => {
+    const autor = p.partes?.find(pt => isAutorPolo(pt.tipoParte || ''));
+    return autor?.nome || '';
+  };
+
+  const guessReuName = (p: DatajudProcess): string => {
+    const reu = p.partes?.find(pt => isReuPolo(pt.tipoParte || ''));
+    return reu?.nome || '';
   };
 
   const handleImport = async () => {
@@ -194,7 +208,9 @@ export default function Casos() {
         return;
       }
 
-      const clientName = importClientName.trim() || guessClientName(p) || 'Cliente não identificado';
+      const autorName = importClientName.trim() || guessAutorName(p) || 'Não informado pelo DataJud';
+      const reuName = guessReuName(p) || 'Não informado pelo DataJud';
+      const clientName = autorName;
 
       // Limit raw data so JSONB stays manageable
       const rawForStorage: Record<string, unknown> = p._raw
@@ -208,7 +224,7 @@ export default function Casos() {
 
       const payload = {
         user_id: user.id,
-        nome: `${p.classe?.nome || 'Processo'} — ${clientName}`,
+        nome: `${p.classe?.nome || 'Processo'} — ${autorName} x ${reuName}`,
         cliente: clientName,
         numero_processo: p.numeroProcesso,
         area_juridica: area,
