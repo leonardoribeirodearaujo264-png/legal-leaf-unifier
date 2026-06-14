@@ -28,6 +28,7 @@ import PesquisaJurisprudencia from "./pages/PesquisaJurisprudencia";
 import ProcessosDashboard from "./pages/ProcessosDashboard";
 import CRM from "./pages/CRM";
 import RotaDoc from "./pages/RotaDoc";
+import DebugDatajud from "./pages/DebugDatajud";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -145,6 +146,14 @@ const App = () => (
                 element={
                   <AdminRoute>
                     <Admin />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/debug-datajud"
+                element={
+                  <AdminRoute>
+                    <DebugDatajud />
                   </AdminRoute>
                 }
               />

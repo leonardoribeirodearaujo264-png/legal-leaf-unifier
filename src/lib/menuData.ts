@@ -8,6 +8,7 @@ import {
   Shield,
   MessageSquare,
   Scale,
+  Bug,
 } from 'lucide-react';
 
 export interface MenuItemDef {
@@ -76,8 +77,9 @@ export function getMenuGroups(
       emoji: '⚙️',
       icon: UserCircle,
       items: [
-        { icon: UserCircle, path: '/profile', label: 'Meu Perfil',    searchDescription: 'Editar perfil e preferências' },
-        { icon: Shield,     path: '/admin',   label: 'Administração', searchDescription: 'Painel de administração', badgeCount: pendingUsersCount, condition: isAdmin },
+        { icon: UserCircle, path: '/profile',        label: 'Meu Perfil',    searchDescription: 'Editar perfil e preferências' },
+        { icon: Shield,     path: '/admin',           label: 'Administração', searchDescription: 'Painel de administração', badgeCount: pendingUsersCount, condition: isAdmin },
+        { icon: Bug,        path: '/debug-datajud',   label: 'Debug DataJud', searchDescription: 'Visualizar JSON bruto do DataJud (admin)', condition: isAdmin },
       ],
     },
   ];
