@@ -23,6 +23,11 @@ import CaseDetail from "./pages/CaseDetail";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
 import NotFound from "./pages/NotFound";
+import ControlePrazos from "./pages/ControlePrazos";
+import PesquisaJurisprudencia from "./pages/PesquisaJurisprudencia";
+import ProcessosDashboard from "./pages/ProcessosDashboard";
+import CRM from "./pages/CRM";
+import RotaDoc from "./pages/RotaDoc";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -142,6 +147,26 @@ const App = () => (
                     <Admin />
                   </AdminRoute>
                 }
+              />
+              <Route
+                path="/controle-prazos"
+                element={<ProtectedRoute><ControlePrazos /></ProtectedRoute>}
+              />
+              <Route
+                path="/pesquisa-jurisprudencia"
+                element={<ProtectedRoute><PesquisaJurisprudencia /></ProtectedRoute>}
+              />
+              <Route
+                path="/processos-dashboard"
+                element={<ProtectedRoute><ProcessosDashboard /></ProtectedRoute>}
+              />
+              <Route
+                path="/crm"
+                element={<ProtectedRoute><CRM /></ProtectedRoute>}
+              />
+              <Route
+                path="/rota-doc"
+                element={<ProtectedRoute><RotaDoc /></ProtectedRoute>}
               />
               <Route path="*" element={<NotFound />} />
             </Routes>

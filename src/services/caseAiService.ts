@@ -3,6 +3,25 @@ import type { DatajudProcess } from './datajudService';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+export interface SuccessProbability {
+  nivel: 'alta' | 'moderada' | 'baixa';
+  percentual: number;
+  justificativa: string;
+  pontos_favoraveis: string[];
+  pontos_desfavoraveis: string[];
+}
+
+export interface RiskFactor {
+  descricao: string;
+  nivel: 'critico' | 'atencao' | 'favoravel';
+}
+
+export interface ProcessRisk {
+  nivel_geral: 'critico' | 'atencao' | 'favoravel';
+  fatores: RiskFactor[];
+  recomendacoes: string[];
+}
+
 export interface CaseAiAnalysis {
   resumo_executivo: string;
   area_direito: string;
@@ -172,4 +191,213 @@ Retorne APENAS o JSON array.`;
   } catch {
     return ['Erro ao processar resposta. Tente novamente.'];
   }
+}
+
+// ── Probability of success ────────────────────────────────────────────────
+
+export async function assessSuccessProbability(
+  caseData: Record<string, unknown>,
+  analysis: CaseAiAnalysis | null,
+  modelId = 'gemini-flash'
+): Promise<SuccessProbability> {
+  const prompt = `Você é um advogado sênior com 20 anos de experiência. Avalie a probabilidade de êxito do processo abaixo.
+
+Dados do processo:
+${JSON.stringify(caseData, null, 2)}
+
+${analysis ? `Análise prévia:
+Riscos: ${analysis.riscos?.join('; ')}
+Objeto: ${analysis.objeto_processo}
+Fase: ${analysis.fase_atual}
+Estratégia: ${analysis.estrategia_inicial}` : ''}
+
+Responda APENAS com JSON válido neste formato exato:
+{
+  "nivel": "alta" | "moderada" | "baixa",
+  "percentual": <número entre 0 e 100>,
+  "justificativa": "string com fundamentação jurídica objetiva em 2-3 frases",
+  "pontos_favoraveis": ["string", "string", "string"],
+  "pontos_desfavoraveis": ["string", "string", "string"]
+}
+
+Base para classificação:
+- alta: >75% de chance de êxito
+- moderada: 50-75%
+- baixa: <50%
+
+Retorne APENAS o JSON.`;
+
+  let raw = '';
+  await streamAI([{ role: 'user', content: prompt }], modelId, (c) => { raw += c; });
+
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('IA não retornou avaliação válida.');
+
+  return JSON.parse(match[0]) as SuccessProbability;
+}
+
+// ── Process risk assessment ───────────────────────────────────────────────
+
+export async function assessProcessRisk(
+  caseData: Record<string, unknown>,
+  movements: { title: string; movement_date: string | null }[],
+  analysis: CaseAiAnalysis | null,
+  modelId = 'gemini-flash'
+): Promise<ProcessRisk> {
+  const lastMovements = movements.slice(0, 10).map(m => `${m.movement_date ?? '?'}: ${m.title}`).join('\n');
+
+  const prompt = `Você é um especialista em gestão de risco processual. Avalie os riscos do processo abaixo.
+
+Dados:
+${JSON.stringify(caseData, null, 2)}
+
+Últimas movimentações:
+${lastMovements || 'Nenhuma movimentação registrada'}
+
+${analysis ? `Riscos já identificados: ${analysis.riscos?.join('; ')}` : ''}
+
+Avalie os seguintes fatores de risco:
+- Prazos processuais críticos
+- Ausência de documentos essenciais
+- Audiências próximas
+- Risco de prescrição ou decadência
+- Necessidade de recurso
+- Cumprimento de diligências
+- Fortaleza da tese da parte contrária
+
+Responda APENAS com JSON:
+{
+  "nivel_geral": "critico" | "atencao" | "favoravel",
+  "fatores": [
+    { "descricao": "string", "nivel": "critico" | "atencao" | "favoravel" }
+  ],
+  "recomendacoes": ["string", "string"]
+}
+
+Retorne APENAS o JSON.`;
+
+  let raw = '';
+  await streamAI([{ role: 'user', content: prompt }], modelId, (c) => { raw += c; });
+
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('IA não retornou avaliação de risco válida.');
+
+  return JSON.parse(match[0]) as ProcessRisk;
+}
+
+// ── Petition generator ────────────────────────────────────────────────────
+
+const PETITION_LABELS: Record<string, string> = {
+  inicial: 'Petição Inicial',
+  contestacao: 'Contestação',
+  replica: 'Réplica',
+  manifestacao: 'Manifestação',
+  cumprimento: 'Petição de Cumprimento de Sentença',
+  impugnacao: 'Impugnação ao Cumprimento de Sentença',
+  embargos_execucao: 'Embargos à Execução',
+};
+
+export async function generatePetition(
+  petitionType: string,
+  caseData: Record<string, unknown>,
+  analysis: CaseAiAnalysis | null,
+  modelId = 'gemini-flash'
+): Promise<string> {
+  const label = PETITION_LABELS[petitionType] || petitionType;
+
+  const prompt = `Você é um advogado experiente. Redija uma ${label} para o processo abaixo.
+
+Dados do processo:
+${JSON.stringify(caseData, null, 2)}
+
+${analysis ? `Estratégia: ${analysis.estrategia_inicial}
+Teses jurídicas disponíveis: ${analysis.proximos_passos?.join('; ')}` : ''}
+
+Redija a ${label} seguindo a estrutura padrão do direito processual civil brasileiro:
+- Cabeçalho (Excelentíssimo Senhor Doutor Juiz...)
+- Qualificação das partes
+- Dos fatos
+- Do direito (com fundamentação legal e jurisprudencial)
+- Dos pedidos
+- Data e assinatura (deixar em branco)
+
+Use linguagem técnica jurídica. A peça deve estar completa e pronta para uso.`;
+
+  let result = '';
+  await streamAI([{ role: 'user', content: prompt }], modelId, (c) => { result += c; });
+  return result;
+}
+
+// ── Resource generator ────────────────────────────────────────────────────
+
+const RESOURCE_LABELS: Record<string, string> = {
+  apelacao: 'Apelação',
+  agravo_instrumento: 'Agravo de Instrumento',
+  agravo_regimental: 'Agravo Regimental',
+  recurso_inominado: 'Recurso Inominado',
+  embargos_declaracao: 'Embargos de Declaração',
+  recurso_especial: 'Recurso Especial',
+  recurso_extraordinario: 'Recurso Extraordinário',
+};
+
+export async function generateResource(
+  resourceType: string,
+  caseData: Record<string, unknown>,
+  analysis: CaseAiAnalysis | null,
+  modelId = 'gemini-flash'
+): Promise<string> {
+  const label = RESOURCE_LABELS[resourceType] || resourceType;
+
+  const prompt = `Você é um advogado experiente em recursos. Redija um(a) ${label} para o processo abaixo.
+
+Dados do processo:
+${JSON.stringify(caseData, null, 2)}
+
+${analysis ? `Análise do caso:
+Riscos: ${analysis.riscos?.join('; ')}
+Pontos favoráveis: ${analysis.movimentacoes_importantes?.join('; ')}` : ''}
+
+Estruture o ${label} com:
+- Tempestividade
+- Admissibilidade
+- Pressupostos de cabimento específicos do recurso
+- Das razões recursais (violação legal/jurisprudencial/fática)
+- Do pedido
+
+Use linguagem técnica jurídica. O recurso deve estar completo e bem fundamentado.`;
+
+  let result = '';
+  await streamAI([{ role: 'user', content: prompt }], modelId, (c) => { result += c; });
+  return result;
+}
+
+// ── Client explanation ────────────────────────────────────────────────────
+
+export async function explainToClient(
+  caseData: Record<string, unknown>,
+  analysis: CaseAiAnalysis | null,
+  modelId = 'gemini-flash'
+): Promise<string> {
+  const prompt = `Você é um advogado que precisa explicar o status do processo para o cliente de forma simples e tranquilizadora.
+
+Dados do processo:
+${JSON.stringify(caseData, null, 2)}
+
+${analysis ? `Resumo técnico: ${analysis.resumo_executivo}
+Fase: ${analysis.fase_atual}
+Próximos passos: ${analysis.proximos_passos?.join('; ')}` : ''}
+
+Escreva uma explicação em linguagem simples (evite termos jurídicos ou explique-os quando necessário):
+
+1. **O que está acontecendo no seu processo agora**
+2. **O que foi feito até agora**
+3. **Quais são os próximos passos**
+4. **O que você (cliente) precisa fazer ou saber**
+5. **Nossa avaliação do momento atual**
+
+Seja claro, objetivo e transmita confiança. Use parágrafos curtos. Máximo 400 palavras.`;
+
+  let result = '';
+  await streamAI([{ role: 'user', content: prompt }], modelId, (c) => { result += c; });
+  return result;
 }

@@ -8,6 +8,12 @@ import {
   UserCircle,
   Shield,
   MessageSquare,
+  Scale,
+  Clock,
+  Search,
+  Users,
+  FileText,
+  BarChart3,
 } from 'lucide-react';
 
 export interface MenuItemDef {
@@ -47,8 +53,8 @@ export function getMenuGroups(
       emoji: '🏠',
       icon: Home,
       items: [
-        { icon: Home,     path: '/dashboard',    label: 'Dashboard',   searchDescription: 'Visão geral do sistema' },
-        { icon: History,  path: '/historico',    label: 'Histórico',   searchDescription: 'Histórico de uso e atividades' },
+        { icon: Home,     path: '/dashboard',   label: 'Dashboard',  searchDescription: 'Visão geral do sistema' },
+        { icon: History,  path: '/historico',   label: 'Histórico',  searchDescription: 'Histórico de uso e atividades' },
       ],
     },
     {
@@ -57,19 +63,32 @@ export function getMenuGroups(
       emoji: '🤖',
       icon: Bot,
       items: [
-        { icon: MessageSquare, path: '/assistente-ia',    label: 'Assistente de IA',      searchDescription: 'Chat multi-modelo com IA' },
-        { icon: Bot,           path: '/agentes-ia',       label: 'Agentes do Tribuna IA', searchDescription: 'Agentes personalizados e GPTs' },
-        { icon: Award,         path: '/especialistas',    label: 'Especialistas',          searchDescription: 'Especialistas jurídicos por área' },
-        { icon: SpellCheck,    path: '/corretor-portugues', label: 'Corretor Jurídico',    searchDescription: 'Análise gramatical de documentos' },
+        { icon: MessageSquare, path: '/assistente-ia',      label: 'Assistente de IA',      searchDescription: 'Chat multi-modelo com IA' },
+        { icon: Bot,           path: '/agentes-ia',          label: 'Agentes do Tribuna IA', searchDescription: 'Agentes personalizados e GPTs' },
+        { icon: Award,         path: '/especialistas',       label: 'Especialistas',          searchDescription: 'Especialistas jurídicos por área' },
+        { icon: SpellCheck,    path: '/corretor-portugues',  label: 'Corretor Jurídico',     searchDescription: 'Análise gramatical de documentos' },
       ],
     },
     {
-      id: 'gestao',
-      label: 'Gestão',
-      emoji: '📁',
-      icon: FolderOpen,
+      id: 'juridico',
+      label: 'Jurídico',
+      emoji: '⚖️',
+      icon: Scale,
       items: [
-        { icon: FolderOpen, path: '/casos', label: 'Casos', searchDescription: 'Gerenciar casos jurídicos' },
+        { icon: FolderOpen, path: '/casos',                    label: 'Casos',                searchDescription: 'Gerenciar casos jurídicos' },
+        { icon: Clock,      path: '/controle-prazos',          label: 'Prazos',               searchDescription: 'Controle de prazos processuais' },
+        { icon: Search,     path: '/pesquisa-jurisprudencia',  label: 'Jurisprudência',       searchDescription: 'Pesquisar jurisprudência nos tribunais' },
+        { icon: BarChart3,  path: '/processos-dashboard',      label: 'Processos',            searchDescription: 'Dashboard de processos' },
+      ],
+    },
+    {
+      id: 'clientes',
+      label: 'Clientes & CRM',
+      emoji: '👥',
+      icon: Users,
+      items: [
+        { icon: Users,    path: '/crm',     label: 'Clientes / CRM',  searchDescription: 'Gerenciar clientes e relacionamentos' },
+        { icon: FileText, path: '/rota-doc', label: 'Modelos Jurídicos', searchDescription: 'Modelos e documentos jurídicos' },
       ],
     },
     {
@@ -78,8 +97,8 @@ export function getMenuGroups(
       emoji: '⚙️',
       icon: UserCircle,
       items: [
-        { icon: UserCircle, path: '/profile', label: 'Meu Perfil',     searchDescription: 'Editar perfil e preferências' },
-        { icon: Shield,     path: '/admin',   label: 'Administração',  searchDescription: 'Painel de administração', badgeCount: pendingUsersCount, condition: isAdmin },
+        { icon: UserCircle, path: '/profile', label: 'Meu Perfil',    searchDescription: 'Editar perfil e preferências' },
+        { icon: Shield,     path: '/admin',   label: 'Administração', searchDescription: 'Painel de administração', badgeCount: pendingUsersCount, condition: isAdmin },
       ],
     },
   ];
