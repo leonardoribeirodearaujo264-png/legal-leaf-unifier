@@ -10,6 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Loader2, RefreshCw, Bot, FileText, Users,
@@ -120,6 +123,10 @@ export default function CaseDetail() {
   const [activeAiLabel, setActiveAiLabel] = useState('');
   const [copied, setCopied] = useState(false);
   const [movementAiId, setMovementAiId] = useState<string | null>(null);
+  const [addPartyOpen, setAddPartyOpen] = useState(false);
+  const [partyForm, setPartyForm] = useState({ name: '', document: '', type: '', pole: 'ativo' });
+  const [savingParty, setSavingParty] = useState(false);
+  const [reprocessingParties, setReprocessingParties] = useState(false);
 
   // Advanced AI results
   const [successProb, setSuccessProb] = useState<SuccessProbability | null>(null);
@@ -330,6 +337,215 @@ Seja técnico, direto e prático.`;
     setMovementAiId(null);
   };
 
+  // ── Add party manually ────────────────────────────────────────────────────
+
+  const addPartyManually = async () => {
+    if (!caso || !user || !partyForm.name.trim()) return;
+    setSavingParty(true);
+    const { error } = await supabase.from('case_parties').insert({
+      case_id: caso.id,
+      user_id: user.id,
+      name: partyForm.name.trim(),
+      type: partyForm.pole === 'ativo' ? 'Autor' : partyForm.pole === 'passivo' ? 'Réu' : (partyForm.type || 'Outro'),
+      document: partyForm.document.trim() || null,
+      raw_data: { source: 'manual', added_at: new Date().toISOString() },
+    });
+    if (error) {
+      toast.error('Erro ao adicionar parte: ' + error.message);
+    } else {
+      toast.success('Parte adicionada com sucesso');
+      setAddPartyOpen(false);
+      setPartyForm({ name: '', document: '', type: '', pole: 'ativo' });
+      loadAll();
+    }
+    setSavingParty(false);
+  };
+
+  // ── Reprocess parties from AI ─────────────────────────────────────────────
+
+  const reprocessParties = async () => {
+    if (!caso || !user) return;
+    setReprocessingParties(true);
+    try {
+      const movTexts = movements.slice(0, 15).map(m => `${m.movement_date ? new Date(m.movement_date).toLocaleDateString('pt-BR') : '?'}: ${m.title}${m.description ? ' — ' + m.description : ''}`).join('\n');
+      const prompt = `Você é um especialista em identificação de partes processuais. Com base nos dados abaixo, identifique todas as partes do processo.
+
+Processo: ${caso.nome}
+Número: ${caso.numero_processo || 'N/A'}
+Classe: ${caso.case_class || 'N/A'}
+Tribunal: ${caso.court || caso.court_name || 'N/A'}
+
+Movimentações recentes:
+${movTexts || 'Nenhuma movimentação disponível'}
+
+Retorne APENAS JSON válido:
+{
+  "partes": [
+    { "nome": "string", "polo": "ativo" | "passivo" | "outro", "tipo": "string", "documento": "string ou null" }
+  ]
+}
+
+Regras:
+- polo "ativo" = Autor, Requerente, Reclamante, Exequente
+- polo "passivo" = Réu, Requerido, Reclamado, Executado
+- Se não encontrar informação, retorne array vazio
+- Retorne APENAS o JSON`;
+
+      let raw = '';
+      const { streamAI } = await import('@/services/aiService');
+      await streamAI([{ role: 'user', content: prompt }], 'gemini-flash', (c) => { raw += c; });
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('IA não retornou JSON válido');
+      const result = JSON.parse(match[0]) as { partes: { nome: string; polo: string; tipo: string; documento: string | null }[] };
+      if (result.partes && result.partes.length > 0) {
+        await supabase.from('case_parties').insert(
+          result.partes.map(p => ({
+            case_id: caso.id, user_id: user.id,
+            name: p.nome,
+            type: p.polo === 'ativo' ? (p.tipo || 'Autor') : p.polo === 'passivo' ? (p.tipo || 'Réu') : (p.tipo || 'Outro'),
+            document: p.documento ?? null,
+            raw_data: { source: 'ai_reprocess', generated_at: new Date().toISOString() },
+          }))
+        );
+        toast.success(`${result.partes.length} parte(s) identificada(s) pela IA`);
+        loadAll();
+      } else {
+        toast.info('IA não identificou partes adicionais nas movimentações');
+      }
+    } catch (err) {
+      toast.error(friendlyAIError(err));
+    }
+    setReprocessingParties(false);
+  };
+
+  // ── Generate complete report (print-to-PDF) ───────────────────────────────
+
+  const generateReport = () => {
+    if (!caso) return;
+    const authorList = autores.map(a => {
+      const advs = lawyers.filter(l => l.party_name === a.name);
+      return `${a.name}${a.document ? ' — ' + a.document : ''}${advs.length > 0 ? '\n  Adv: ' + advs.map(adv => adv.name + (adv.oab ? ' OAB ' + adv.oab : '')).join(', ') : ''}`;
+    }).join('\n');
+    const reuList = reus.map(r => {
+      const advs = lawyers.filter(l => l.party_name === r.name);
+      return `${r.name}${r.document ? ' — ' + r.document : ''}${advs.length > 0 ? '\n  Adv: ' + advs.map(adv => adv.name + (adv.oab ? ' OAB ' + adv.oab : '')).join(', ') : ''}`;
+    }).join('\n');
+    const movList = movements.slice(0, 30).map(m => `• ${m.movement_date ? new Date(m.movement_date).toLocaleDateString('pt-BR') : '?'} — ${m.title}`).join('\n');
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>Relatório — ${caso.nome}</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; color: #111; line-height: 1.6; }
+  h1 { font-size: 20px; border-bottom: 2px solid #333; padding-bottom: 8px; }
+  h2 { font-size: 15px; color: #444; margin-top: 24px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; }
+  .meta div { padding: 4px 0; }
+  .label { font-weight: bold; color: #555; }
+  pre { background: #f5f5f5; padding: 12px; border-radius: 4px; font-size: 12px; white-space: pre-wrap; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+  .badge-alta { background: #d1fae5; color: #065f46; }
+  .badge-moderada { background: #fef3c7; color: #92400e; }
+  .badge-baixa { background: #fee2e2; color: #991b1b; }
+  @media print { body { margin: 20px; } }
+</style>
+</head>
+<body>
+<h1>Relatório — ${caso.nome}</h1>
+<p style="color:#666;font-size:13px">Gerado em ${new Date().toLocaleString('pt-BR')} · Tribuna IA</p>
+
+<h2>Dados do Processo</h2>
+<div class="meta">
+  <div><span class="label">Número:</span> ${caso.numero_processo || 'N/A'}</div>
+  <div><span class="label">Tribunal:</span> ${caso.court || 'N/A'}</div>
+  <div><span class="label">Órgão:</span> ${caso.court_name || 'N/A'}</div>
+  <div><span class="label">Classe:</span> ${caso.case_class || 'N/A'}</div>
+  <div><span class="label">Área:</span> ${caso.area_juridica || 'N/A'}</div>
+  <div><span class="label">Grau:</span> ${caso.degree || 'N/A'}</div>
+  <div><span class="label">Distribuição:</span> ${caso.distribution_date ? new Date(caso.distribution_date).toLocaleDateString('pt-BR') : 'N/A'}</div>
+  <div><span class="label">Valor da Causa:</span> ${caso.claim_value ? 'R$ ' + caso.claim_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : 'N/A'}</div>
+  <div><span class="label">Fase Atual:</span> ${caso.current_phase || 'N/A'}</div>
+  <div><span class="label">Última Mov.:</span> ${caso.last_movement || 'N/A'}</div>
+</div>
+
+<h2>Partes</h2>
+${authorList ? `<p><strong>Polo Ativo (Autor):</strong><pre>${authorList}</pre></p>` : ''}
+${reuList ? `<p><strong>Polo Passivo (Réu):</strong><pre>${reuList}</pre></p>` : ''}
+
+<h2>Resumo do Caso</h2>
+<pre>${caso.summary || analysis?.resumo_executivo || 'Não disponível. Gere a análise completa na aba IA do Caso.'}</pre>
+
+${analysis?.estrategia_inicial ? `<h2>Estratégia Jurídica</h2><pre>${analysis.estrategia_inicial}</pre>` : ''}
+
+${successProb ? `<h2>Chance de Êxito</h2>
+<p><span class="badge badge-${successProb.nivel}">${successProb.nivel.toUpperCase()} — ${successProb.percentual}%</span></p>
+<pre>${successProb.justificativa}</pre>` : ''}
+
+${processRisk ? `<h2>Risco Processual</h2>
+<p><span class="badge badge-${processRisk.nivel_geral === 'critico' ? 'baixa' : processRisk.nivel_geral === 'atencao' ? 'moderada' : 'alta'}">${processRisk.nivel_geral.toUpperCase()}</span></p>
+<pre>${processRisk.recomendacoes?.join('\n') || ''}</pre>` : ''}
+
+${analysis?.proximos_passos?.length ? `<h2>Próximos Passos</h2><pre>${analysis.proximos_passos.map((s, i) => `${i + 1}. ${s}`).join('\n')}</pre>` : ''}
+
+${movements.length > 0 ? `<h2>Movimentações (${movements.length})</h2><pre>${movList}${movements.length > 30 ? '\n... +' + (movements.length - 30) + ' movimentações anteriores' : ''}</pre>` : ''}
+
+<hr style="margin-top:32px;border-color:#ddd">
+<p style="font-size:11px;color:#999;text-align:center">Relatório gerado pelo Tribuna IA · ${new Date().toLocaleDateString('pt-BR')}</p>
+</body></html>`;
+    const win = window.open('', '_blank');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => win.print(), 500);
+    }
+  };
+
+  // ── Preparar Atuação ──────────────────────────────────────────────────────
+
+  const prepareActuation = () => {
+    const lastMovs = movements.slice(0, 5).map(m => `• ${m.movement_date ? new Date(m.movement_date).toLocaleDateString('pt-BR') : '?'}: ${m.title}`).join('\n');
+    const prompt = `Você é um advogado experiente. Prepare um guia de atuação para o processo abaixo.
+
+Processo: ${caso?.nome}
+Número: ${caso?.numero_processo || 'N/A'}
+Classe: ${caso?.case_class || 'N/A'}
+Fase atual: ${caso?.current_phase || 'N/A'}
+Área: ${caso?.area_juridica || 'N/A'}
+Última movimentação: ${caso?.last_movement || 'N/A'}
+
+Últimas movimentações:
+${lastMovs || 'Sem movimentações registradas'}
+
+${analysis ? `Estratégia anterior: ${analysis.estrategia_inicial || 'N/A'}\nRiscos: ${analysis.riscos?.slice(0, 3).join('; ') || 'N/A'}` : ''}
+
+Com base na fase atual e nas últimas movimentações, prepare:
+
+## Situação Atual do Processo
+
+## Próxima Atuação Necessária
+(Especifique: audiência, prazo, recurso, manifestação, etc.)
+
+## Roteiro de Preparação
+(Passos concretos para o advogado se preparar)
+
+## Peças a Elaborar
+(Quais documentos/petições preparar)
+
+## Pontos de Atenção
+(O que não pode ser esquecido)
+
+## Prazos Críticos
+(Identifique prazos processuais relacionados)
+
+Seja objetivo, técnico e prático. Foco em ação imediata.`;
+
+    runAi('prepare_actuation', 'Preparar Atuação', async () => {
+      let result = '';
+      const { streamAI } = await import('@/services/aiService');
+      await streamAI([{ role: 'user', content: prompt }], 'gemini-flash', (c) => { result += c; });
+      return result;
+    });
+  };
+
   const copyText = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
@@ -407,13 +623,16 @@ Seja técnico, direto e prático.`;
               <p className="text-xs font-mono text-muted-foreground mt-0.5">{caso.numero_processo}</p>
             )}
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
             {caso.numero_processo && (
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="gap-1.5 text-xs">
                 {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 Atualizar DataJud
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={generateReport} className="gap-1.5 text-xs">
+              <FileText className="h-3.5 w-3.5" /> Gerar Relatório
+            </Button>
           </div>
         </div>
 
@@ -673,12 +892,26 @@ Seja técnico, direto e prático.`;
 
           {/* ── Parties ─────────────────────────────────────────────────── */}
           <TabsContent value="parties" className="space-y-4 mt-4">
+            {/* Action bar */}
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" onClick={() => setAddPartyOpen(true)}>
+                <User className="h-3.5 w-3.5" /> Adicionar Parte Manualmente
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8" disabled={reprocessingParties} onClick={reprocessParties}>
+                {reprocessingParties ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Reprocessar Identificação
+              </Button>
+            </div>
+
             {parties.length === 0 && lawyers.length === 0 ? (
               <Card className="border-dashed">
                 <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                   <Users className="h-8 w-8 text-muted-foreground mb-3" />
                   <p className="font-semibold text-sm">Nenhuma parte registrada</p>
-                  <p className="text-xs text-muted-foreground mt-1">As partes são importadas automaticamente do DataJud</p>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+                    As partes são importadas automaticamente do DataJud.<br />
+                    Se não apareceram, clique em <strong>Reprocessar Identificação</strong> ou adicione manualmente.
+                  </p>
                 </CardContent>
               </Card>
             ) : (
@@ -1052,7 +1285,7 @@ Seja técnico, direto e prático.`;
           {/* ── AI Tab ──────────────────────────────────────────────────── */}
           <TabsContent value="ai" className="space-y-4 mt-4">
             {/* Quick actions */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               <Button size="sm" variant="outline" className="gap-1.5 h-9 text-xs" disabled={!!aiLoading} onClick={() => runAi('summary', 'Resumo Executivo', () => generateCaseSummary(caseDataForAi))}>
                 {aiLoading === 'summary' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} Resumo
               </Button>
@@ -1061,6 +1294,12 @@ Seja técnico, direto e prático.`;
               </Button>
               <Button size="sm" variant="outline" className="gap-1.5 h-9 text-xs" disabled={!!aiLoading} onClick={() => runAi('questions', 'Perguntas ao Cliente', () => generateClientQuestions(caseDataForAi))}>
                 {aiLoading === 'questions' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />} Perguntas
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-9 text-xs" disabled={!!aiLoading} onClick={prepareActuation}>
+                {aiLoading === 'prepare_actuation' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />} Preparar Atuação
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-9 text-xs" onClick={generateReport}>
+                <FileText className="h-3.5 w-3.5" /> Gerar Relatório
               </Button>
               <Button size="sm" className="gap-1.5 h-9 text-xs" disabled={!!aiLoading} onClick={runFullAnalysis}>
                 {aiLoading === 'full_analysis' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />} Análise Completa
@@ -1216,6 +1455,47 @@ Seja técnico, direto e prático.`;
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* ── Adicionar Parte Manualmente ─────────────────────────────── */}
+      <Dialog open={addPartyOpen} onOpenChange={setAddPartyOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><User className="h-4 w-4" /> Adicionar Parte Manualmente</DialogTitle>
+            <DialogDescription>Preencha os dados da parte que deseja incluir neste processo.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome completo *</Label>
+              <Input placeholder="Nome da parte" value={partyForm.name} onChange={e => setPartyForm(f => ({ ...f, name: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CPF / CNPJ</Label>
+              <Input placeholder="000.000.000-00" value={partyForm.document} onChange={e => setPartyForm(f => ({ ...f, document: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Polo</Label>
+              <Select value={partyForm.pole} onValueChange={v => setPartyForm(f => ({ ...f, pole: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ativo">Polo Ativo (Autor / Requerente)</SelectItem>
+                  <SelectItem value="passivo">Polo Passivo (Réu / Requerido)</SelectItem>
+                  <SelectItem value="outro">Outro / Interveniente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo da parte (opcional)</Label>
+              <Input placeholder="Ex: Autor, Réu, Litisconsorte, Assistente…" value={partyForm.type} onChange={e => setPartyForm(f => ({ ...f, type: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddPartyOpen(false)} disabled={savingParty}>Cancelar</Button>
+            <Button onClick={addPartyManually} disabled={savingParty || !partyForm.name.trim()} className="gap-2">
+              {savingParty && <Loader2 className="h-4 w-4 animate-spin" />} Salvar Parte
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

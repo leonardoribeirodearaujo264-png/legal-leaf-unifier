@@ -258,8 +258,9 @@ export default function Casos() {
           p.partes.map(pt => ({
             case_id: caseData.id,
             user_id: user.id,
-            name: pt.nome || 'Parte',           // NOT NULL — always provide a value
+            name: pt.nome || 'Não informado pelo DataJud',
             type: pt.tipoParte ?? null,
+            document: (pt as unknown as { documento?: string }).documento ?? null,
             raw_data: (pt as unknown as Record<string, unknown>),
           }))
         );
@@ -269,7 +270,7 @@ export default function Casos() {
           (pt.advogados || []).map(adv => ({
             case_id: caseData.id,
             user_id: user.id,
-            name: adv.nome || 'Advogado',       // NOT NULL — always provide a value
+            name: adv.nome || 'Advogado',
             oab: adv.numeroOAB ?? null,
             party_name: pt.nome ?? null,
             raw_data: (adv as unknown as Record<string, unknown>),

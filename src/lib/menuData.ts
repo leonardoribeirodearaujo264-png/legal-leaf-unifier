@@ -1,7 +1,6 @@
 import {
   Home,
   Bot,
-  SpellCheck,
   FolderOpen,
   Award,
   History,
@@ -9,7 +8,6 @@ import {
   Shield,
   MessageSquare,
   Scale,
-  Clock,
 } from 'lucide-react';
 
 export interface MenuItemDef {
@@ -59,10 +57,8 @@ export function getMenuGroups(
       emoji: '🤖',
       icon: Bot,
       items: [
-        { icon: MessageSquare, path: '/assistente-ia',      label: 'Assistente de IA',      searchDescription: 'Chat multi-modelo com IA' },
-        { icon: Bot,           path: '/agentes-ia',          label: 'Agentes do Tribuna IA', searchDescription: 'Agentes personalizados e GPTs' },
-        { icon: Award,         path: '/especialistas',       label: 'Especialistas',          searchDescription: 'Especialistas jurídicos por área' },
-        { icon: SpellCheck,    path: '/corretor-portugues',  label: 'Corretor Jurídico',     searchDescription: 'Análise gramatical de documentos' },
+        { icon: MessageSquare, path: '/assistente-ia', label: 'Assistente de IA', searchDescription: 'Chat multi-modelo com IA' },
+        { icon: Award,         path: '/especialistas', label: 'Especialistas',     searchDescription: 'Especialistas jurídicos por área' },
       ],
     },
     {
@@ -71,8 +67,7 @@ export function getMenuGroups(
       emoji: '⚖️',
       icon: Scale,
       items: [
-        { icon: FolderOpen, path: '/casos',           label: 'Casos',  searchDescription: 'Gerenciar casos jurídicos' },
-        { icon: Clock,      path: '/controle-prazos', label: 'Prazos', searchDescription: 'Controle de prazos processuais' },
+        { icon: FolderOpen, path: '/casos', label: 'Casos', searchDescription: 'Gerenciar casos jurídicos' },
       ],
     },
     {
