@@ -8,6 +8,7 @@ export interface UserProfile {
   id: string;
   email: string;
   full_name: string;
+  whatsapp: string | null;
   approval_status: 'pending' | 'approved' | 'rejected';
   approved_by: string | null;
   approved_at: string | null;

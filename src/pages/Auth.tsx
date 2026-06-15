@@ -1,20 +1,86 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Check, X, Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Logo, LogoHero } from '@/components/brand/Logo';
+import { Check, X, Eye, EyeOff, Phone } from 'lucide-react';
+import { LogoHero } from '@/components/brand/Logo';
+import { maskPhone } from '@/lib/masks';
 
-const validatePassword = (password: string) => ({
-  minLength: password.length >= 8,
-  hasUppercase: /[A-Z]/.test(password),
-  hasLowercase: /[a-z]/.test(password),
-  hasNumber: /[0-9]/.test(password),
+const validatePassword = (pw: string) => ({
+  minLength: pw.length >= 8,
+  hasUppercase: /[A-Z]/.test(pw),
+  hasLowercase: /[a-z]/.test(pw),
+  hasNumber: /[0-9]/.test(pw),
 });
+
+function isValidWhatsApp(masked: string): boolean {
+  const digits = masked.replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 11) return false;
+  const ddd = parseInt(digits.substring(0, 2), 10);
+  return ddd >= 11 && ddd <= 99;
+}
+
+const FEATURES = [
+  { icon: '🤖', label: 'Assistente de IA multi-modelo' },
+  { icon: '⚖️', label: 'Agentes jurídicos especializados' },
+  { icon: '📄', label: 'Leitura universal de documentos (PDF, DOCX…)' },
+  { icon: '✍️', label: 'Corretor jurídico inteligente' },
+  { icon: '📁', label: 'Gestão de casos e processos' },
+];
+
+const INPUT_BASE: React.CSSProperties = {
+  height: '52px',
+  borderRadius: '14px',
+  border: '1px solid #E2E8F0',
+  padding: '0 16px',
+  fontSize: '14px',
+  color: '#0F172A',
+  background: '#F8FAFF',
+  outline: 'none',
+  width: '100%',
+  transition: 'border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
+  boxSizing: 'border-box',
+};
+
+const BTN_BASE: React.CSSProperties = {
+  height: '52px',
+  borderRadius: '14px',
+  fontWeight: 700,
+  fontSize: '15px',
+  background: 'linear-gradient(135deg, #1E40AF, #2563EB)',
+  boxShadow: '0 10px 25px rgba(37,99,235,0.25)',
+  transition: 'transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease',
+  color: '#fff',
+  width: '100%',
+  cursor: 'pointer',
+  border: 'none',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '10px',
+};
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#374151', marginBottom: '7px' }}>
+      {children}
+    </label>
+  );
+}
+
+function Spinner() {
+  return (
+    <span style={{
+      width: '18px', height: '18px',
+      border: '2.5px solid rgba(255,255,255,0.3)',
+      borderTopColor: '#fff',
+      borderRadius: '50%',
+      display: 'inline-block',
+      animation: 'auth-spin 0.7s linear infinite',
+      flexShrink: 0,
+    }} />
+  );
+}
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,17 +88,43 @@ export default function Auth() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const passwordValidation = useMemo(() => validatePassword(password), [password]);
-  const isPasswordValid = useMemo(() =>
-    Object.values(passwordValidation).every(Boolean),
-    [passwordValidation]
-  );
+  useEffect(() => { setMounted(true); }, []);
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const pwValid = useMemo(() => validatePassword(password), [password]);
+  const allPwOk = useMemo(() => Object.values(pwValid).every(Boolean), [pwValid]);
+  const whatsappOk = isValidWhatsApp(whatsapp);
+
+  const inputStyle = (field: string): React.CSSProperties => ({
+    ...INPUT_BASE,
+    ...(focused === field
+      ? { borderColor: '#2563EB', boxShadow: '0 0 0 4px rgba(37,99,235,0.14)', background: '#fff' }
+      : {}),
+  });
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      toast({ title: 'Informe o e-mail', description: 'Digite seu e-mail acima antes de redefinir a senha.', variant: 'destructive' });
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast({ title: 'E-mail enviado!', description: 'Verifique sua caixa de entrada.' });
+    } catch (err) {
+      toast({ title: 'Erro', description: err instanceof Error ? err.message : 'Falha ao enviar e-mail.', variant: 'destructive' });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
@@ -42,233 +134,364 @@ export default function Auth() {
         if (error) throw error;
         toast({ title: 'Bem-vindo de volta!' });
         navigate('/dashboard');
+        return;
+      }
+
+      // Registration
+      if (!allPwOk) {
+        toast({ title: 'Senha inválida', description: 'Verifique os requisitos de senha abaixo.', variant: 'destructive' });
+        return;
+      }
+      if (!whatsappOk) {
+        toast({ title: 'WhatsApp inválido', description: 'Informe um número de WhatsApp válido.', variant: 'destructive' });
+        return;
+      }
+
+      const whatsappClean = whatsapp.replace(/\D/g, '');
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: { full_name: fullName, whatsapp: whatsappClean },
+        },
+      });
+      if (error) throw error;
+
+      if (data.session) {
+        // Email confirmation disabled — immediate access
+        toast({ title: 'Bem-vindo ao Tribuna IA! 🎉', description: 'Sua conta foi criada. Acesse agora.' });
+        navigate('/dashboard');
       } else {
-        if (!isPasswordValid) {
-          toast({ title: 'Senha inválida', description: 'Verifique os requisitos abaixo.', variant: 'destructive' });
-          setLoading(false);
-          return;
-        }
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/`,
-            data: { full_name: fullName },
-          },
-        });
-        if (error) throw error;
-        toast({ title: 'Conta criada!', description: 'Agora você já pode entrar com seu e-mail e senha.' });
+        toast({ title: 'Conta criada!', description: 'Confirme seu e-mail para acessar a plataforma.' });
         setIsLogin(true);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Falha ao autenticar.';
-      toast({ title: 'Erro', description: message, variant: 'destructive' });
+    } catch (err) {
+      toast({ title: 'Erro', description: err instanceof Error ? err.message : 'Falha ao autenticar.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen flex bg-slate-950">
-      {/* Left panel — branding */}
-      <div
-        className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col items-center justify-center p-14"
-        style={{ background: 'linear-gradient(135deg, #0D1829 0%, #0F172A 45%, #0A1020 100%)' }}
-      >
-        {/* Radial glows */}
-        <div className="absolute top-1/4 left-1/6 w-72 h-72 rounded-full blur-3xl pointer-events-none"
-             style={{ background: 'radial-gradient(circle, rgba(30,64,175,0.30), transparent)' }} />
-        <div className="absolute bottom-1/4 right-1/5 w-56 h-56 rounded-full blur-3xl pointer-events-none"
-             style={{ background: 'radial-gradient(circle, rgba(212,175,55,0.14), transparent)' }} />
+  const switchMode = () => {
+    setIsLogin((v) => !v);
+    setPassword('');
+    setWhatsapp('');
+  };
 
-        {/* Grid overlay */}
+  return (
+    <div
+      className="min-h-screen flex"
+      style={{
+        background: '#EEF2FF',
+        opacity: mounted ? 1 : 0,
+        transition: 'opacity 0.45s ease',
+      }}
+    >
+      {/* ── Left panel — Branding ─────────────────────────── */}
+      <div
+        className="hidden lg:flex lg:w-[54%] relative overflow-hidden flex-col items-center justify-center p-14"
+        style={{ background: 'linear-gradient(135deg, #0F172A 0%, #1E40AF 100%)' }}
+      >
+        {/* Glows */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div
+            className="absolute rounded-full blur-3xl"
+            style={{
+              width: '65%', height: '65%', top: '-12%', left: '-12%',
+              background: 'radial-gradient(circle, rgba(37,99,235,0.35), transparent 70%)',
+            }}
+          />
+          <div
+            className="absolute rounded-full blur-3xl"
+            style={{
+              width: '55%', height: '55%', bottom: '-12%', right: '-8%',
+              background: 'radial-gradient(circle, rgba(212,175,55,0.18), transparent 70%)',
+            }}
+          />
+          <div
+            className="absolute rounded-full blur-3xl"
+            style={{
+              width: '35%', height: '35%', top: '45%', right: '8%',
+              background: 'radial-gradient(circle, rgba(30,64,175,0.22), transparent 70%)',
+            }}
+          />
+        </div>
+
+        {/* Grid */}
         <div
-          className="absolute inset-0 opacity-[0.035]"
-          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.15) 1px, transparent 1px)', backgroundSize: '48px 48px' }}
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(255,255,255,.25) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.25) 1px, transparent 1px)',
+            backgroundSize: '50px 50px',
+          }}
         />
 
-        {/* Gold left accent */}
-        <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: 'linear-gradient(to bottom, #D4AF37, #B8860B)' }} />
+        {/* Gold accent bar */}
+        <div
+          className="absolute left-0 top-0 bottom-0"
+          style={{ width: '3px', background: 'linear-gradient(to bottom, #F0C040, #C49A0A)' }}
+        />
 
-        <div className="relative z-10 text-center space-y-10 max-w-md">
-          {/* Logo hero */}
+        {/* Content */}
+        <div className="relative z-10 text-center space-y-9 max-w-[420px]">
           <LogoHero />
 
-          {/* Feature list */}
-          <div className="space-y-3.5 text-left">
-            {[
-              'Assistente de IA multi-modelo',
-              'Agentes especializados por área',
-              'Leitura universal de documentos (PDF, DOCX…)',
-              'Corretor jurídico inteligente',
-              'Gestão de casos e processos',
-            ].map((feat) => (
-              <div key={feat} className="flex items-center gap-3.5">
+          <p style={{ fontSize: '17px', lineHeight: '1.7', color: 'rgba(148,163,184,0.95)' }}>
+            Automatize sua advocacia com agentes inteligentes, análise jurídica avançada e geração de peças com IA.
+          </p>
+
+          <div className="space-y-3 text-left">
+            {FEATURES.map(({ icon, label }) => (
+              <div key={label} className="flex items-center gap-3.5">
                 <div
-                  className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)' }}
+                  className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-[16px]"
+                  style={{
+                    background: 'rgba(212,175,55,0.13)',
+                    border: '1px solid rgba(212,175,55,0.32)',
+                  }}
                 >
-                  <Check className="w-3.5 h-3.5" style={{ color: '#D4AF37' }} />
+                  {icon}
                 </div>
-                <span className="text-slate-300 text-[16px]">{feat}</span>
+                <span style={{ fontSize: '15px', color: 'rgba(203,213,225,0.92)' }}>{label}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-900">
-        <div className="w-full max-w-[26rem] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-2xl shadow-slate-200/60 dark:shadow-slate-900/60 space-y-7">
-          {/* Mobile header */}
-          <div className="lg:hidden flex justify-center mb-2">
-            <Logo variant="full" size="md" />
+      {/* ── Right panel — Form ────────────────────────────── */}
+      <div className="flex-1 flex items-center justify-center p-5 sm:p-8">
+        <div className="w-full max-w-[29rem]">
+          {/* Mobile logo */}
+          <div className="lg:hidden flex justify-center mb-8">
+            <LogoHero />
           </div>
 
-          <div>
-            <h2 className="text-[26px] font-bold tracking-tight">
-              {isLogin ? 'Entrar na plataforma' : 'Criar conta'}
-            </h2>
-            <p className="text-[15px] text-muted-foreground mt-1.5">
-              {isLogin
-                ? 'Use suas credenciais para acessar'
-                : 'Informe nome, e-mail e senha para criar sua conta'}
-            </p>
-          </div>
-
-          <form onSubmit={handleAuth} className="space-y-5">
-            {!isLogin && (
-              <div className="space-y-2">
-                <Label htmlFor="fullName" className="text-[15px] font-medium">Nome completo</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="Seu nome completo"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  required
-                  disabled={loading}
-                  className="h-12 text-[15px]"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-[15px] font-medium">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="voce@exemplo.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={loading}
-                className="h-12 text-[15px]"
-                autoComplete="email"
-              />
+          {/* Card */}
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '24px',
+              border: '1px solid rgba(212,175,55,0.25)',
+              boxShadow: '0 20px 60px rgba(15,23,42,0.12)',
+              padding: isLogin ? '40px' : '36px 40px',
+            }}
+          >
+            {/* Title */}
+            <div style={{ marginBottom: '28px' }}>
+              <h2 style={{ fontSize: '26px', fontWeight: 700, letterSpacing: '-0.4px', color: '#0F172A', margin: 0 }}>
+                {isLogin ? 'Entrar na Plataforma' : 'Criar Conta'}
+              </h2>
+              <p style={{ fontSize: '14px', color: '#64748B', marginTop: '6px' }}>
+                {isLogin
+                  ? 'Use suas credenciais para acessar'
+                  : 'Preencha os dados abaixo para criar sua conta gratuita'}
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <Label htmlFor="password" className="text-[15px] font-medium">Senha</Label>
-                {isLogin && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!email) {
-                        toast({ title: 'Informe o e-mail', description: 'Digite seu e-mail acima.', variant: 'destructive' });
-                        return;
-                      }
-                      try {
-                        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                          redirectTo: `${window.location.origin}/reset-password`,
-                        });
-                        if (error) throw error;
-                        toast({ title: 'E-mail enviado!', description: 'Verifique sua caixa de entrada.' });
-                      } catch (err) {
-                        const message = err instanceof Error ? err.message : 'Falha ao enviar e-mail.';
-                        toast({ title: 'Erro', description: message, variant: 'destructive' });
-                      }
-                    }}
-                    className="text-[13px] text-muted-foreground hover:text-foreground transition-colors"
-                    disabled={loading}
-                  >
-                    Esqueceu a senha?
-                  </button>
-                )}
-              </div>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={loading}
-                  minLength={8}
-                  className="h-12 text-[15px] pr-12"
-                  autoComplete={isLogin ? 'current-password' : 'new-password'}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
-                </button>
-              </div>
+            {/* Form */}
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
 
-              {!isLogin && password.length > 0 && (
-                <div className="grid grid-cols-2 gap-2 mt-2.5">
-                  {([
-                    [passwordValidation.minLength, '8+ caracteres'],
-                    [passwordValidation.hasUppercase, 'Maiúscula'],
-                    [passwordValidation.hasLowercase, 'Minúscula'],
-                    [passwordValidation.hasNumber, 'Número'],
-                  ] as [boolean, string][]).map(([ok, label]) => (
-                    <div key={label} className={cn('flex items-center gap-2 text-[13px]', ok ? 'text-emerald-600' : 'text-muted-foreground')}>
-                      {ok
-                        ? <Check className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-                        : <X className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                      }
-                      {label}
-                    </div>
-                  ))}
+              {/* Nome completo — register only */}
+              {!isLogin && (
+                <div>
+                  <FieldLabel>Nome Completo *</FieldLabel>
+                  <input
+                    type="text"
+                    placeholder="Seu nome completo"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    onFocus={() => setFocused('name')}
+                    onBlur={() => setFocused(null)}
+                    required
+                    disabled={loading}
+                    style={inputStyle('name')}
+                  />
                 </div>
               )}
+
+              {/* E-mail */}
+              <div>
+                <FieldLabel>E-mail *</FieldLabel>
+                <input
+                  type="email"
+                  placeholder="voce@exemplo.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                  required
+                  disabled={loading}
+                  autoComplete="email"
+                  style={inputStyle('email')}
+                />
+              </div>
+
+              {/* WhatsApp — register only */}
+              {!isLogin && (
+                <div>
+                  <FieldLabel>WhatsApp *</FieldLabel>
+                  <div style={{ position: 'relative' }}>
+                    <Phone
+                      style={{
+                        position: 'absolute', left: '15px', top: '50%',
+                        transform: 'translateY(-50%)',
+                        width: '16px', height: '16px',
+                        color: focused === 'whatsapp' ? '#2563EB' : '#94A3B8',
+                        pointerEvents: 'none',
+                        transition: 'color 0.2s',
+                      }}
+                    />
+                    <input
+                      type="tel"
+                      placeholder="(11) 99999-9999"
+                      value={whatsapp}
+                      onChange={(e) => setWhatsapp(maskPhone(e.target.value))}
+                      onFocus={() => setFocused('whatsapp')}
+                      onBlur={() => setFocused(null)}
+                      required
+                      disabled={loading}
+                      maxLength={15}
+                      style={{ ...inputStyle('whatsapp'), paddingLeft: '42px' }}
+                    />
+                  </div>
+                  {whatsapp.length > 4 && !whatsappOk && (
+                    <p style={{ fontSize: '12px', color: '#EF4444', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <X style={{ width: '12px', height: '12px' }} />
+                      Informe um número de WhatsApp válido.
+                    </p>
+                  )}
+                  {whatsapp.length > 4 && whatsappOk && (
+                    <p style={{ fontSize: '12px', color: '#059669', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <Check style={{ width: '12px', height: '12px' }} />
+                      Número válido
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Senha */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '7px' }}>
+                  <FieldLabel>Senha *</FieldLabel>
+                  {isLogin && (
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={loading}
+                      style={{
+                        fontSize: '13px', color: '#2563EB',
+                        background: 'none', border: 'none',
+                        cursor: 'pointer', padding: 0,
+                        marginBottom: '7px',
+                      }}
+                    >
+                      Esqueceu sua senha?
+                    </button>
+                  )}
+                </div>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onFocus={() => setFocused('password')}
+                    onBlur={() => setFocused(null)}
+                    required
+                    disabled={loading}
+                    minLength={8}
+                    autoComplete={isLogin ? 'current-password' : 'new-password'}
+                    style={{ ...inputStyle('password'), paddingRight: '48px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    tabIndex={-1}
+                    style={{
+                      position: 'absolute', right: '13px', top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none', border: 'none',
+                      cursor: 'pointer', color: '#94A3B8', padding: '4px',
+                    }}
+                  >
+                    {showPassword
+                      ? <EyeOff style={{ width: '17px', height: '17px' }} />
+                      : <Eye style={{ width: '17px', height: '17px' }} />
+                    }
+                  </button>
+                </div>
+
+                {/* Password checklist — register only */}
+                {!isLogin && password.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '10px' }}>
+                    {([
+                      [pwValid.minLength, '8+ caracteres'],
+                      [pwValid.hasUppercase, 'Maiúscula'],
+                      [pwValid.hasLowercase, 'Minúscula'],
+                      [pwValid.hasNumber, 'Número'],
+                    ] as [boolean, string][]).map(([ok, label]) => (
+                      <div
+                        key={label}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: ok ? '#059669' : '#94A3B8' }}
+                      >
+                        {ok
+                          ? <Check style={{ width: '13px', height: '13px', flexShrink: 0, color: '#059669' }} />
+                          : <X style={{ width: '13px', height: '13px', flexShrink: 0, color: '#CBD5E1' }} />
+                        }
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loading}
+                style={{ ...BTN_BASE, marginTop: '6px', opacity: loading ? 0.75 : 1 }}
+                onMouseEnter={(e) => {
+                  if (loading) return;
+                  const el = e.currentTarget;
+                  el.style.transform = 'translateY(-2px)';
+                  el.style.boxShadow = '0 15px 35px rgba(37,99,235,0.38)';
+                }}
+                onMouseLeave={(e) => {
+                  const el = e.currentTarget;
+                  el.style.transform = 'translateY(0)';
+                  el.style.boxShadow = '0 10px 25px rgba(37,99,235,0.25)';
+                }}
+              >
+                {loading ? <><Spinner /> Processando…</> : isLogin ? 'Entrar' : 'Criar Conta Gratuita'}
+              </button>
+            </form>
+
+            {/* Divider */}
+            <div style={{ borderTop: '1px solid #F1F5F9', margin: '22px 0 0' }} />
+
+            {/* Switch mode */}
+            <div style={{ textAlign: 'center', paddingTop: '18px' }}>
+              <button
+                type="button"
+                onClick={switchMode}
+                disabled={loading}
+                style={{ fontSize: '14px', color: '#64748B', background: 'none', border: 'none', cursor: 'pointer' }}
+              >
+                {isLogin
+                  ? <><span>Não possui conta? </span><span style={{ color: '#2563EB', fontWeight: 600 }}>Criar conta</span></>
+                  : <><span>Já tem conta? </span><span style={{ color: '#2563EB', fontWeight: 600 }}>Fazer login</span></>
+                }
+              </button>
             </div>
-
-            <Button
-              type="submit"
-              className="w-full h-12 text-[16px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-lg shadow-emerald-500/25 transition-all rounded-xl"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="flex items-center gap-2.5">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Processando…
-                </span>
-              ) : isLogin ? 'Entrar' : 'Criar conta'}
-            </Button>
-          </form>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => { setIsLogin(!isLogin); setPassword(''); }}
-              className="text-[15px] text-muted-foreground hover:text-foreground transition-colors"
-              disabled={loading}
-            >
-              {isLogin
-                ? <><span>Não tem conta? </span><span className="text-emerald-700 dark:text-emerald-400 font-semibold">Cadastre-se</span></>
-                : <><span>Já tem conta? </span><span className="text-emerald-700 dark:text-emerald-400 font-semibold">Faça login</span></>
-              }
-            </button>
           </div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes auth-spin { to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }
