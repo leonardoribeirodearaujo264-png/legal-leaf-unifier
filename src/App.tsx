@@ -8,6 +8,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { ScrollRestoration } from "@/hooks/useScrollRestoration";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AdminRoute } from "@/components/AdminRoute";
+import { ImpersonationProvider } from "@/contexts/ImpersonationContext";
 import Auth from "./pages/Auth";
 import ResetPassword from "./pages/ResetPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
@@ -22,6 +23,7 @@ import Casos from "./pages/Casos";
 import CaseDetail from "./pages/CaseDetail";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
+import AdminUserDetail from "./pages/AdminUserDetail";
 import NotFound from "./pages/NotFound";
 import ControlePrazos from "./pages/ControlePrazos";
 import PesquisaJurisprudencia from "./pages/PesquisaJurisprudencia";
@@ -48,6 +50,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <AuthProvider>
+            <ImpersonationProvider>
             <ScrollRestoration />
             <Routes>
               <Route path="/auth" element={<Auth />} />
@@ -150,6 +153,14 @@ const App = () => (
                 }
               />
               <Route
+                path="/admin/users/:userId"
+                element={
+                  <AdminRoute>
+                    <AdminUserDetail />
+                  </AdminRoute>
+                }
+              />
+              <Route
                 path="/debug-datajud"
                 element={
                   <AdminRoute>
@@ -179,6 +190,7 @@ const App = () => (
               />
               <Route path="*" element={<NotFound />} />
             </Routes>
+          </ImpersonationProvider>
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>
