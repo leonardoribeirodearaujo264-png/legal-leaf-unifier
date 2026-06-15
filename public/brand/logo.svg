@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F0C040"/>
+      <stop offset="100%" stop-color="#B8860B"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="30%" cy="25%" r="80%">
+      <stop offset="0%" stop-color="#1A2744"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="64" height="64" rx="13" fill="url(#bg)"/>
+  <!-- Inner border -->
+  <rect x="2" y="2" width="60" height="60" rx="11" fill="none" stroke="rgba(212,175,55,0.20)" stroke-width="1"/>
+
+  <!-- Top knob -->
+  <circle cx="32" cy="10" r="3.5" fill="url(#gold)"/>
+
+  <!-- Center pole -->
+  <rect x="30.5" y="10" width="3" height="32" rx="1.5" fill="url(#gold)"/>
+
+  <!-- Crossbeam -->
+  <rect x="8" y="23" width="48" height="3" rx="1.5" fill="url(#gold)"/>
+
+  <!-- Beam end caps -->
+  <circle cx="8"  cy="24.5" r="3.5" fill="url(#gold)"/>
+  <circle cx="56" cy="24.5" r="3.5" fill="url(#gold)"/>
+
+  <!-- Left cord -->
+  <rect x="6.5" y="27.5" width="2.5" height="12" rx="1.25" fill="url(#gold)" opacity="0.85"/>
+
+  <!-- Right cord -->
+  <rect x="55" y="27.5" width="2.5" height="12" rx="1.25" fill="url(#gold)" opacity="0.85"/>
+
+  <!-- Left pan -->
+  <path d="M0 39.5 Q8 49 16 39.5" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Right pan -->
+  <path d="M48 39.5 Q56 49 64 39.5" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Base foot -->
+  <rect x="24" y="42" width="16" height="3" rx="1.5" fill="url(#gold)" opacity="0.9"/>
+
+  <!-- IA label -->
+  <text x="32" y="58" font-family="Georgia, 'Times New Roman', serif" font-size="10" font-weight="700"
+        fill="#D4AF37" text-anchor="middle" letter-spacing="2">IA</text>
+</svg>

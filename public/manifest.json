@@ -1,0 +1,29 @@
+{
+  "name": "Tribuna IA",
+  "short_name": "Tribuna IA",
+  "description": "Plataforma jurídica com Inteligência Artificial para advogados.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0F172A",
+  "background_color": "#0F172A",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/brand/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-tribuna.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/logo-tribuna.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

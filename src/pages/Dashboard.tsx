@@ -165,7 +165,7 @@ export default function Dashboard() {
               Olá, {firstName} 👋
             </h1>
             <p className="mt-1 text-[15px] text-white/75">
-              Bem-vindo ao Tribuna IA.
+              A inteligência jurídica que potencializa sua advocacia.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Badge

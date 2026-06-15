@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { getMenuGroups } from '@/lib/menuData';
+import { Logo } from '@/components/brand/Logo';
 
 const STORAGE_KEY = 'sidebar-open-groups';
 const sidebarScrollPositions = new Map<string, number>();
@@ -191,21 +192,11 @@ export function AppSidebar(_: AppSidebarProps = {}) {
   return (
     <Sidebar collapsible="icon" className="border-r-0 bg-sidebar shadow-2xl">
       {/* ── Header ─────────────────────────────────────── */}
-      <SidebarHeader className="border-b border-sidebar-border/60 px-4 py-4">
+      <SidebarHeader className="border-b border-sidebar-border/60 px-3.5 py-3.5">
         {collapsed ? (
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/20 text-xl">
-            ⚖️
-          </div>
+          <Logo variant="icon" size="sm" />
         ) : (
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/20 text-xl shadow-inner">
-              ⚖️
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-[17px] font-bold text-sidebar-foreground leading-tight">Tribuna IA</p>
-              <p className="truncate text-[12px] text-sidebar-foreground/40 mt-0.5">Inteligência Jurídica</p>
-            </div>
-          </div>
+          <Logo variant="full" size="sm" />
         )}
       </SidebarHeader>
 

@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Check, X, Sparkles, Bot, Zap, Eye, EyeOff, Scale } from 'lucide-react';
+import { Check, X, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Logo, LogoHero } from '@/components/brand/Logo';
 
 const validatePassword = (password: string) => ({
   minLength: password.length >= 8,
@@ -70,48 +71,44 @@ export default function Auth() {
   return (
     <div className="min-h-screen flex bg-slate-950">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-[52%] relative overflow-hidden bg-[radial-gradient(circle_at_top_left,#0f766e_0,#0f172a_42%,#020617_100%)] flex-col items-center justify-center p-14">
-        <div className="absolute top-1/4 left-1/4 w-80 h-80 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[26rem] h-[26rem] bg-emerald-400/8 rounded-full blur-3xl pointer-events-none" />
+      <div
+        className="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col items-center justify-center p-14"
+        style={{ background: 'linear-gradient(135deg, #0D1829 0%, #0F172A 45%, #0A1020 100%)' }}
+      >
+        {/* Radial glows */}
+        <div className="absolute top-1/4 left-1/6 w-72 h-72 rounded-full blur-3xl pointer-events-none"
+             style={{ background: 'radial-gradient(circle, rgba(30,64,175,0.30), transparent)' }} />
+        <div className="absolute bottom-1/4 right-1/5 w-56 h-56 rounded-full blur-3xl pointer-events-none"
+             style={{ background: 'radial-gradient(circle, rgba(212,175,55,0.14), transparent)' }} />
+
+        {/* Grid overlay */}
         <div
-          className="absolute inset-0 opacity-[0.04]"
-          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.1) 1px, transparent 1px)', backgroundSize: '44px 44px' }}
+          className="absolute inset-0 opacity-[0.035]"
+          style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.15) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.15) 1px, transparent 1px)', backgroundSize: '48px 48px' }}
         />
 
+        {/* Gold left accent */}
+        <div className="absolute left-0 top-0 bottom-0 w-1" style={{ background: 'linear-gradient(to bottom, #D4AF37, #B8860B)' }} />
+
         <div className="relative z-10 text-center space-y-10 max-w-md">
-          <div className="flex justify-center gap-4 mb-2">
-            <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center backdrop-blur-sm">
-              <Bot className="w-7 h-7 text-emerald-200" />
-            </div>
-            <div className="w-18 h-18 rounded-2xl bg-emerald-500/20 border border-emerald-300/30 flex items-center justify-center backdrop-blur-sm shadow-xl shadow-emerald-950/50 p-4">
-              <Scale className="w-10 h-10 text-emerald-100" />
-            </div>
-            <div className="w-14 h-14 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center backdrop-blur-sm">
-              <Sparkles className="w-7 h-7 text-blue-300" />
-            </div>
-          </div>
+          {/* Logo hero */}
+          <LogoHero />
 
-          <div>
-            <h1 className="text-5xl font-bold text-white tracking-tight mb-4">
-              Tribuna <span className="text-emerald-300">IA</span>
-            </h1>
-            <p className="text-slate-300 text-[17px] leading-relaxed">
-              Plataforma de ferramentas e inteligência artificial para escritórios jurídicos
-            </p>
-          </div>
-
+          {/* Feature list */}
           <div className="space-y-3.5 text-left">
             {[
               'Assistente de IA multi-modelo',
               'Agentes especializados por área',
-              'Processamento de documentos jurídicos',
+              'Leitura universal de documentos (PDF, DOCX…)',
               'Corretor jurídico inteligente',
               'Gestão de casos e processos',
             ].map((feat) => (
               <div key={feat} className="flex items-center gap-3.5">
-                <div className="w-6 h-6 rounded-full bg-emerald-400/15 border border-emerald-300/30 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-3.5 h-3.5 text-emerald-200" />
+                <div
+                  className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'rgba(212,175,55,0.15)', border: '1px solid rgba(212,175,55,0.35)' }}
+                >
+                  <Check className="w-3.5 h-3.5" style={{ color: '#D4AF37' }} />
                 </div>
                 <span className="text-slate-300 text-[16px]">{feat}</span>
               </div>
@@ -124,12 +121,8 @@ export default function Auth() {
       <div className="flex-1 flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-900">
         <div className="w-full max-w-[26rem] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 shadow-2xl shadow-slate-200/60 dark:shadow-slate-900/60 space-y-7">
           {/* Mobile header */}
-          <div className="lg:hidden text-center mb-2">
-            <div className="inline-flex w-16 h-16 rounded-2xl bg-emerald-600 items-center justify-center mb-4 shadow-lg shadow-emerald-500/30">
-              <Scale className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold">Tribuna IA</h1>
-            <p className="text-sm text-muted-foreground mt-1">Inteligência Jurídica</p>
+          <div className="lg:hidden flex justify-center mb-2">
+            <Logo variant="full" size="md" />
           </div>
 
           <div>

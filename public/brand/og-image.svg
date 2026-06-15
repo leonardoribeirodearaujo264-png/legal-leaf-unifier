@@ -1,0 +1,170 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F0C040"/>
+      <stop offset="100%" stop-color="#C49A0A"/>
+    </linearGradient>
+    <linearGradient id="bgMain" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0D1829"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="glowBlue" cx="15%" cy="30%" r="55%">
+      <stop offset="0%" stop-color="#1E40AF" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowGold" cx="85%" cy="70%" r="45%">
+      <stop offset="0%" stop-color="#D4AF37" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0F172A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background layers -->
+  <rect width="1200" height="630" fill="url(#bgMain)"/>
+  <rect width="1200" height="630" fill="url(#glowBlue)"/>
+  <rect width="1200" height="630" fill="url(#glowGold)"/>
+
+  <!-- Subtle grid -->
+  <g stroke="rgba(255,255,255,0.028)" stroke-width="1">
+    <line x1="0" y1="90" x2="1200" y2="90"/>
+    <line x1="0" y1="180" x2="1200" y2="180"/>
+    <line x1="0" y1="270" x2="1200" y2="270"/>
+    <line x1="0" y1="360" x2="1200" y2="360"/>
+    <line x1="0" y1="450" x2="1200" y2="450"/>
+    <line x1="0" y1="540" x2="1200" y2="540"/>
+    <line x1="90" y1="0" x2="90" y2="630"/>
+    <line x1="180" y1="0" x2="180" y2="630"/>
+    <line x1="270" y1="0" x2="270" y2="630"/>
+    <line x1="360" y1="0" x2="360" y2="630"/>
+    <line x1="450" y1="0" x2="450" y2="630"/>
+    <line x1="540" y1="0" x2="540" y2="630"/>
+    <line x1="630" y1="0" x2="630" y2="630"/>
+    <line x1="720" y1="0" x2="720" y2="630"/>
+    <line x1="810" y1="0" x2="810" y2="630"/>
+    <line x1="900" y1="0" x2="900" y2="630"/>
+    <line x1="990" y1="0" x2="990" y2="630"/>
+    <line x1="1080" y1="0" x2="1080" y2="630"/>
+  </g>
+
+  <!-- Left gold accent bar -->
+  <rect x="0" y="0" width="5" height="630" fill="url(#gold)"/>
+
+  <!-- ══ Scale icon (left hero, ~160px) ══ -->
+  <g transform="translate(64, 148)">
+    <!-- Icon background -->
+    <rect width="140" height="140" rx="24" fill="rgba(212,175,55,0.08)" stroke="rgba(212,175,55,0.25)" stroke-width="1.5"/>
+    <!-- Top knob -->
+    <circle cx="70" cy="20" r="7" fill="url(#gold)"/>
+    <!-- Pole -->
+    <rect x="66.5" y="20" width="7" height="74" rx="3.5" fill="url(#gold)"/>
+    <!-- Crossbeam -->
+    <rect x="14" y="52" width="112" height="7" rx="3.5" fill="url(#gold)"/>
+    <!-- End caps -->
+    <circle cx="14" cy="55.5" r="7" fill="url(#gold)"/>
+    <circle cx="126" cy="55.5" r="7" fill="url(#gold)"/>
+    <!-- Left cord -->
+    <rect x="11" y="62" width="6" height="28" rx="3" fill="url(#gold)" opacity="0.85"/>
+    <!-- Right cord -->
+    <rect x="123" y="62" width="6" height="28" rx="3" fill="url(#gold)" opacity="0.85"/>
+    <!-- Left pan -->
+    <path d="-4 90 Q14 110 32 90" fill="none" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M-4 90 Q14 110 32 90" fill="none" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+    <!-- Right pan -->
+    <path d="M108 90 Q126 110 144 90" fill="none" stroke="url(#gold)" stroke-width="6" stroke-linecap="round"/>
+    <!-- Base -->
+    <rect x="52" y="94" width="36" height="7" rx="3.5" fill="url(#gold)" opacity="0.9"/>
+    <!-- IA label inside icon -->
+    <text x="70" y="128" font-family="Georgia, serif" font-size="18" font-weight="700"
+          fill="#D4AF37" text-anchor="middle" letter-spacing="4">IA</text>
+  </g>
+
+  <!-- ══ Main title: Tribuna IA ══ -->
+  <text x="238" y="218" font-family="Georgia, 'Times New Roman', serif" font-size="88" font-weight="700" letter-spacing="-1">
+    <tspan fill="white">Tribuna </tspan><tspan fill="#D4AF37">IA</tspan>
+  </text>
+
+  <!-- Subtitle -->
+  <text x="240" y="265" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="30" fill="rgba(148,163,184,0.9)" letter-spacing="0.3">
+    Inteligência Jurídica para Advogados
+  </text>
+
+  <!-- Gold divider under title -->
+  <rect x="240" y="285" width="380" height="2.5" rx="1.25" fill="url(#gold)" opacity="0.55"/>
+
+  <!-- Feature badges -->
+  <!-- Badge 1 -->
+  <rect x="240" y="316" width="225" height="42" rx="21"
+        fill="rgba(212,175,55,0.10)" stroke="rgba(212,175,55,0.45)" stroke-width="1.25"/>
+  <text x="263" y="342" font-family="-apple-system, sans-serif" font-size="17"
+        font-weight="600" fill="#D4AF37">⚖️  Assistentes Jurídicos</text>
+
+  <!-- Badge 2 -->
+  <rect x="478" y="316" width="200" height="42" rx="21"
+        fill="rgba(212,175,55,0.10)" stroke="rgba(212,175,55,0.45)" stroke-width="1.25"/>
+  <text x="501" y="342" font-family="-apple-system, sans-serif" font-size="17"
+        font-weight="600" fill="#D4AF37">📁  Gestão Processual</text>
+
+  <!-- Badge 3 -->
+  <rect x="240" y="374" width="174" height="42" rx="21"
+        fill="rgba(212,175,55,0.10)" stroke="rgba(212,175,55,0.45)" stroke-width="1.25"/>
+  <text x="263" y="400" font-family="-apple-system, sans-serif" font-size="17"
+        font-weight="600" fill="#D4AF37">🤖  Especialistas IA</text>
+
+  <!-- Badge 4 -->
+  <rect x="428" y="374" width="195" height="42" rx="21"
+        fill="rgba(212,175,55,0.10)" stroke="rgba(212,175,55,0.45)" stroke-width="1.25"/>
+  <text x="451" y="400" font-family="-apple-system, sans-serif" font-size="17"
+        font-weight="600" fill="#D4AF37">📄  Peças Processuais</text>
+
+  <!-- Bottom label -->
+  <text x="240" y="580" font-family="-apple-system, sans-serif" font-size="18"
+        fill="rgba(255,255,255,0.28)" letter-spacing="0.5">tribunaia.com.br</text>
+
+  <!-- ══ Right side: large decorative scale (ghosted) ══ -->
+  <g transform="translate(760, 60)" opacity="0.055">
+    <circle cx="220" cy="30" r="26" fill="#D4AF37"/>
+    <rect x="209" y="30" width="22" height="340" rx="11" fill="#D4AF37"/>
+    <rect x="30" y="148" width="380" height="22" rx="11" fill="#D4AF37"/>
+    <circle cx="30" cy="159" r="18" fill="#D4AF37"/>
+    <circle cx="410" cy="159" r="18" fill="#D4AF37"/>
+    <rect x="16" y="177" width="28" height="82" rx="14" fill="#D4AF37"/>
+    <rect x="396" y="177" width="28" height="82" rx="14" fill="#D4AF37"/>
+    <path d="-30 259 Q30 320 90 259" fill="none" stroke="#D4AF37" stroke-width="20" stroke-linecap="round"/>
+    <path d="M350 259 Q410 320 470 259" fill="none" stroke="#D4AF37" stroke-width="20" stroke-linecap="round"/>
+    <rect x="175" y="370" width="90" height="22" rx="11" fill="#D4AF37"/>
+  </g>
+
+  <!-- Right dot matrix -->
+  <g fill="rgba(212,175,55,0.14)">
+    <circle cx="800" cy="120" r="3.5"/> <circle cx="850" cy="120" r="3.5"/> <circle cx="900" cy="120" r="3.5"/>
+    <circle cx="950" cy="120" r="3.5"/> <circle cx="1000" cy="120" r="3.5"/> <circle cx="1050" cy="120" r="3.5"/>
+    <circle cx="1100" cy="120" r="3.5"/> <circle cx="1150" cy="120" r="3.5"/>
+    <circle cx="800" cy="170" r="3.5"/> <circle cx="850" cy="170" r="3.5"/> <circle cx="900" cy="170" r="3.5"/>
+    <circle cx="950" cy="170" r="3.5"/> <circle cx="1000" cy="170" r="3.5"/> <circle cx="1050" cy="170" r="3.5"/>
+    <circle cx="1100" cy="170" r="3.5"/> <circle cx="1150" cy="170" r="3.5"/>
+    <circle cx="800" cy="220" r="3.5"/> <circle cx="850" cy="220" r="3.5"/> <circle cx="900" cy="220" r="3.5"/>
+    <circle cx="950" cy="220" r="3.5"/> <circle cx="1000" cy="220" r="3.5"/> <circle cx="1050" cy="220" r="3.5"/>
+    <circle cx="1100" cy="220" r="3.5"/> <circle cx="1150" cy="220" r="3.5"/>
+    <circle cx="800" cy="270" r="3.5"/> <circle cx="850" cy="270" r="3.5"/> <circle cx="900" cy="270" r="3.5"/>
+    <circle cx="950" cy="270" r="3.5"/> <circle cx="1000" cy="270" r="3.5"/> <circle cx="1050" cy="270" r="3.5"/>
+    <circle cx="1100" cy="270" r="3.5"/> <circle cx="1150" cy="270" r="3.5"/>
+    <circle cx="800" cy="320" r="3.5"/> <circle cx="850" cy="320" r="3.5"/> <circle cx="900" cy="320" r="3.5"/>
+    <circle cx="950" cy="320" r="3.5"/> <circle cx="1000" cy="320" r="3.5"/> <circle cx="1050" cy="320" r="3.5"/>
+    <circle cx="1100" cy="320" r="3.5"/> <circle cx="1150" cy="320" r="3.5"/>
+    <circle cx="800" cy="370" r="3.5"/> <circle cx="850" cy="370" r="3.5"/> <circle cx="900" cy="370" r="3.5"/>
+    <circle cx="950" cy="370" r="3.5"/> <circle cx="1000" cy="370" r="3.5"/> <circle cx="1050" cy="370" r="3.5"/>
+    <circle cx="1100" cy="370" r="3.5"/> <circle cx="1150" cy="370" r="3.5"/>
+    <circle cx="800" cy="420" r="3.5"/> <circle cx="850" cy="420" r="3.5"/> <circle cx="900" cy="420" r="3.5"/>
+    <circle cx="950" cy="420" r="3.5"/> <circle cx="1000" cy="420" r="3.5"/> <circle cx="1050" cy="420" r="3.5"/>
+    <circle cx="1100" cy="420" r="3.5"/> <circle cx="1150" cy="420" r="3.5"/>
+    <circle cx="800" cy="470" r="3.5"/> <circle cx="850" cy="470" r="3.5"/> <circle cx="900" cy="470" r="3.5"/>
+    <circle cx="950" cy="470" r="3.5"/> <circle cx="1000" cy="470" r="3.5"/> <circle cx="1050" cy="470" r="3.5"/>
+    <circle cx="1100" cy="470" r="3.5"/> <circle cx="1150" cy="470" r="3.5"/>
+    <circle cx="800" cy="520" r="3.5"/> <circle cx="850" cy="520" r="3.5"/> <circle cx="900" cy="520" r="3.5"/>
+    <circle cx="950" cy="520" r="3.5"/> <circle cx="1000" cy="520" r="3.5"/> <circle cx="1050" cy="520" r="3.5"/>
+    <circle cx="1100" cy="520" r="3.5"/> <circle cx="1150" cy="520" r="3.5"/>
+  </g>
+
+  <!-- Right vertical separator -->
+  <line x1="775" y1="50" x2="775" y2="580" stroke="rgba(212,175,55,0.12)" stroke-width="1"/>
+</svg>
