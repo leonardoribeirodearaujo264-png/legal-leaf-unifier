@@ -63,25 +63,18 @@ export const useUserRole = () => {
     }
 
     const fetchRoleAndProfile = async () => {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+      // Fetch profile and role in parallel for speed
+      const [{ data: profileData }, { data: roleData }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('user_roles').select('role').eq('user_id', user.id).eq('role', 'admin').maybeSingle(),
+      ]);
 
       setProfile(profileData);
 
-      // Prefer role from profiles table; fall back to user_roles if not set
-      let resolvedRole: UserRole = (profileData?.role as UserRole) || null;
-
-      if (!resolvedRole) {
-        const { data: roleData } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-          .single();
-        resolvedRole = (roleData?.role as UserRole) || 'user';
-      }
+      // profiles.role takes priority; fall back to user_roles; default 'user'
+      const profileRole = profileData?.role as UserRole;
+      const tableRole = roleData?.role as UserRole;
+      const resolvedRole: UserRole = profileRole || tableRole || 'user';
 
       setRole(resolvedRole);
       fetchedUserIdRef.current = user.id;

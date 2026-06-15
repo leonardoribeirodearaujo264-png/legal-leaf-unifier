@@ -7297,6 +7297,8 @@ export type Database = {
           position: Database["public"]["Enums"]["position_type"] | null
           salario: number | null
           suspended_at: string | null
+          role: string | null
+          last_seen_at: string | null
           suspended_reason: string | null
           telefone: string | null
           updated_at: string
@@ -7328,6 +7330,8 @@ export type Database = {
           oab_state?: string | null
           perfil_completo?: boolean | null
           position?: Database["public"]["Enums"]["position_type"] | null
+          role?: string | null
+          last_seen_at?: string | null
           salario?: number | null
           suspended_at?: string | null
           suspended_reason?: string | null
@@ -7361,6 +7365,8 @@ export type Database = {
           oab_state?: string | null
           perfil_completo?: boolean | null
           position?: Database["public"]["Enums"]["position_type"] | null
+          role?: string | null
+          last_seen_at?: string | null
           salario?: number | null
           suspended_at?: string | null
           suspended_reason?: string | null
@@ -7376,6 +7382,105 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      admin_impersonations: {
+        Row: {
+          id: string
+          admin_user_id: string | null
+          target_user_id: string | null
+          started_at: string
+          ended_at: string | null
+          reason: string
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          admin_user_id?: string | null
+          target_user_id?: string | null
+          started_at?: string
+          ended_at?: string | null
+          reason: string
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          admin_user_id?: string | null
+          target_user_id?: string | null
+          started_at?: string
+          ended_at?: string | null
+          reason?: string
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      user_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          started_at: string
+          ended_at: string | null
+          last_activity_at: string
+          duration_seconds: number
+          ip_address: string | null
+          user_agent: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          started_at?: string
+          ended_at?: string | null
+          last_activity_at?: string
+          duration_seconds?: number
+          ip_address?: string | null
+          user_agent?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          started_at?: string
+          ended_at?: string | null
+          last_activity_at?: string
+          duration_seconds?: number
+          ip_address?: string | null
+          user_agent?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      user_activity_logs: {
+        Row: {
+          id: string
+          user_id: string
+          action: string
+          entity_type: string | null
+          entity_id: string | null
+          metadata: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          action: string
+          entity_type?: string | null
+          entity_id?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          action?: string
+          entity_type?: string | null
+          entity_id?: string | null
+          metadata?: Json
+          created_at?: string
+        }
+        Relationships: []
       }
       publicacoes_dje: {
         Row: {
