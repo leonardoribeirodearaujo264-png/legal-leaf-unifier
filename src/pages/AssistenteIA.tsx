@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { streamAI } from '@/services/aiService';
+import {
+  extractFromFile,
+  buildDocumentContext,
+  DOCUMENT_RULE,
+  type ExtractionResult,
+} from '@/services/universalDocumentService';
 import { friendlyAIError } from '@/lib/errors';
 import {
   LEGAL_AREAS,
@@ -276,6 +282,8 @@ const AssistenteIA = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
+  /** Mapa fileName → resultado de extração (preenchido async após upload) */
+  const [extractedDocs, setExtractedDocs] = useState<Map<string, ExtractionResult>>(new Map());
   const [enableSearch, setEnableSearch] = useState(false);
   const [enableImageGen, setEnableImageGen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -640,9 +648,14 @@ const AssistenteIA = () => {
       attachments: attachments.map(f => ({ name: f.name, type: f.type }))
     };
 
+    // Captura docs extraídos antes de limpar o estado
+    const currentExtracted = new Map(extractedDocs);
+    const currentAttachments = [...attachments];
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setAttachments([]);
+    setExtractedDocs(new Map());
     setIsLoading(true);
     setIsStreaming(true);
 
@@ -653,39 +666,44 @@ const AssistenteIA = () => {
         convId = await createNewConversation();
         await updateConversationTitle(convId, userMessage.content);
       }
-      
-      // Save user message
+
+      // Save user message (somente a pergunta, sem o texto dos docs)
       await saveMessage(convId, userMessage);
 
-      // Convert attachments to base64 if any
-      const attachmentData: { name: string; type: string; content: string }[] = [];
-      for (const file of attachments) {
-        const base64 = await fileToBase64(file);
-        attachmentData.push({
-          name: file.name,
-          type: file.type,
-          content: base64
-        });
-      }
+      // Monta contexto documental para a IA
+      const docResults = currentAttachments
+        .map(f => currentExtracted.get(f.name))
+        .filter((r): r is ExtractionResult => !!r && r.text.trim().length > 0);
+
+      const docContext = buildDocumentContext(docResults);
+
+      // Conteúdo enriquecido enviado à IA (inclui docs mas não é exibido no chat)
+      const contentForAI = docContext
+        ? `${userMessage.content}\n\nDOCUMENTOS:\n\n${docContext}`
+        : userMessage.content;
 
       // Build system context from selected legal area
       const area = LEGAL_AREA_MAP[legalAreaId];
-      const systemPromptText =
+      const areaPrompt =
         legalAreaId === 'personalizado'
           ? customLegalArea
             ? `Você é um advogado especialista em: ${customLegalArea}. Responda com profundidade técnica e fundamentação em legislação e jurisprudência brasileiras.`
             : ''
           : (area?.systemPrompt || '');
 
-      // Use proper system role so ALL providers (Perplexity, OpenAI, Claude, Gemini)
-      // receive the context without breaking message alternation rules.
-      const contextMessages: { role: string; content: string }[] = systemPromptText
-        ? [{ role: 'system', content: systemPromptText }]
-        : [];
+      // Combina prompt de área com DOCUMENT_RULE
+      const systemPromptText = [areaPrompt, DOCUMENT_RULE].filter(Boolean).join('\n\n');
+
+      const contextMessages: { role: string; content: string }[] = [
+        { role: 'system', content: systemPromptText },
+      ];
 
       const messagesToSend = [
         ...contextMessages,
-        ...[...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
+        // histórico anterior (sem a mensagem atual)
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        // mensagem atual com contexto documental
+        { role: 'user', content: contentForAI },
       ];
 
       // Create assistant message placeholder
@@ -713,7 +731,7 @@ const AssistenteIA = () => {
       await streamChat(
         messagesToSend,
         selectedModel,
-        attachmentData,
+        [], // docs injetados via texto no contentForAI
         updateAssistantMessage,
         async () => {
           setIsStreaming(false);
@@ -784,10 +802,27 @@ const AssistenteIA = () => {
       return;
     }
     setAttachments(prev => [...prev, ...files]);
+
+    // Extrai texto de cada arquivo em background
+    files.forEach(file => {
+      extractFromFile(file)
+        .then(result => {
+          setExtractedDocs(prev => new Map(prev).set(file.name, result));
+        })
+        .catch(() => { /* ignora falhas silenciosamente */ });
+    });
   };
 
   const removeAttachment = (index: number) => {
+    const removed = attachments[index];
     setAttachments(prev => prev.filter((_, i) => i !== index));
+    if (removed) {
+      setExtractedDocs(prev => {
+        const next = new Map(prev);
+        next.delete(removed.name);
+        return next;
+      });
+    }
   };
 
   const startRecording = async () => {

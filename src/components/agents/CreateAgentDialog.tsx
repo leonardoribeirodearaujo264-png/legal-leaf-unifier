@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { extractFromFile } from '@/services/universalDocumentService';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -311,26 +312,38 @@ export function CreateAgentDialog({ open, onOpenChange, onSuccess, editingAgent 
 
     const newFiles: KnowledgeFile[] = [];
     for (const file of Array.from(selectedFiles)) {
-      const isText = file.type.includes('text') || file.name.endsWith('.txt') || file.name.endsWith('.md');
-      let extractedText: string | undefined;
-      if (isText) extractedText = await readFileAsText(file);
+      const ext = (file.name.split('.').pop() ?? '').toLowerCase();
 
-      newFiles.push({
-        name: file.name,
-        type: file.type.includes('pdf') ? 'pdf'
-          : isText ? 'txt'
-          : file.name.endsWith('.docx') || file.name.endsWith('.doc') ? 'docx'
-          : 'document',
-        file,
-        extractedText,
-      });
+      // Determina o tipo para exibição
+      const displayType = file.type.includes('pdf') || ext === 'pdf' ? 'pdf'
+        : ['docx', 'doc'].includes(ext) || file.type.includes('word') ? 'docx'
+        : ['xlsx', 'xls'].includes(ext) ? 'xlsx'
+        : file.type.startsWith('text/') || ['txt', 'md', 'csv'].includes(ext) ? 'txt'
+        : 'document';
+
+      // Usa o serviço universal para extrair texto de TODOS os formatos
+      let extractedText: string | undefined;
+      try {
+        toast.info(`Processando ${file.name}…`, { duration: 2000 });
+        const result = await extractFromFile(file);
+        if (result.text.trim()) extractedText = result.text;
+      } catch {
+        // ignora — arquivo será salvo sem texto extraído
+      }
+
+      newFiles.push({ name: file.name, type: displayType, file, extractedText });
     }
+
     setFiles(prev => [...prev, ...newFiles]);
     e.target.value = '';
-    if (newFiles.some(f => f.extractedText)) {
-      toast.success(`Arquivo(s) anexado(s). Texto extraído para uso na geração do prompt.`);
+
+    const extracted = newFiles.filter(f => f.extractedText).length;
+    if (extracted > 0) {
+      toast.success(
+        `${newFiles.length} arquivo(s) adicionado(s). ${extracted} com texto extraído para o prompt.`
+      );
     } else {
-      toast.success('Arquivo(s) anexado(s). Serão salvos como base de conhecimento.');
+      toast.success('Arquivo(s) adicionado(s) à base de conhecimento.');
     }
   };
 

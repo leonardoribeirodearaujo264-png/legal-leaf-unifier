@@ -1,6 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { streamAI } from '@/services/aiService';
+import {
+  extractFromFile,
+  buildDocumentContext,
+  extractionMethodLabel,
+  DOCUMENT_RULE,
+  type ExtractionResult,
+} from '@/services/universalDocumentService';
 import { friendlyAIError } from '@/lib/errors';
 import { AI_PROVIDER_MAP } from '@/config/ai';
 import { Layout } from '@/components/Layout';
@@ -36,13 +43,21 @@ interface Agent {
   instructions: string;
   model: string;
   icon_emoji: string;
+  knowledge_base?: string | null;
 }
 
 interface Attachment {
+  /** ID único local para controle de estado */
+  id: string;
   name: string;
   type: string;
   base64: string;
-  textContent?: string;
+  /** Texto extraído pelo universalDocumentService */
+  extractedText?: string;
+  extractionMethod?: ExtractionResult['method'];
+  pages?: number;
+  /** true enquanto a extração está em andamento */
+  isExtracting?: boolean;
 }
 
 // Accepted file types for the file picker
@@ -184,29 +199,44 @@ export default function AgenteChatPage() {
         reader.readAsDataURL(file);
       });
 
-      // Extract text content for text-based files so the AI can read them
-      let textContent: string | undefined;
-      const isText = file.type.startsWith('text/') ||
-        file.name.endsWith('.txt') || file.name.endsWith('.md') ||
-        file.name.endsWith('.csv');
+      const attachId = crypto.randomUUID();
 
-      if (isText) {
-        textContent = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsText(file, 'UTF-8');
+      // Adiciona placeholder com indicador de processamento
+      setAttachments(prev => [
+        ...prev,
+        { id: attachId, name: file.name, type: file.type, base64, isExtracting: true },
+      ]);
+
+      // Extrai texto em background — não bloqueia a UI
+      extractFromFile(file)
+        .then((result) => {
+          setAttachments(prev =>
+            prev.map(a =>
+              a.id === attachId
+                ? {
+                    ...a,
+                    isExtracting: false,
+                    extractedText: result.text || undefined,
+                    extractionMethod: result.method,
+                    pages: result.pages,
+                  }
+                : a
+            )
+          );
+        })
+        .catch(() => {
+          setAttachments(prev =>
+            prev.map(a => (a.id === attachId ? { ...a, isExtracting: false } : a))
+          );
         });
-      }
-
-      setAttachments(prev => [...prev, { name: file.name, type: file.type, base64, textContent }]);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
-    toast.success(`${Array.from(files).length} arquivo(s) anexado(s)`);
+    toast.success(`${Array.from(files).length} arquivo(s) anexado(s) — processando...`);
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
+  const removeAttachment = (attachId: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== attachId));
   };
 
   // ── Voice recording via Web Speech API ────────────────────────────────────
@@ -271,23 +301,41 @@ export default function AgenteChatPage() {
 
     const currentAttachments = [...attachments];
 
-    // Build user message content — include file text content so the AI can read it
-    let messageContent = input.trim();
-    if (currentAttachments.length > 0) {
-      const textFiles = currentAttachments.filter(a => a.textContent);
-      const otherFiles = currentAttachments.filter(a => !a.textContent);
-
-      if (textFiles.length > 0) {
-        messageContent += '\n\n' + textFiles
-          .map(a => `--- Arquivo: ${a.name} ---\n${a.textContent}`)
-          .join('\n\n');
-      }
-      if (otherFiles.length > 0) {
-        messageContent += `\n\n[Arquivos anexados: ${otherFiles.map(a => a.name).join(', ')}]`;
-      }
+    // Bloqueia envio enquanto algum documento ainda está sendo processado
+    if (currentAttachments.some(a => a.isExtracting)) {
+      toast.error('Aguarde o processamento dos documentos antes de enviar.');
+      return;
     }
 
-    const userMessage: Message = { role: 'user', content: messageContent };
+    // Conteúdo exibido no chat — apenas a pergunta do usuário
+    const displayContent = input.trim();
+
+    // Conteúdo enviado à IA — inclui contexto completo dos documentos
+    const docContext = buildDocumentContext(
+      currentAttachments
+        .filter(a => a.extractedText)
+        .map(a => ({
+          text: a.extractedText!,
+          method: a.extractionMethod ?? 'text',
+          fileName: a.name,
+          fileType: a.type,
+          charCount: a.extractedText!.length,
+          pages: a.pages,
+        }))
+    );
+
+    let contentForAI = displayContent;
+    if (docContext) {
+      contentForAI += `\n\nDOCUMENTOS DA CONVERSA:\n\n${docContext}`;
+    }
+
+    // Arquivos sem texto extraído — apenas cita os nomes
+    const unreadFiles = currentAttachments.filter(a => !a.extractedText);
+    if (unreadFiles.length > 0) {
+      contentForAI += `\n\n[Arquivos sem extração de texto: ${unreadFiles.map(a => a.name).join(', ')}]`;
+    }
+
+    const userMessage: Message = { role: 'user', content: displayContent };
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
@@ -307,17 +355,29 @@ export default function AgenteChatPage() {
         setCurrentConversationId(convId);
       }
 
+      // Salva no banco somente a pergunta limpa (sem o texto dos docs)
       await supabase.from('intranet_agent_messages').insert({
         conversation_id: convId,
         role: 'user',
-        content: messageContent,
+        content: displayContent,
       });
 
-      const systemPrompt = `Você é ${agent.name}. ${agent.objective}\n\nInstruções:\n${agent.instructions}`;
+      // Base de conhecimento fixada no agente
+      const knowledgePart = agent.knowledge_base
+        ? `\n\nBASE DE CONHECIMENTO DO AGENTE:\n${agent.knowledge_base.slice(0, 20000)}`
+        : '';
+
+      const systemPrompt =
+        `Você é ${agent.name}. ${agent.objective}\n\nInstruções:\n${agent.instructions}\n\n` +
+        DOCUMENT_RULE +
+        knowledgePart;
+
       const messagesWithSystem = [
         { role: 'user', content: systemPrompt },
         { role: 'assistant', content: 'Entendido. Estou pronto para ajudar.' },
-        ...newMessages.map(m => ({ role: m.role, content: m.content })),
+        // histórico sem o último (que será inserido com o contexto dos docs)
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: contentForAI },
       ];
 
       let assistantContent = '';
@@ -590,12 +650,23 @@ export default function AgenteChatPage() {
               {/* Attachments preview */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
-                  {attachments.map((att, i) => (
-                    <div key={i} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
+                  {attachments.map((att) => (
+                    <div key={att.id} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-xs">
                       <FileText className="h-3 w-3 text-muted-foreground" />
                       <span className="truncate max-w-[120px]">{att.name}</span>
-                      {att.textContent && <span className="text-emerald-500 text-[10px]">✓ lido</span>}
-                      <button onClick={() => removeAttachment(i)} className="text-muted-foreground hover:text-foreground ml-1">
+                      {att.isExtracting && (
+                        <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                      )}
+                      {!att.isExtracting && att.extractedText && (
+                        <span className="text-emerald-500 text-[10px]">
+                          ✓ {extractionMethodLabel(att.extractionMethod ?? 'text')}
+                          {att.pages ? ` · ${att.pages}p` : ''}
+                        </span>
+                      )}
+                      {!att.isExtracting && !att.extractedText && (
+                        <span className="text-yellow-500 text-[10px]">sem texto</span>
+                      )}
+                      <button onClick={() => removeAttachment(att.id)} className="text-muted-foreground hover:text-foreground ml-1">
                         <X className="h-3 w-3" />
                       </button>
                     </div>
