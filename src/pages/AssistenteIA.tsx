@@ -323,6 +323,9 @@ const AssistenteIA = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+  /** Armazena a Promise de extração de cada arquivo; await antes de enviar */
+  const extractionPromisesRef = useRef<Map<string, Promise<ExtractionResult | null>>>(new Map());
+  const [extractingCount, setExtractingCount] = useState(0);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -640,22 +643,31 @@ const AssistenteIA = () => {
   const handleSend = async () => {
     if (!input.trim() && attachments.length === 0) return;
 
+    const currentAttachments = [...attachments];
+
+    // ── Aguarda extração de todos os documentos e coleta resultados ──────────
+    // (lemos direto das Promises, não do estado, para evitar leitura de closure velha)
+    if (currentAttachments.length > 0) setIsLoading(true);
+    const freshExtractionResults: (ExtractionResult | null)[] = await Promise.all(
+      currentAttachments.map(f =>
+        (extractionPromisesRef.current.get(f.name) as Promise<ExtractionResult | null> | undefined) ??
+        Promise.resolve(null as ExtractionResult | null)
+      )
+    );
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
       content: input,
       timestamp: new Date(),
-      attachments: attachments.map(f => ({ name: f.name, type: f.type }))
+      attachments: currentAttachments.map(f => ({ name: f.name, type: f.type }))
     };
-
-    // Captura docs extraídos antes de limpar o estado
-    const currentExtracted = new Map(extractedDocs);
-    const currentAttachments = [...attachments];
 
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setAttachments([]);
     setExtractedDocs(new Map());
+    currentAttachments.forEach(f => extractionPromisesRef.current.delete(f.name));
     setIsLoading(true);
     setIsStreaming(true);
 
@@ -670,10 +682,10 @@ const AssistenteIA = () => {
       // Save user message (somente a pergunta, sem o texto dos docs)
       await saveMessage(convId, userMessage);
 
-      // Monta contexto documental para a IA
-      const docResults = currentAttachments
-        .map(f => currentExtracted.get(f.name))
-        .filter((r): r is ExtractionResult => !!r && r.text.trim().length > 0);
+      // Monta contexto documental para a IA (resultados frescos, não estado)
+      const docResults = freshExtractionResults.filter(
+        (r): r is ExtractionResult => !!r && r.text.trim().length > 0
+      );
 
       const docContext = buildDocumentContext(docResults);
 
@@ -794,22 +806,22 @@ const AssistenteIA = () => {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length + attachments.length > 5) {
-      toast({
-        title: 'Limite de arquivos',
-        description: 'Máximo de 5 arquivos por mensagem',
-        variant: 'destructive'
-      });
+      toast({ title: 'Limite de arquivos', description: 'Máximo de 5 arquivos por mensagem', variant: 'destructive' });
       return;
     }
     setAttachments(prev => [...prev, ...files]);
+    setExtractingCount(prev => prev + files.length);
 
-    // Extrai texto de cada arquivo em background
     files.forEach(file => {
-      extractFromFile(file)
+      const promise = extractFromFile(file)
         .then(result => {
           setExtractedDocs(prev => new Map(prev).set(file.name, result));
+          return result as ExtractionResult | null;
         })
-        .catch(() => { /* ignora falhas silenciosamente */ });
+        .catch(() => null as ExtractionResult | null)
+        .finally(() => setExtractingCount(prev => Math.max(0, prev - 1)));
+
+      extractionPromisesRef.current.set(file.name, promise);
     });
   };
 
@@ -1586,11 +1598,19 @@ const AssistenteIA = () => {
                     <Badge key={index} variant="secondary" className="gap-1">
                       <Paperclip className="w-3 h-3" />
                       {file.name}
+                      {extractingCount > 0 && index === attachments.length - 1 && (
+                        <Loader2 className="w-3 h-3 animate-spin ml-1 text-blue-500" />
+                      )}
                       <button onClick={() => removeAttachment(index)}>
                         <X className="w-3 h-3 ml-1" />
                       </button>
                     </Badge>
                   ))}
+                  {extractingCount > 0 && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Lendo documento...
+                    </span>
+                  )}
                 </div>
               )}
 

@@ -77,6 +77,8 @@ export default function AgenteChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  /** Promise de extração por attachId (resolve com resultado) — await antes de enviar */
+  const extractionPromisesRef = useRef<Map<string, Promise<ExtractionResult | null>>>(new Map());
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -222,7 +224,7 @@ export default function AgenteChatPage() {
       acceptedCount++;
 
       // Extrai texto em background — não bloqueia a UI
-      extractFromFile(file)
+      const extractionPromise: Promise<ExtractionResult | null> = extractFromFile(file)
         .then((result) => {
           setAttachments(prev =>
             prev.map(a =>
@@ -237,13 +239,16 @@ export default function AgenteChatPage() {
                 : a
             )
           );
+          return result as ExtractionResult | null;
         })
         .catch(() => {
           toast.error(`Erro ao ler ${file.name}`);
           setAttachments(prev =>
             prev.map(a => (a.id === attachId ? { ...a, isExtracting: false } : a))
           );
+          return null as ExtractionResult | null;
         });
+      extractionPromisesRef.current.set(attachId, extractionPromise);
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -316,10 +321,14 @@ export default function AgenteChatPage() {
 
     const currentAttachments = [...attachments];
 
-    // Avisa se algum documento ainda está sendo lido, mas permite enviar
-    if (currentAttachments.some(a => a.isExtracting)) {
-      toast.warning('Alguns documentos ainda estão sendo lidos. Você pode enviar agora, mas o conteúdo completo pode não estar disponível.');
-    }
+    // ── Aguarda extração de todos os arquivos e coleta resultados frescos ─────
+    const freshResults: (ExtractionResult | null)[] = await Promise.all(
+      currentAttachments.map(a =>
+        extractionPromisesRef.current.get(a.id) ?? Promise.resolve(null as ExtractionResult | null)
+      )
+    );
+    // Limpa promessas já usadas
+    currentAttachments.forEach(a => extractionPromisesRef.current.delete(a.id));
 
     // Conteúdo exibido no chat — pergunta do usuário ou descrição dos arquivos
     const displayContent = input.trim() ||
@@ -327,18 +336,13 @@ export default function AgenteChatPage() {
         ? `[Arquivo(s) enviado(s): ${currentAttachments.map(a => a.name).join(', ')}]`
         : '');
 
-    // Conteúdo enviado à IA — inclui contexto completo dos documentos
+    // Conteúdo enviado à IA — usa resultados frescos (não estado, evita leitura velha)
     const docContext = buildDocumentContext(
-      currentAttachments
-        .filter(a => a.extractedText)
-        .map(a => ({
-          text: a.extractedText!,
-          method: a.extractionMethod ?? 'text',
-          fileName: a.name,
-          fileType: a.type,
-          charCount: a.extractedText!.length,
-          pages: a.pages,
-        }))
+      freshResults
+        .map((r, i) => r ?? (currentAttachments[i].extractedText
+          ? { text: currentAttachments[i].extractedText!, method: currentAttachments[i].extractionMethod ?? 'text' as const, fileName: currentAttachments[i].name, fileType: currentAttachments[i].type, charCount: currentAttachments[i].extractedText!.length, pages: currentAttachments[i].pages }
+          : null))
+        .filter((r): r is ExtractionResult => !!r && r.text.trim().length > 0)
     );
 
     let contentForAI = displayContent;
@@ -346,10 +350,12 @@ export default function AgenteChatPage() {
       contentForAI += `\n\nDOCUMENTOS DA CONVERSA:\n\n${docContext}`;
     }
 
-    // Arquivos sem texto extraído — apenas cita os nomes
-    const unreadFiles = currentAttachments.filter(a => !a.extractedText);
+    // Arquivos sem texto extraído — apenas cita os nomes (fallback para ficheiros sem suporte)
+    const unreadFiles = freshResults
+      .map((r, i) => (r && r.text.trim().length > 0 ? null : currentAttachments[i]))
+      .filter((a): a is Attachment => !!a);
     if (unreadFiles.length > 0) {
-      contentForAI += `\n\n[Arquivos sem extração de texto: ${unreadFiles.map(a => a.name).join(', ')}]`;
+      contentForAI += `\n\n[Arquivos não lidos (formato não suportado ou sem texto): ${unreadFiles.map(a => a.name).join(', ')}]`;
     }
 
     const userMessage: Message = { role: 'user', content: displayContent };
