@@ -11,7 +11,7 @@ interface CorretorUploadProps {
   progress: number;
 }
 
-const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+const MAX_SIZE = 100 * 1024 * 1024; // 100MB
 const ACCEPTED_TYPES = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -28,7 +28,7 @@ export function CorretorUpload({ onAnalyze, isAnalyzing, progress }: CorretorUpl
       return false;
     }
     if (f.size > MAX_SIZE) {
-      toast.error('Arquivo muito grande. O limite é 20MB.');
+      toast.error('Arquivo muito grande. O limite é 100MB.');
       return false;
     }
     return true;
@@ -72,7 +72,7 @@ export function CorretorUpload({ onAnalyze, isAnalyzing, progress }: CorretorUpl
           >
             <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
             <p className="text-sm font-medium">Arraste um arquivo ou clique para selecionar</p>
-            <p className="text-xs text-muted-foreground mt-1">PDF ou DOCX (máx. 20MB)</p>
+            <p className="text-xs text-muted-foreground mt-1">PDF ou DOCX (máx. 100MB · até 2.000 páginas)</p>
             <input
               ref={inputRef}
               type="file"

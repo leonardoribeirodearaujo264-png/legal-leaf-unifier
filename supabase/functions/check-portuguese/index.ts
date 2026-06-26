@@ -113,26 +113,17 @@ serve(async (req) => {
     console.log(`Text extracted: ${extractedText.length} chars`);
 
     // Step 2: Analyze grammar using Claude Sonnet (superior for grammar analysis)
+    // Large documents are split into chunks to stay within token limits
     console.log("Step 2: Analyzing grammar with Claude Sonnet...");
     const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
 
-    const analyzeResponse = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8192,
-        system: `Você é um revisor especialista em língua portuguesa brasileira (norma culta). Sua tarefa é analisar o texto fornecido e identificar TODOS os erros gramaticais, ortográficos e de estilo.
+    const GRAMMAR_SYSTEM_PROMPT = `Você é um revisor especialista em língua portuguesa brasileira (norma culta). Sua tarefa é analisar o texto fornecido e identificar TODOS os erros gramaticais, ortográficos e de estilo.
 
 Regras:
 - Categorize cada erro em: ortografia, concordancia, regencia, pontuacao, crase, acentuacao, coesao, outro
 - IGNORE nomes próprios, termos jurídicos técnicos, citações legais, números de processos e artigos de lei
-- Indique a localização aproximada (ex: "parágrafo 1", "início do texto", "página 2")
+- Indique a localização aproximada (ex: "parágrafo 1", "início do texto", "trecho X")
 - NÃO corrija o texto, apenas liste os erros encontrados
 - Para cada erro, forneça o trecho exato, a descrição do erro, a sugestão de correção e a localização
 - Seja preciso e minucioso, mas não invente erros inexistentes
@@ -141,38 +132,89 @@ Regras:
 IMPORTANTE: Responda EXCLUSIVAMENTE com um JSON válido no formato:
 {"erros": [{"trecho": "...", "erro": "...", "tipo": "...", "sugestao": "...", "localizacao": "..."}]}
 
-Tipos válidos: ortografia, concordancia, regencia, pontuacao, crase, acentuacao, coesao, outro`,
-        messages: [
-          {
-            role: "user",
-            content: `Analise o seguinte texto e identifique todos os erros de português. Responda apenas com o JSON:\n\n${extractedText}`,
-          },
-        ],
-      }),
-    });
+Tipos válidos: ortografia, concordancia, regencia, pontuacao, crase, acentuacao, coesao, outro`;
 
-    if (!analyzeResponse.ok) {
-      const status = analyzeResponse.status;
-      if (status === 429) return new Response(JSON.stringify({ error: "Limite de requisições atingido. Tente novamente em alguns minutos." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (status === 401) return new Response(JSON.stringify({ error: "Erro de autenticação com a API Anthropic." }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      const errText = await analyzeResponse.text();
-      console.error("Analyze error:", status, errText);
-      return new Response(JSON.stringify({ error: "Erro ao analisar gramática do texto." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
+    const analyzeChunk = async (chunkText: string, chunkLabel: string): Promise<any[]> => {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 8192,
+          system: GRAMMAR_SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: `Analise o seguinte trecho (${chunkLabel}) e identifique todos os erros de português. Responda apenas com o JSON:\n\n${chunkText}`,
+            },
+          ],
+        }),
+      });
 
-    const analyzeData = await analyzeResponse.json();
-    const responseText = analyzeData.content?.[0]?.text || "{}";
-    
-    let erros: any[] = [];
-    try {
-      // Extract JSON from response (Claude may wrap in markdown code blocks)
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        erros = parsed.erros || [];
+      if (!resp.ok) {
+        const status = resp.status;
+        if (status === 429) throw Object.assign(new Error("rate_limit"), { status: 429 });
+        if (status === 401) throw Object.assign(new Error("auth_error"), { status: 401 });
+        const errText = await resp.text();
+        console.error(`Analyze chunk error (${chunkLabel}):`, status, errText);
+        throw new Error("Erro ao analisar gramática do texto.");
       }
-    } catch (e) {
-      console.error("Failed to parse Claude response:", e);
+
+      const data = await resp.json();
+      const responseText = data.content?.[0]?.text || "{}";
+
+      try {
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return (parsed.erros || []).map((e: any) => ({
+            ...e,
+            localizacao: e.localizacao ? `${chunkLabel} – ${e.localizacao}` : chunkLabel,
+          }));
+        }
+      } catch (e) {
+        console.error(`Failed to parse Claude response for ${chunkLabel}:`, e);
+      }
+      return [];
+    };
+
+    // Split into ~80 000-char chunks so each fits Claude's context window
+    const CHUNK_SIZE = 80_000;
+    let erros: any[] = [];
+
+    if (extractedText.length <= CHUNK_SIZE) {
+      // Small document — single request
+      try {
+        erros = await analyzeChunk(extractedText, "documento completo");
+      } catch (err: any) {
+        if (err.status === 429) return new Response(JSON.stringify({ error: "Limite de requisições atingido. Tente novamente em alguns minutos." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        if (err.status === 401) return new Response(JSON.stringify({ error: "Erro de autenticação com a API Anthropic." }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ error: "Erro ao analisar gramática do texto." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    } else {
+      // Large document — process in sequential chunks
+      const totalChunks = Math.ceil(extractedText.length / CHUNK_SIZE);
+      console.log(`Documento grande: ${totalChunks} partes de ~${CHUNK_SIZE} chars`);
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const chunkText = extractedText.slice(start, start + CHUNK_SIZE);
+        const chunkLabel = `parte ${i + 1} de ${totalChunks}`;
+
+        try {
+          const chunkErrors = await analyzeChunk(chunkText, chunkLabel);
+          erros = erros.concat(chunkErrors);
+          console.log(`${chunkLabel}: ${chunkErrors.length} erro(s) encontrado(s)`);
+        } catch (err: any) {
+          if (err.status === 429) return new Response(JSON.stringify({ error: "Limite de requisições atingido. Tente novamente em alguns minutos." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          if (err.status === 401) return new Response(JSON.stringify({ error: "Erro de autenticação com a API Anthropic." }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          console.error(`Erro ao processar ${chunkLabel}, continuando...`);
+        }
+      }
     }
 
     console.log(`Analysis complete: ${erros.length} errors found`);

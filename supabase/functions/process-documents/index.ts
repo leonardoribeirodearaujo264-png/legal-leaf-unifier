@@ -168,23 +168,22 @@ serve(async (req) => {
             
             const pageCount = sourcePdf.getPageCount();
             console.log(`PDF ${file.name} tem ${pageCount} página(s)`);
-            
-            // Limit pages to prevent timeout
-            const maxPages = Math.min(pageCount, 20);
+
+            const maxPages = Math.min(pageCount, 2000);
             if (pageCount > maxPages) {
               console.warn(`PDF tem ${pageCount} páginas, processando apenas ${maxPages}`);
-              legibilityWarnings.push(`${file.name}: PDF muito grande, processadas apenas ${maxPages} de ${pageCount} páginas`);
+              legibilityWarnings.push(`${file.name}: PDF excede 2000 páginas, processadas apenas ${maxPages} de ${pageCount} páginas`);
             }
-            
-            for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
-              const [copiedPage] = await pdfDoc.copyPages(sourcePdf, [pageIndex]);
-              
-              const rotation = analysis.rotation || 0;
+
+            // Batch copy all pages at once for efficiency
+            const pageIndices = Array.from({ length: maxPages }, (_, i) => i);
+            const copiedPages = await pdfDoc.copyPages(sourcePdf, pageIndices);
+
+            const rotation = analysis.rotation || 0;
+            for (const copiedPage of copiedPages) {
               if (rotation !== 0) {
-                console.log(`Aplicando rotação de ${rotation}° na página ${pageIndex + 1}`);
                 copiedPage.setRotation(degrees(rotation));
               }
-              
               pdfDoc.addPage(copiedPage);
             }
           } catch (e) {
