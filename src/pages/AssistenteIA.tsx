@@ -1584,6 +1584,34 @@ const AssistenteIA = () => {
                   </div>
                 ))
               )}
+
+              {/* Indicador de digitando — aparece enquanto a IA está processando */}
+              {isLoading && (messages.length === 0 || messages[messages.length - 1]?.role === 'user') && (
+                <div className="flex gap-3 justify-start">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
+                  <Card>
+                    <CardContent className="p-3">
+                      <div className="flex items-center gap-1.5 h-4">
+                        <span
+                          className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
+                          style={{ animationDelay: '0ms', animationDuration: '0.9s' }}
+                        />
+                        <span
+                          className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
+                          style={{ animationDelay: '180ms', animationDuration: '0.9s' }}
+                        />
+                        <span
+                          className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce"
+                          style={{ animationDelay: '360ms', animationDuration: '0.9s' }}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
