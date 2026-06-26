@@ -22,6 +22,8 @@ const CHUNK_SIZE = 4000;
 const OCR_THRESHOLD = 300;
 /** Máximo de páginas processadas via OCR por vez (evita timeout) */
 const MAX_OCR_PAGES = 5;
+/** Máximo de chars enviados por documento ao contexto da IA (~150 páginas de texto) */
+const MAX_CHARS_PER_DOC = 120_000;
 
 // ── Utilitários ───────────────────────────────────────────────────────────────
 
@@ -219,12 +221,19 @@ export function chunkText(text: string, size = CHUNK_SIZE): string[] {
 
 /**
  * Monta bloco de contexto documental para injetar no prompt da IA.
- * Limita cada documento a 8 000 chars para não estourar o contexto.
+ * Limita cada documento a MAX_CHARS_PER_DOC chars para caber no contexto dos modelos.
  */
 export function buildDocumentContext(results: ExtractionResult[]): string {
   return results
     .filter((r) => r.text.trim().length > 0)
-    .map((r) => `=== ${r.fileName} ===\n${r.text.slice(0, 8000)}`)
+    .map((r) => {
+      const truncated = r.text.length > MAX_CHARS_PER_DOC;
+      const body = r.text.slice(0, MAX_CHARS_PER_DOC);
+      const footer = truncated
+        ? `\n\n[DOCUMENTO TRUNCADO: exibidos ${MAX_CHARS_PER_DOC.toLocaleString()} de ${r.text.length.toLocaleString()} chars. Peça um trecho específico se precisar de mais.]`
+        : '';
+      return `=== ${r.fileName}${r.pages ? ` (${r.pages} páginas)` : ''} ===\n${body}${footer}`;
+    })
     .join('\n\n');
 }
 

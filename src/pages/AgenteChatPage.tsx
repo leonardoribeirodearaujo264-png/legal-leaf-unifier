@@ -232,7 +232,8 @@ export default function AgenteChatPage() {
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
-    toast.success(`${Array.from(files).length} arquivo(s) anexado(s) — processando...`);
+    const count = Array.from(files).filter(f => f.size <= 50 * 1024 * 1024).length;
+    if (count > 0) toast.info(`${count} arquivo(s) anexado(s) — lendo conteúdo...`);
   };
 
   const removeAttachment = (attachId: string) => {
@@ -297,18 +298,20 @@ export default function AgenteChatPage() {
   // ── Send message ───────────────────────────────────────────────────────────
 
   const sendMessage = useCallback(async () => {
-    if (!input.trim() || isStreaming || !agent || !user) return;
+    if ((!input.trim() && attachments.length === 0) || isStreaming || !agent || !user) return;
 
     const currentAttachments = [...attachments];
 
-    // Bloqueia envio enquanto algum documento ainda está sendo processado
+    // Avisa se algum documento ainda está sendo lido, mas permite enviar
     if (currentAttachments.some(a => a.isExtracting)) {
-      toast.error('Aguarde o processamento dos documentos antes de enviar.');
-      return;
+      toast.warning('Alguns documentos ainda estão sendo lidos. Você pode enviar agora, mas o conteúdo completo pode não estar disponível.');
     }
 
-    // Conteúdo exibido no chat — apenas a pergunta do usuário
-    const displayContent = input.trim();
+    // Conteúdo exibido no chat — pergunta do usuário ou descrição dos arquivos
+    const displayContent = input.trim() ||
+      (currentAttachments.length > 0
+        ? `[Arquivo(s) enviado(s): ${currentAttachments.map(a => a.name).join(', ')}]`
+        : '');
 
     // Conteúdo enviado à IA — inclui contexto completo dos documentos
     const docContext = buildDocumentContext(
@@ -724,7 +727,7 @@ export default function AgenteChatPage() {
                 />
                 <Button
                   onClick={sendMessage}
-                  disabled={!input.trim() || isStreaming}
+                  disabled={(input.trim() === '' && attachments.length === 0) || isStreaming}
                   className="flex-shrink-0 h-10 w-10"
                   size="icon"
                 >
