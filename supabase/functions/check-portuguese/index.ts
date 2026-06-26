@@ -43,65 +43,39 @@ serve(async (req) => {
   if (authRes instanceof Response) return authRes;
 
   try {
-    const { file_base64, file_name } = await req.json();
-    if (!file_base64 || !file_name) {
-      return new Response(JSON.stringify({ error: "Arquivo não fornecido." }), {
+    const body = await req.json();
+    const { extracted_text, file_base64, file_name } = body;
+
+    if (!file_name) {
+      return new Response(JSON.stringify({ error: "Nome do arquivo não fornecido." }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const ext = file_name.split(".").pop()?.toLowerCase();
-    const isDocx = ext === "docx" || ext === "doc";
-
     let extractedText: string;
 
-    if (isDocx) {
+    if (extracted_text) {
+      // Text already extracted client-side (PDF or DOCX processed in the browser)
+      console.log("Step 1: Using client-side extracted text...");
+      extractedText = extracted_text as string;
+    } else if (file_base64) {
+      // Fallback: server-side extraction for DOCX
+      const ext = file_name.split(".").pop()?.toLowerCase();
+      const isDocx = ext === "docx" || ext === "doc";
+
+      if (!isDocx) {
+        return new Response(
+          JSON.stringify({ error: "Para PDFs grandes, o texto deve ser extraído pelo navegador. Use a versão atualizada da interface." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       console.log("Step 1: Extracting text from DOCX locally...");
       extractedText = await extractTextFromDocx(file_base64);
     } else {
-      // PDF: use Gemini multimodal for extraction (Claude doesn't support PDF multimodal inline)
-      console.log("Step 1: Extracting text from PDF via Gemini...");
-      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-      if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
-      const mimeType = "application/pdf";
-      const extractResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Extraia TODO o texto deste documento de forma fiel, mantendo a estrutura de parágrafos. Retorne apenas o texto extraído, sem comentários adicionais.",
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: `data:${mimeType};base64,${file_base64}` },
-                },
-              ],
-            },
-          ],
-        }),
+      return new Response(JSON.stringify({ error: "Nenhum conteúdo fornecido." }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
-      if (!extractResponse.ok) {
-        const status = extractResponse.status;
-        if (status === 429) return new Response(JSON.stringify({ error: "Limite de requisições atingido. Tente novamente em alguns minutos." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        if (status === 402) return new Response(JSON.stringify({ error: "Créditos insuficientes para processar o documento." }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        const errText = await extractResponse.text();
-        console.error("Extract error:", status, errText);
-        return new Response(JSON.stringify({ error: "Erro ao extrair texto do documento." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      const extractData = await extractResponse.json();
-      extractedText = extractData.choices?.[0]?.message?.content || "";
     }
 
     if (!extractedText || extractedText.trim().length < 20) {
