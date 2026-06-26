@@ -51,7 +51,8 @@ interface Attachment {
   id: string;
   name: string;
   type: string;
-  base64: string;
+  /** Base64 preenchido apenas para imagens (exibição); vazio para documentos */
+  base64?: string;
   /** Texto extraído pelo universalDocumentService */
   extractedText?: string;
   extractionMethod?: ExtractionResult['method'];
@@ -187,25 +188,38 @@ export default function AgenteChatPage() {
     const files = e.target.files;
     if (!files) return;
 
+    const MAX_IMAGE = 20 * 1024 * 1024;   // 20MB — imagens precisam de base64
+    const MAX_DOC   = 500 * 1024 * 1024;  // 500MB — documentos: só extração de texto
+
+    let acceptedCount = 0;
+
     for (const file of Array.from(files)) {
-      if (file.size > 50 * 1024 * 1024) {
-        toast.error(`Arquivo ${file.name} excede 50MB`);
+      const isImage = file.type.startsWith('image/');
+      const maxSize = isImage ? MAX_IMAGE : MAX_DOC;
+
+      if (file.size > maxSize) {
+        toast.error(`${file.name}: excede ${isImage ? '20' : '500'}MB`);
         continue;
       }
 
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-        reader.readAsDataURL(file);
-      });
-
       const attachId = crypto.randomUUID();
 
-      // Adiciona placeholder com indicador de processamento
+      // Lê base64 apenas para imagens (necessário para exibição)
+      let base64: string | undefined;
+      if (isImage) {
+        base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+      }
+
       setAttachments(prev => [
         ...prev,
         { id: attachId, name: file.name, type: file.type, base64, isExtracting: true },
       ]);
+
+      acceptedCount++;
 
       // Extrai texto em background — não bloqueia a UI
       extractFromFile(file)
@@ -225,6 +239,7 @@ export default function AgenteChatPage() {
           );
         })
         .catch(() => {
+          toast.error(`Erro ao ler ${file.name}`);
           setAttachments(prev =>
             prev.map(a => (a.id === attachId ? { ...a, isExtracting: false } : a))
           );
@@ -232,8 +247,7 @@ export default function AgenteChatPage() {
     }
 
     if (fileInputRef.current) fileInputRef.current.value = '';
-    const count = Array.from(files).filter(f => f.size <= 50 * 1024 * 1024).length;
-    if (count > 0) toast.info(`${count} arquivo(s) anexado(s) — lendo conteúdo...`);
+    if (acceptedCount > 0) toast.info(`${acceptedCount} arquivo(s) anexado(s) — lendo conteúdo...`);
   };
 
   const removeAttachment = (attachId: string) => {
